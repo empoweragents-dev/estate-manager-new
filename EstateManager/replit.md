@@ -120,6 +120,6 @@ Preferred communication style: Simple, everyday language.
 4. **Global Search**: Cross-entity search (tenants, shops, leases) accessible via header search bar with keyboard shortcut (Cmd/Ctrl+K)
 5. **Opening Balance Support**: Tenants can have pre-existing debt recorded during onboarding
 6. **Lease Lifecycle Management**: Automatic status tracking with 30-day expiring soon alerts, detailed lease view with monthly rent breakdown, payment history, tenant expenses, and termination module with settlement summary
-7. **Financial Reporting**: Owner-specific statements showing rent collected, common shop shares, allocated expenses, and net payouts
+7. **Financial Reporting**: Owner-specific statements showing rent collected, common shop shares, allocated expenses, and net payouts. Owner-Tenant Details Report with PDF export showing all tenants with current/previous dues, payment history, and summary totals
 8. **Separation of Concerns**: Storage layer abstracts database operations from route handlers for testability and maintainability
 9. **Aggressive Client Caching**: React Query configured with infinite stale time to minimize unnecessary refetches during active sessions
