@@ -38,10 +38,6 @@ externalPort = 80
 localPort = 39919
 externalPort = 3000
 
-[[ports]]
-localPort = 44771
-externalPort = 3001
-
 [deployment]
 run = ["bash", "-c", "cd EstateManager && NODE_ENV=production node dist/index.cjs"]
 deploymentTarget = "autoscale"
