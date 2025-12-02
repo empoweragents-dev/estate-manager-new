@@ -40,7 +40,8 @@ import { formatFloor, getShopStatusColor } from "@/lib/currency";
 
 const shopFormSchema = z.object({
   shopNumber: z.string().min(1, "Shop number is required"),
-  floor: z.enum(["ground", "first", "second"]),
+  floor: z.enum(["ground", "first", "second", "subedari"]),
+  subedariCategory: z.enum(["shops", "residential"]).optional(),
   status: z.enum(["vacant", "occupied"]),
   ownershipType: z.enum(["sole", "common"]),
   ownerId: z.string().optional(),
@@ -64,7 +65,8 @@ function ShopForm({
     resolver: zodResolver(shopFormSchema),
     defaultValues: {
       shopNumber: shop?.shopNumber ?? "",
-      floor: (shop?.floor as "ground" | "first" | "second") ?? "ground",
+      floor: (shop?.floor as "ground" | "first" | "second" | "subedari") ?? "ground",
+      subedariCategory: (shop?.subedariCategory as "shops" | "residential") ?? undefined,
       status: (shop?.status as "vacant" | "occupied") ?? "vacant",
       ownershipType: (shop?.ownershipType as "sole" | "common") ?? "sole",
       ownerId: shop?.ownerId?.toString() ?? "",
@@ -73,6 +75,7 @@ function ShopForm({
   });
 
   const ownershipType = form.watch("ownershipType");
+  const selectedFloorLocation = form.watch("floor");
 
   const createMutation = useMutation({
     mutationFn: async (data: ShopFormData) => {
@@ -143,17 +146,18 @@ function ShopForm({
             name="floor"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Floor *</FormLabel>
+                <FormLabel>Location *</FormLabel>
                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                   <FormControl>
                     <SelectTrigger data-testid="select-shop-floor">
-                      <SelectValue placeholder="Select floor" />
+                      <SelectValue placeholder="Select location" />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
                     <SelectItem value="ground">Ground Floor</SelectItem>
                     <SelectItem value="first">1st Floor</SelectItem>
                     <SelectItem value="second">2nd Floor</SelectItem>
+                    <SelectItem value="subedari">Subedari</SelectItem>
                   </SelectContent>
                 </Select>
                 <FormMessage />
@@ -161,6 +165,30 @@ function ShopForm({
             )}
           />
         </div>
+
+        {selectedFloorLocation === "subedari" && (
+          <FormField
+            control={form.control}
+            name="subedariCategory"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Category *</FormLabel>
+                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <FormControl>
+                    <SelectTrigger data-testid="select-subedari-category">
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="shops">Shops</SelectItem>
+                    <SelectItem value="residential">Residential</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
 
         <FormField
           control={form.control}
@@ -279,7 +307,7 @@ function ShopCard({
             </div>
             <div>
               <h3 className="font-semibold">Shop {shop.shopNumber}</h3>
-              <p className="text-sm text-muted-foreground">{formatFloor(shop.floor)}</p>
+              <p className="text-sm text-muted-foreground">{formatFloor(shop.floor, shop.subedariCategory)}</p>
             </div>
           </div>
           <div className="flex gap-1">
@@ -366,6 +394,7 @@ export default function ShopsPage() {
     ground: shops.filter(s => s.floor === "ground"),
     first: shops.filter(s => s.floor === "first"),
     second: shops.filter(s => s.floor === "second"),
+    subedari: shops.filter(s => s.floor === "subedari"),
   };
 
   const getOwnerShopCount = (ownerId: number) => {
@@ -416,7 +445,7 @@ export default function ShopsPage() {
         </Dialog>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-4 gap-4">
         {Object.entries(floorStats).map(([floor, floorShops]) => {
           const occupied = floorShops.filter(s => s.status === "occupied").length;
           const vacant = floorShops.filter(s => s.status === "vacant").length;
@@ -445,7 +474,7 @@ export default function ShopsPage() {
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <Layers className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium text-muted-foreground">Floor</span>
+                <span className="text-sm font-medium text-muted-foreground">Location</span>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -494,6 +523,18 @@ export default function ShopsPage() {
                   2nd
                   <Badge variant="secondary" className="ml-1.5 px-1.5 py-0 text-xs">
                     {floorStats.second.length}
+                  </Badge>
+                </Button>
+                <Button
+                  variant={selectedFloor === "subedari" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedFloor("subedari")}
+                  className="h-8"
+                  data-testid="filter-subedari"
+                >
+                  Subedari
+                  <Badge variant="secondary" className="ml-1.5 px-1.5 py-0 text-xs">
+                    {floorStats.subedari.length}
                   </Badge>
                 </Button>
               </div>

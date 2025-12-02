@@ -4,7 +4,8 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // Enums
-export const floorEnum = pgEnum('floor', ['ground', 'first', 'second']);
+export const floorEnum = pgEnum('floor', ['ground', 'first', 'second', 'subedari']);
+export const subedariCategoryEnum = pgEnum('subedari_category', ['shops', 'residential']);
 export const shopStatusEnum = pgEnum('shop_status', ['vacant', 'occupied']);
 export const ownershipTypeEnum = pgEnum('ownership_type', ['sole', 'common']);
 export const leaseStatusEnum = pgEnum('lease_status', ['active', 'expiring_soon', 'expired', 'terminated']);
@@ -34,6 +35,7 @@ export const shops = pgTable("shops", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   shopNumber: text("shop_number").notNull().unique(),
   floor: floorEnum("floor").notNull(),
+  subedariCategory: subedariCategoryEnum("subedari_category"), // only used when floor is 'subedari'
   squareFeet: decimal("square_feet", { precision: 10, scale: 2 }),
   status: shopStatusEnum("status").notNull().default('vacant'),
   ownershipType: ownershipTypeEnum("ownership_type").notNull(),

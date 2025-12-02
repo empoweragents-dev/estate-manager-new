@@ -25,11 +25,15 @@ export function formatCurrency(amount: number | string, currency: 'BDT' | 'AUD' 
   return `৳${numAmount.toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function formatFloor(floor: string): string {
+export function formatFloor(floor: string, subedariCategory?: string | null): string {
   switch (floor) {
     case 'ground': return 'Ground Floor';
     case 'first': return '1st Floor';
     case 'second': return '2nd Floor';
+    case 'subedari': 
+      if (subedariCategory === 'shops') return 'Subedari - Shops';
+      if (subedariCategory === 'residential') return 'Subedari - Residential';
+      return 'Subedari';
     default: return floor;
   }
 }
