@@ -35,14 +35,14 @@ localPort = 5000
 externalPort = 80
 
 [[ports]]
-localPort = 33521
-externalPort = 3001
-
-[[ports]]
 localPort = 39919
 externalPort = 3000
 
+[[ports]]
+localPort = 45065
+externalPort = 3001
+
 [deployment]
-run = ["bash", "-c", "cd EstateManager && npm run start"]
+run = ["npm", "run", "start"]
 deploymentTarget = "autoscale"
-build = ["bash", "-c", "cd EstateManager && npm run build"]
+build = ["npm", "run", "build"]
