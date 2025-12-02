@@ -772,6 +772,12 @@ export async function registerRoutes(
       const data = insertLeaseSchema.parse(req.body);
       const lease = await storage.createLease(data);
       
+      // Update shop status to occupied
+      const shop = await storage.getShop(data.shopId);
+      if (shop) {
+        await storage.updateShop(shop.id, { status: 'occupied' });
+      }
+      
       // Generate rent invoices for the lease period
       const startDate = new Date(data.startDate);
       const endDate = new Date(data.endDate);

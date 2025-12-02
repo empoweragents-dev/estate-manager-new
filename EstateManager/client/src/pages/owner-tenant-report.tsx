@@ -95,7 +95,7 @@ const monthNames = [
 
 export default function OwnerTenantReportPage() {
   const { toast } = useToast();
-  const { currency, exchangeRate } = useCurrencyStore();
+  const { currency } = useCurrencyStore();
   const currentDate = new Date();
   
   const [selectedOwner, setSelectedOwner] = useState<string>("all");
@@ -106,7 +106,7 @@ export default function OwnerTenantReportPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize] = useState(20);
 
-  const formatValue = (val: number) => formatCurrency(val, currency, exchangeRate);
+  const formatValue = (val: number) => formatCurrency(val);
 
   const { data: owners } = useQuery<Owner[]>({
     queryKey: ["/api/owners"],
@@ -215,18 +215,18 @@ export default function OwnerTenantReportPage() {
       },
       bodyStyles: {
         fontSize: 7,
-        cellPadding: 2,
+        cellPadding: 1.5,
       },
       columnStyles: {
-        0: { halign: "center", cellWidth: 10 },
-        1: { cellWidth: 35 },
-        2: { cellWidth: 35 },
-        3: { cellWidth: 25 },
-        4: { halign: "right", cellWidth: 25 },
-        5: { halign: "right", cellWidth: 25 },
-        6: { halign: "center", cellWidth: 25 },
-        7: { halign: "right", cellWidth: 25 },
-        8: { halign: "right", cellWidth: 25 },
+        0: { halign: "center", cellWidth: 8 },
+        1: { cellWidth: 28 },
+        2: { cellWidth: 28 },
+        3: { cellWidth: 20 },
+        4: { halign: "right", cellWidth: 20 },
+        5: { halign: "right", cellWidth: 20 },
+        6: { halign: "center", cellWidth: 20 },
+        7: { halign: "right", cellWidth: 20 },
+        8: { halign: "right", cellWidth: 20 },
       },
       margin: { top: 38, left: 14, right: 14, bottom: 25 },
       didDrawPage: (data) => {
@@ -273,7 +273,7 @@ export default function OwnerTenantReportPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold flex items-center gap-3">
             <FileText className="h-6 w-6" />
@@ -283,7 +283,7 @@ export default function OwnerTenantReportPage() {
             Comprehensive report of all tenants with rent dues and payment history
           </p>
         </div>
-        <Button onClick={generatePDF} disabled={!report?.allData?.length}>
+        <Button onClick={generatePDF} disabled={!report?.allData?.length} className="whitespace-nowrap">
           <Download className="h-4 w-4 mr-2" />
           Export PDF
         </Button>

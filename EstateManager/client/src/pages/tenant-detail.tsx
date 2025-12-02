@@ -99,14 +99,14 @@ function TerminateLeaseDialog({
   onSuccess: () => void;
 }) {
   const { toast } = useToast();
-  const { currency, exchangeRate } = useCurrencyStore();
+  const { currency } = useCurrencyStore();
   const [isOpen, setIsOpen] = useState(false);
   const [settlement, setSettlement] = useState<SettlementDetails | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const formatValue = (val: number | string) => {
     const num = typeof val === 'string' ? parseFloat(val) || 0 : val;
-    return formatCurrency(num, currency, exchangeRate);
+    return formatCurrency(num);
   };
 
   useEffect(() => {
@@ -272,7 +272,7 @@ function ReceivePaymentDialog({
   onSuccess: () => void;
 }) {
   const { toast } = useToast();
-  const { currency, exchangeRate } = useCurrencyStore();
+  const { currency } = useCurrencyStore();
   const [isOpen, setIsOpen] = useState(false);
 
   const activeLeases = leases.filter((l) => l.status === 'active' || l.status === 'expiring_soon');
@@ -317,7 +317,7 @@ function ReceivePaymentDialog({
     mutation.mutate(data);
   };
 
-  const formatValue = (val: number) => formatCurrency(val, currency, exchangeRate);
+  const formatValue = (val: number) => formatCurrency(val);
 
   if (activeLeases.length === 0) {
     return (
@@ -453,7 +453,7 @@ function ReceivePaymentDialog({
 export default function TenantDetailPage() {
   const [, params] = useRoute("/tenants/:id");
   const tenantId = params?.id;
-  const { currency, exchangeRate } = useCurrencyStore();
+  const { currency } = useCurrencyStore();
 
   const { data: tenant, isLoading } = useQuery<TenantDetailData>({
     queryKey: ["/api/tenants", tenantId],
@@ -462,7 +462,7 @@ export default function TenantDetailPage() {
 
   const formatValue = (val: number | string) => {
     const num = typeof val === "string" ? parseFloat(val) || 0 : val;
-    return formatCurrency(num, currency, exchangeRate);
+    return formatCurrency(num);
   };
 
   if (isLoading) {
