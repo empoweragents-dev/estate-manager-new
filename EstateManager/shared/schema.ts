@@ -1,9 +1,10 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, integer, decimal, boolean, date, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, decimal, boolean, date, timestamp, pgEnum, index, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // Enums
+export const userRoleEnum = pgEnum('user_role', ['super_admin', 'owner']);
 export const floorEnum = pgEnum('floor', ['ground', 'first', 'second', 'subedari']);
 export const subedariCategoryEnum = pgEnum('subedari_category', ['shops', 'residential']);
 export const shopStatusEnum = pgEnum('shop_status', ['vacant', 'occupied']);
@@ -11,6 +12,17 @@ export const ownershipTypeEnum = pgEnum('ownership_type', ['sole', 'common']);
 export const leaseStatusEnum = pgEnum('lease_status', ['active', 'expiring_soon', 'expired', 'terminated']);
 export const expenseTypeEnum = pgEnum('expense_type', ['guard', 'cleaner', 'electricity', 'maintenance', 'other']);
 export const expenseAllocationEnum = pgEnum('expense_allocation', ['owner', 'common']);
+
+// Session storage table for Replit Auth
+export const sessions = pgTable(
+  "sessions",
+  {
+    sid: varchar("sid").primaryKey(),
+    sess: jsonb("sess").notNull(),
+    expire: timestamp("expire").notNull(),
+  },
+  (table) => [index("IDX_session_expire").on(table.expire)],
+);
 
 // Owners table - 5 distinct owner profiles
 export const owners = pgTable("owners", {
@@ -28,6 +40,27 @@ export const ownersRelations = relations(owners, ({ many }) => ({
   shops: many(shops),
   expenses: many(expenses),
   bankDeposits: many(bankDeposits),
+  users: many(users),
+}));
+
+// Users table with roles - for authentication
+export const users = pgTable("users", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  email: varchar("email").unique(),
+  firstName: varchar("first_name"),
+  lastName: varchar("last_name"),
+  profileImageUrl: varchar("profile_image_url"),
+  role: userRoleEnum("role").notNull().default('owner'),
+  ownerId: integer("owner_id").references(() => owners.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const usersRelations = relations(users, ({ one }) => ({
+  owner: one(owners, {
+    fields: [users.ownerId],
+    references: [owners.id],
+  }),
 }));
 
 // Shops/Units table
@@ -200,6 +233,11 @@ export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true,
 export const insertBankDepositSchema = createInsertSchema(bankDeposits).omit({ id: true, createdAt: true });
 export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true, createdAt: true });
 export const insertSettingSchema = createInsertSchema(settings).omit({ id: true, updatedAt: true });
+
+// User types for Replit Auth
+export type User = typeof users.$inferSelect;
+export type UpsertUser = typeof users.$inferInsert;
+export type UserRole = 'super_admin' | 'owner';
 
 // Types
 export type Owner = typeof owners.$inferSelect;

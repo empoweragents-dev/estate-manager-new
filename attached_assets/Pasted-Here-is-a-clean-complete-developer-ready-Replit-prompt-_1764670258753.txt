@@ -1,0 +1,243 @@
+Here is a **clean, complete, developer-ready Replit prompt** describing the **User Roles & Permissions System** you want.
+
+Copy–paste this directly to your developer.
+
+---
+
+# ✅ **FULL DETAILED REPLIT PROMPT – USER ROLES & PERMISSIONS SYSTEM**
+
+## **1. User Types**
+
+The system must support **two roles only**:
+
+### **A. SUPER ADMIN**
+
+* There is **only one** super admin in the application.
+* Full access to everything.
+* Can create, edit, deactivate, and delete Owners.
+* Can access all Owners, all Shops, all Tenants, all Leases, all Reports.
+* Can manage all financial entries (rent, expenses, dues, settlements).
+* Can edit system settings.
+* Can reset owner passwords.
+
+### **B. OWNER**
+
+* Each owner account is created **by the Super Admin only**.
+* Owners **must NOT** be able to create other users.
+* Owners have restricted access.
+
+---
+
+# ✅ **2. Login Page Functionality**
+
+* Standard login with **email + password**.
+* After login, check user role.
+* Redirect:
+
+  * Super Admin → **Admin Dashboard**
+  * Owner → **Owner Dashboard**
+
+---
+
+# 📌 **3. Permissions Logic (VERY IMPORTANT)**
+
+## **A. Super Admin Permissions**
+
+Super Admin can:
+
+* View all Owners
+* View all Tenants
+* View all Shops
+* View all Leases
+* View all Transactions
+* Add/Edit/Delete Owners
+* Add/Edit/Delete Shops
+* Add/Edit/Delete Tenants
+* Add/Edit/Delete Leases
+* Add/Edit/Delete Expenses
+* Generate All Reports
+* Access EVERYTHING without restriction
+
+Super Admin = **100% access** across entire system.
+
+---
+
+## **B. Owner Permissions**
+
+Owners should only see:
+
+* Their **own shops**
+* Their **own tenants**
+* Their **own leases**
+* Their **own rent collections**
+* Their **own expenses**
+* Their **own reports**
+
+Owners must NOT see:
+
+* Other owners
+* Other owners’ tenants
+* Other shops
+* Other transactions
+* Any admin configuration settings
+
+Owners can:
+
+* View
+* Download reports
+* See outstanding dues
+* See tenant financial history
+* View lease details
+
+Owners cannot:
+
+* Create new owners
+* Modify other owners’ data
+* Delete system data that is not theirs
+* Access Super Admin dashboard
+* Modify system-level configurations
+
+---
+
+# 📌 **4. Super Admin Creates Owner Accounts**
+
+The Super Admin will have a page:
+
+### **Create Owner Account Form**
+
+Fields required:
+
+1. Owner Name
+2. Owner Email
+3. Owner Phone
+4. Password (super admin sets this)
+5. Owner Profile Information (optional)
+
+After creating the owner:
+
+* Owner receives login credentials
+* Owner can log in and see ONLY their area
+
+---
+
+# 📌 **5. Database Changes**
+
+### Add fields:
+
+* `role` (values: “super_admin”, “owner”)
+* `owner_id` (foreign key for owner-access restrictions)
+
+### For shops:
+
+* `owner_id` required.
+
+### For tenants:
+
+* `owner_id` required.
+
+### For leases:
+
+* `owner_id` required.
+
+### For rent payments, expenses:
+
+* `owner_id` required.
+
+This ensures all filtering is backend-protected.
+
+---
+
+# 📌 **6. Backend Access Control (VERY IMPORTANT)**
+
+### Add middleware / guard:
+
+* If `role = owner`, restrict queries with:
+
+```
+WHERE owner_id = current_user.owner_id
+```
+
+* If `role = super_admin`, no filter applied.
+
+This prevents data leaks or unauthorized access.
+
+---
+
+# 📌 **7. UI/UX Requirements**
+
+### A. Super Admin Dashboard
+
+Shows:
+
+* Total owners
+* Total shops
+* Total tenants
+* Full financial summary
+* Owner management buttons
+* All reports
+
+### B. Owner Dashboard
+
+Shows:
+
+* Their shop count
+* Their tenants list
+* Their total rent due
+* Their reports only
+
+### C. Navigation Controls
+
+Show menu items according to permissions.
+
+Owners should NOT see:
+
+* Owner creation
+* Settings
+* System master data
+* Other owners
+
+---
+
+# 📌 **8. Security**
+
+* Use hashed passwords
+* Validate email uniqueness
+* All owner-related API routes must check `owner_id`
+* Prevent front-end manipulation
+* Protect API endpoints with role-based access
+
+---
+
+# 📌 **9. Testing Requirements**
+
+Test the following scenarios:
+
+### Testing Super Admin
+
+* Login → full access
+* Create owner
+* Edit/delete owner
+* Add shops & tenants under any owner
+* Generate full system reports
+
+### Testing Owner
+
+* Login → limited dashboard
+* Sees only their shops
+* Sees only their tenants
+* Cannot open URLs of another owner (should block access)
+* Generate only their own reports
+
+---
+
+# ✅ **This is the full, detailed prompt to build the complete permission system.**
+
+If you want, I can also prepare:
+
+📌 Database schema
+📌 API routes for roles
+📌 Middleware sample code
+📌 UI wireframes
+📌 Owner dashboard layout
+
+Just tell me!

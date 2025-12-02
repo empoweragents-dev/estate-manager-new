@@ -10,7 +10,10 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@types/memoizee": "^0.4.12",
     "jspdf": "^3.0.4",
-    "jspdf-autotable": "^5.0.2"
+    "jspdf-autotable": "^5.0.2",
+    "memoizee": "^0.4.17",
+    "openid-client": "^6.8.1"
   }
 }

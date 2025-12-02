@@ -1,7 +1,7 @@
 import { eq, and, desc, sql, gte, lte, or, like, ilike } from "drizzle-orm";
 import { db } from "./db";
 import {
-  owners, shops, tenants, leases, rentInvoices, payments, bankDeposits, expenses, settings,
+  owners, shops, tenants, leases, rentInvoices, payments, bankDeposits, expenses, settings, users,
   type Owner, type InsertOwner,
   type Shop, type InsertShop,
   type Tenant, type InsertTenant,
@@ -11,6 +11,7 @@ import {
   type BankDeposit, type InsertBankDeposit,
   type Expense, type InsertExpense,
   type Setting, type InsertSetting,
+  type User, type UpsertUser,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -72,6 +73,12 @@ export interface IStorage {
   
   // Search
   search(query: string): Promise<{ type: string; id: number; title: string; subtitle: string; extra?: string }[]>;
+  
+  // Users (for Replit Auth)
+  getUser(id: string): Promise<User | undefined>;
+  upsertUser(user: UpsertUser): Promise<User>;
+  getUsers(): Promise<User[]>;
+  updateUserRole(id: string, role: 'super_admin' | 'owner', ownerId?: number): Promise<User | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -326,6 +333,40 @@ export class DatabaseStorage implements IStorage {
     }
 
     return results;
+  }
+
+  // User operations (for Replit Auth)
+  async getUser(id: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async upsertUser(userData: UpsertUser): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values(userData)
+      .onConflictDoUpdate({
+        target: users.id,
+        set: {
+          ...userData,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return user;
+  }
+
+  async getUsers(): Promise<User[]> {
+    return db.select().from(users).orderBy(users.createdAt);
+  }
+
+  async updateUserRole(id: string, role: 'super_admin' | 'owner', ownerId?: number): Promise<User | undefined> {
+    const [updated] = await db
+      .update(users)
+      .set({ role, ownerId, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning();
+    return updated;
   }
 }
 
