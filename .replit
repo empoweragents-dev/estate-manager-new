@@ -39,5 +39,6 @@ localPort = 39919
 externalPort = 3000
 
 [deployment]
-run = ["sh", "-c", "/"]
-deploymentTarget = "cloudrun"
+run = ["bash", "-c", "cd EstateManager && npm run start"]
+deploymentTarget = "autoscale"
+build = ["bash", "-c", "cd EstateManager && npm run build"]
