@@ -15,6 +15,11 @@ export function formatCurrency(amount: number | string): string {
   return `৳${numAmount.toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+export function formatNumberOnly(amount: number | string): string {
+  const numAmount = typeof amount === 'string' ? parseFloat(amount) || 0 : amount;
+  return numAmount.toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 export function formatFloor(floor: string, subedariCategory?: string | null): string {
   switch (floor) {
     case 'ground': return 'Ground Floor';

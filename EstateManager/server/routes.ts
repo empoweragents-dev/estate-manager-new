@@ -950,8 +950,79 @@ export async function registerRoutes(
   app.post("/api/payments", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const data = insertPaymentSchema.parse(req.body);
-      const payment = await storage.createPayment(data);
-      res.status(201).json(payment);
+      
+      // Get all invoices for this tenant sorted by month/year (oldest first)
+      const allInvoices = await storage.getRentInvoicesByTenant(data.tenantId);
+      const elapsedInvoices = getElapsedInvoices(allInvoices);
+      
+      // Get all existing payments for this tenant
+      const existingPayments = await storage.getPaymentsByTenant(data.tenantId);
+      
+      // Calculate paid amount per invoice
+      const invoicePaidMap = new Map<number, number>();
+      elapsedInvoices.forEach(inv => {
+        invoicePaidMap.set(inv.id, 0);
+      });
+      
+      existingPayments.forEach(payment => {
+        const invoiceId = payment.leaseId;
+        const currentPaid = invoicePaidMap.get(invoiceId) || 0;
+        invoicePaidMap.set(invoiceId, currentPaid + parseFloat(payment.amount));
+      });
+      
+      // Find unpaid/partially paid invoices in order (oldest first)
+      const unpaidInvoices = elapsedInvoices
+        .sort((a, b) => {
+          if (a.year !== b.year) return a.year - b.year;
+          return a.month - b.month;
+        })
+        .filter(inv => {
+          const paid = invoicePaidMap.get(inv.id) || 0;
+          return paid < parseFloat(inv.amount);
+        });
+      
+      // Allocate payment across oldest unpaid invoices (FIFO)
+      let remainingPayment = parseFloat(data.amount);
+      
+      for (const invoice of unpaidInvoices) {
+        if (remainingPayment <= 0) break;
+        
+        const invoiceAmount = parseFloat(invoice.amount);
+        const alreadyPaid = invoicePaidMap.get(invoice.id) || 0;
+        const invoiceDue = invoiceAmount - alreadyPaid;
+        const paymentToAllocate = Math.min(remainingPayment, invoiceDue);
+        
+        // Update or create payment record for this invoice
+        if (paymentToAllocate > 0) {
+          await storage.createPayment({
+            tenantId: data.tenantId,
+            leaseId: invoice.leaseId,
+            amount: paymentToAllocate.toString(),
+            paymentDate: data.paymentDate,
+            receiptNumber: data.receiptNumber || '',
+            notes: data.notes || `FIFO allocation for ${invoice.month}/${invoice.year}`,
+          });
+        }
+        
+        remainingPayment -= paymentToAllocate;
+      }
+      
+      // If there's remaining payment (tenant overpaid or no invoices), create a single payment record
+      if (remainingPayment > 0 && data.leaseId) {
+        await storage.createPayment({
+          tenantId: data.tenantId,
+          leaseId: data.leaseId,
+          amount: remainingPayment.toString(),
+          paymentDate: data.paymentDate,
+          receiptNumber: data.receiptNumber || '',
+          notes: data.notes || 'Overpayment or advance payment',
+        });
+      }
+      
+      // Return the first payment created as response
+      const payments = await storage.getPaymentsByTenant(data.tenantId);
+      const lastPayment = payments[payments.length - 1];
+      res.status(201).json(lastPayment);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
     }

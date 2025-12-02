@@ -41,7 +41,7 @@ import {
   AlertCircle,
   CheckCircle2,
 } from "lucide-react";
-import { formatCurrency, useCurrencyStore } from "@/lib/currency";
+import { formatCurrency, formatNumberOnly, useCurrencyStore } from "@/lib/currency";
 import type { Owner, Tenant, Shop } from "@shared/schema";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -184,11 +184,11 @@ export default function OwnerTenantReportPage() {
       row.shopLocation,
       row.tenantName,
       row.phone,
-      formatValue(row.monthlyRent),
-      row.recentPaymentAmount > 0 ? formatValue(row.recentPaymentAmount) : "-",
+      formatNumberOnly(row.monthlyRent),
+      row.recentPaymentAmount > 0 ? formatNumberOnly(row.recentPaymentAmount) : "-",
       row.recentPaymentDate || "-",
-      row.currentRentDue > 0 ? formatValue(row.currentRentDue) : "-",
-      row.previousRentDue > 0 ? formatValue(row.previousRentDue) : "-",
+      row.currentRentDue > 0 ? formatNumberOnly(row.currentRentDue) : "-",
+      row.previousRentDue > 0 ? formatNumberOnly(row.previousRentDue) : "-",
     ]);
 
     autoTable(doc, {
@@ -251,10 +251,10 @@ export default function OwnerTenantReportPage() {
     doc.text("Summary Totals", 14, finalY + 12);
 
     doc.setFont("helvetica", "normal");
-    doc.text(`Total Current Rent Due: ${formatValue(report.totals.totalCurrentRentDue)}`, 14, finalY + 18);
-    doc.text(`Total Previous Rent Due: ${formatValue(report.totals.totalPreviousRentDue)}`, 14, finalY + 24);
-    doc.text(`Total Received (Selected Period): ${formatValue(report.totals.totalRecentPayments)}`, pageWidth / 2, finalY + 18);
-    doc.text(`Total Monthly Rent: ${formatValue(report.totals.totalMonthlyRent)}`, pageWidth / 2, finalY + 24);
+    doc.text(`Total Current Rent Due: ${formatNumberOnly(report.totals.totalCurrentRentDue)}`, 14, finalY + 18);
+    doc.text(`Total Previous Rent Due: ${formatNumberOnly(report.totals.totalPreviousRentDue)}`, 14, finalY + 24);
+    doc.text(`Total Received (Selected Period): ${formatNumberOnly(report.totals.totalRecentPayments)}`, pageWidth / 2, finalY + 18);
+    doc.text(`Total Monthly Rent: ${formatNumberOnly(report.totals.totalMonthlyRent)}`, pageWidth / 2, finalY + 24);
 
     const fileName = `Owner_Tenant_Report_${report.filters.ownerName.replace(/\s+/g, '_')}_${monthNames[report.filters.month - 1]}_${report.filters.year}.pdf`;
     doc.save(fileName);
