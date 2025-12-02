@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -35,7 +34,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, Store, Edit2, Trash2, Users, Square } from "lucide-react";
+import { Plus, Store, Edit2, Trash2, Users, Square, Building2, Layers } from "lucide-react";
 import type { Owner, ShopWithOwner } from "@shared/schema";
 import { formatFloor, getShopStatusColor } from "@/lib/currency";
 
@@ -454,14 +453,65 @@ export default function ShopsPage() {
         })}
       </div>
 
-      <Tabs value={selectedFloor} onValueChange={setSelectedFloor}>
-        <TabsList>
-          <TabsTrigger value="all" data-testid="tab-all-floors">All Floors ({shops.length})</TabsTrigger>
-          <TabsTrigger value="ground" data-testid="tab-ground-floor">Ground ({floorStats.ground.length})</TabsTrigger>
-          <TabsTrigger value="first" data-testid="tab-first-floor">1st Floor ({floorStats.first.length})</TabsTrigger>
-          <TabsTrigger value="second" data-testid="tab-second-floor">2nd Floor ({floorStats.second.length})</TabsTrigger>
-        </TabsList>
-      </Tabs>
+      <Card className="overflow-visible">
+        <CardContent className="p-4">
+          <div className="flex items-center gap-3 mb-3">
+            <Layers className="h-5 w-5 text-muted-foreground" />
+            <span className="font-medium">Filter by Floor</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant={selectedFloor === "all" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSelectedFloor("all")}
+              className="flex items-center gap-2"
+              data-testid="filter-all-floors"
+            >
+              <Building2 className="h-4 w-4" />
+              All Floors
+              <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-xs">
+                {shops.length}
+              </Badge>
+            </Button>
+            <Button
+              variant={selectedFloor === "ground" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSelectedFloor("ground")}
+              className="flex items-center gap-2"
+              data-testid="filter-ground-floor"
+            >
+              Ground Floor
+              <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-xs">
+                {floorStats.ground.length}
+              </Badge>
+            </Button>
+            <Button
+              variant={selectedFloor === "first" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSelectedFloor("first")}
+              className="flex items-center gap-2"
+              data-testid="filter-first-floor"
+            >
+              1st Floor
+              <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-xs">
+                {floorStats.first.length}
+              </Badge>
+            </Button>
+            <Button
+              variant={selectedFloor === "second" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSelectedFloor("second")}
+              className="flex items-center gap-2"
+              data-testid="filter-second-floor"
+            >
+              2nd Floor
+              <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-xs">
+                {floorStats.second.length}
+              </Badge>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {filteredShops.map((shop) => (
