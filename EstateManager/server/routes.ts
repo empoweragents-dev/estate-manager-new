@@ -139,6 +139,17 @@ export async function registerRoutes(
     }
   });
 
+  // Helper function to filter invoices for elapsed months only (up to current month)
+  const getElapsedInvoices = (invoices: any[]) => {
+    const today = new Date();
+    const currentMonth = today.getMonth() + 1;
+    const currentYear = today.getFullYear();
+    
+    return invoices.filter(inv => 
+      inv.year < currentYear || (inv.year === currentYear && inv.month <= currentMonth)
+    );
+  };
+
   // ===== TENANTS =====
   app.get("/api/tenants", async (req: Request, res: Response) => {
     try {
@@ -149,16 +160,19 @@ export async function registerRoutes(
         const invoices = await storage.getRentInvoicesByTenant(tenant.id);
         const tenantPayments = await storage.getPaymentsByTenant(tenant.id);
         
-        const totalInvoices = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+        // Only count invoices for elapsed months (up to current month)
+        const elapsedInvoices = getElapsedInvoices(invoices);
+        
+        const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
         const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const openingBalance = parseFloat(tenant.openingDueBalance);
         
         const totalDue = openingBalance + totalInvoices;
         const currentDue = totalDue - totalPaid;
         
-        // Build monthly breakdown
+        // Build monthly breakdown (only for elapsed months)
         const monthlyDues: { [key: string]: number } = {};
-        invoices.forEach(inv => {
+        elapsedInvoices.forEach(inv => {
           const key = `${inv.year}-${String(inv.month).padStart(2, '0')}`;
           monthlyDues[key] = (monthlyDues[key] || 0) + parseFloat(inv.amount);
         });
@@ -229,7 +243,10 @@ export async function registerRoutes(
         const tenantInvoices = allInvoices.filter(inv => inv.tenantId === tenant.id);
         const tenantPayments = allPayments.filter(p => p.tenantId === tenant.id);
         
-        const totalInvoices = tenantInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+        // Only count invoices for elapsed months (up to current month)
+        const elapsedInvoices = getElapsedInvoices(tenantInvoices);
+        
+        const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
         const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const openingBalance = parseFloat(tenant.openingDueBalance);
         const totalDue = openingBalance + totalInvoices;
@@ -238,7 +255,7 @@ export async function registerRoutes(
         const monthlyDues: Record<string, number> = {};
         let remainingDue = currentDue;
         
-        const sortedInvoices = [...tenantInvoices].sort((a, b) => 
+        const sortedInvoices = [...elapsedInvoices].sort((a, b) => 
           new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
         );
         
@@ -280,8 +297,11 @@ export async function registerRoutes(
       // Get invoices
       const invoices = await storage.getRentInvoicesByTenant(tenant.id);
       
+      // Only count invoices for elapsed months (up to current month)
+      const elapsedInvoices = getElapsedInvoices(invoices);
+      
       // Calculate totals
-      const totalInvoices = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+      const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
       const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
       const openingBalance = parseFloat(tenant.openingDueBalance);
       const totalDue = openingBalance + totalInvoices;
@@ -305,10 +325,10 @@ export async function registerRoutes(
         });
       }
       
-      // Combine invoices and payments, sort by date
+      // Combine invoices and payments, sort by date (only elapsed invoices)
       const allEntries: { date: Date | string; type: string; amount: number; description: string }[] = [];
       
-      invoices.forEach(inv => {
+      elapsedInvoices.forEach(inv => {
         allEntries.push({
           date: inv.dueDate,
           type: 'rent',
@@ -461,6 +481,9 @@ export async function registerRoutes(
       const allInvoices = await storage.getRentInvoices();
       const leaseInvoices = allInvoices.filter(inv => inv.leaseId === lease.id);
       
+      // Only count invoices for elapsed months (up to current month)
+      const elapsedLeaseInvoices = getElapsedInvoices(leaseInvoices);
+      
       // Get payments for this tenant
       const tenantPayments = await storage.getPaymentsByTenant(lease.tenantId);
       const leasePayments = tenantPayments.filter(p => p.leaseId === lease.id);
@@ -471,13 +494,13 @@ export async function registerRoutes(
         ? allExpenses.filter(exp => exp.notes?.includes(`Tenant: ${tenant.name}`) || exp.notes?.includes(`tenantId:${tenant.id}`))
         : [];
       
-      // Calculate outstanding per month
+      // Calculate outstanding per month (only elapsed invoices)
       const totalPaid = leasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
-      const totalInvoiced = leaseInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+      const totalInvoiced = elapsedLeaseInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
       const totalExpenses = tenantExpenses.reduce((sum, exp) => sum + parseFloat(exp.amount), 0);
       
-      // Build monthly breakdown with outstanding
-      const monthlyBreakdown = leaseInvoices.map(invoice => {
+      // Build monthly breakdown with outstanding (only for elapsed months)
+      const monthlyBreakdown = elapsedLeaseInvoices.map(invoice => {
         const monthPayments = leasePayments.filter(p => {
           const paymentDate = new Date(p.paymentDate);
           return paymentDate.getMonth() + 1 === invoice.month && paymentDate.getFullYear() === invoice.year;
@@ -501,7 +524,7 @@ export async function registerRoutes(
         ...lease,
         tenant,
         shop: shop ? { ...shop, owner } : null,
-        invoices: leaseInvoices,
+        invoices: elapsedLeaseInvoices,
         payments: leasePayments,
         expenses: tenantExpenses,
         monthlyBreakdown,
@@ -563,9 +586,12 @@ export async function registerRoutes(
       const invoices = await storage.getRentInvoicesByTenant(lease.tenantId);
       const tenantPayments = await storage.getPaymentsByTenant(lease.tenantId);
       
+      // Only count invoices for elapsed months (up to current month)
+      const elapsedInvoices = getElapsedInvoices(invoices);
+      
       // Calculate all dues
       const openingBalance = parseFloat(tenant?.openingDueBalance || '0');
-      const totalInvoices = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+      const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
       const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
       const totalDue = openingBalance + totalInvoices;
       const currentDue = Math.max(0, totalDue - totalPaid);
@@ -610,7 +636,10 @@ export async function registerRoutes(
       const tenantPayments = await storage.getPaymentsByTenant(lease.tenantId);
       const tenant = await storage.getTenant(lease.tenantId);
       
-      const totalInvoices = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+      // Only count invoices for elapsed months (up to current month)
+      const elapsedInvoices = getElapsedInvoices(invoices);
+      
+      const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
       const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
       const openingBalance = parseFloat(tenant?.openingDueBalance || '0');
       const currentDue = Math.max(0, openingBalance + totalInvoices - totalPaid);
@@ -842,7 +871,10 @@ export async function registerRoutes(
         const invoices = await storage.getRentInvoicesByTenant(tenant.id);
         const tenantPayments = await storage.getPaymentsByTenant(tenant.id);
         
-        const totalInvoices = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+        // Only count invoices for elapsed months (up to current month)
+        const elapsedInvoices = getElapsedInvoices(invoices);
+        
+        const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
         const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const openingBalance = parseFloat(tenant.openingDueBalance);
         
@@ -1056,7 +1088,10 @@ export async function registerRoutes(
       const invoices = await storage.getRentInvoicesByTenant(tenantId);
       const tenantPayments = await storage.getPaymentsByTenant(tenantId);
       
-      const totalInvoices = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+      // Only count invoices for elapsed months (up to current month)
+      const elapsedInvoices = getElapsedInvoices(invoices);
+      
+      const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
       const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
       const openingBalance = parseFloat(tenant.openingDueBalance);
       const currentDue = Math.max(0, openingBalance + totalInvoices - totalPaid);
@@ -1079,7 +1114,7 @@ export async function registerRoutes(
       
       const allEntries: { date: Date | string; type: string; amount: number; description: string }[] = [];
       
-      invoices.forEach(inv => {
+      elapsedInvoices.forEach(inv => {
         allEntries.push({
           date: inv.dueDate,
           type: 'rent',
@@ -1529,14 +1564,15 @@ export async function registerRoutes(
         
         if (!tenant || !shop) continue;
         
-        // Get invoices for this lease
+        // Get invoices for this lease - only elapsed months up to today
         const leaseInvoices = allInvoices.filter(inv => inv.leaseId === lease.id);
+        const elapsedLeaseInvoices = getElapsedInvoices(leaseInvoices);
         
         // Get payments for this tenant's lease
         const leasePayments = allPayments.filter(p => p.leaseId === lease.id);
         
-        // Calculate current month's due
-        const currentMonthInvoice = leaseInvoices.find(inv => 
+        // Calculate current month's due (only if the report month has elapsed)
+        const currentMonthInvoice = elapsedLeaseInvoices.find(inv => 
           inv.month === reportMonth && inv.year === reportYear
         );
         const currentMonthDue = currentMonthInvoice ? parseFloat(currentMonthInvoice.amount) : 0;
@@ -1549,8 +1585,8 @@ export async function registerRoutes(
         const currentMonthPaid = currentMonthPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const currentRentDue = Math.max(0, currentMonthDue - currentMonthPaid);
         
-        // Calculate previous rent due (all dues before current month)
-        const previousInvoices = leaseInvoices.filter(inv => 
+        // Calculate previous rent due (only elapsed months before report month)
+        const previousInvoices = elapsedLeaseInvoices.filter(inv => 
           inv.year < reportYear || (inv.year === reportYear && inv.month < reportMonth)
         );
         const previousInvoiceTotal = previousInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
