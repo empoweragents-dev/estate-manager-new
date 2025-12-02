@@ -120,7 +120,8 @@ function TerminationDialog({
   const loadSettlement = async () => {
     setIsLoading(true);
     try {
-      const data = await apiRequest("GET", `/api/leases/${lease.id}/settlement`);
+      const response = await apiRequest("GET", `/api/leases/${lease.id}/settlement`);
+      const data = await response.json();
       setSettlement(data);
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -496,11 +497,11 @@ export default function LeaseDetailPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className={`text-lg font-semibold ${lease.summary.totalOutstanding > 0 ? 'text-red-600' : 'text-green-600'}`}>
-              {formatValue(lease.summary.totalOutstanding)}
+            <p className={`text-lg font-semibold ${(lease.summary?.totalOutstanding || 0) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+              {formatValue(lease.summary?.totalOutstanding || 0)}
             </p>
             <p className="text-sm text-muted-foreground">
-              Paid: {formatValue(lease.summary.totalPaid)} / {formatValue(lease.summary.totalInvoiced)}
+              Paid: {formatValue(lease.summary?.totalPaid || 0)} / {formatValue(lease.summary?.totalInvoiced || 0)}
             </p>
           </CardContent>
         </Card>
@@ -700,7 +701,7 @@ export default function LeaseDetailPage() {
                       <TableCell>{expense.expenseDate}</TableCell>
                       <TableCell>
                         <Badge variant="outline" className="capitalize">
-                          {expense.category}
+                          {expense.expenseType}
                         </Badge>
                       </TableCell>
                       <TableCell>{expense.description || '-'}</TableCell>
@@ -722,7 +723,7 @@ export default function LeaseDetailPage() {
                 <div className="flex justify-end mt-4 pt-4 border-t">
                   <div className="text-right">
                     <p className="text-sm text-muted-foreground">Total Expenses</p>
-                    <p className="text-lg font-semibold">{formatValue(lease.summary.totalExpenses)}</p>
+                    <p className="text-lg font-semibold">{formatValue(lease.summary?.totalExpenses || 0)}</p>
                   </div>
                 </div>
               )}
@@ -731,7 +732,7 @@ export default function LeaseDetailPage() {
         </TabsContent>
       </Tabs>
 
-      {lease.summary.grandTotalOutstanding > 0 && (
+      {(lease.summary?.grandTotalOutstanding || 0) > 0 && (
         <Card className="border-2 border-orange-200 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-800">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
@@ -743,7 +744,7 @@ export default function LeaseDetailPage() {
                 </div>
               </div>
               <p className="text-2xl font-bold text-orange-600">
-                {formatValue(lease.summary.grandTotalOutstanding)}
+                {formatValue(lease.summary?.grandTotalOutstanding || 0)}
               </p>
             </div>
           </CardContent>
