@@ -1,27 +1,17 @@
 import { create } from 'zustand';
 
 interface CurrencyState {
-  currency: 'BDT' | 'AUD';
-  exchangeRate: number; // BDT to AUD
-  setCurrency: (currency: 'BDT' | 'AUD') => void;
-  setExchangeRate: (rate: number) => void;
+  currency: 'BDT';
+  setCurrency: (currency: 'BDT') => void;
 }
 
 export const useCurrencyStore = create<CurrencyState>((set) => ({
   currency: 'BDT',
-  exchangeRate: 0.012, // Default: 1 BDT = 0.012 AUD (approx)
   setCurrency: (currency) => set({ currency }),
-  setExchangeRate: (exchangeRate) => set({ exchangeRate }),
 }));
 
-export function formatCurrency(amount: number | string, currency: 'BDT' | 'AUD' = 'BDT', exchangeRate: number = 0.012): string {
+export function formatCurrency(amount: number | string): string {
   const numAmount = typeof amount === 'string' ? parseFloat(amount) || 0 : amount;
-  
-  if (currency === 'AUD') {
-    const audAmount = numAmount * exchangeRate;
-    return `A$${audAmount.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  }
-  
   return `৳${numAmount.toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
