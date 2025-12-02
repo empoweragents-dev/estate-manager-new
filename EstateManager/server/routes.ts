@@ -851,6 +851,32 @@ export async function registerRoutes(
     }
   });
 
+  app.put("/api/leases/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const leaseId = parseInt(req.params.id);
+      const lease = await storage.getLease(leaseId);
+      if (!lease) return res.status(404).json({ message: "Lease not found" });
+      
+      if (lease.status === 'terminated') {
+        return res.status(400).json({ message: "Cannot edit a terminated lease" });
+      }
+      
+      const { startDate, endDate, monthlyRent, securityDeposit, notes } = req.body;
+      
+      const updateData: any = {};
+      if (startDate !== undefined) updateData.startDate = startDate;
+      if (endDate !== undefined) updateData.endDate = endDate;
+      if (monthlyRent !== undefined) updateData.monthlyRent = monthlyRent;
+      if (securityDeposit !== undefined) updateData.securityDeposit = securityDeposit;
+      if (notes !== undefined) updateData.notes = notes;
+      
+      const updated = await storage.updateLease(leaseId, updateData);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.patch("/api/leases/:id/terminate", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const leaseId = parseInt(req.params.id);

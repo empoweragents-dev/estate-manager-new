@@ -42,7 +42,19 @@ import {
   DollarSign,
   LogOut,
   Building2,
+  Pencil,
 } from "lucide-react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import type { Tenant, Lease, Payment, RentInvoice, Expense, Shop, Owner } from "@shared/schema";
 import { formatCurrency, useCurrencyStore, getLeaseStatusColor, formatFloor } from "@/lib/currency";
 
@@ -104,7 +116,7 @@ function TerminationDialog({
   onSuccess: () => void;
 }) {
   const { toast } = useToast();
-  const { currency, exchangeRate } = useCurrencyStore();
+  const { currency } = useCurrencyStore();
   const [isOpen, setIsOpen] = useState(false);
   const [settlement, setSettlement] = useState<SettlementDetails | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -114,7 +126,7 @@ function TerminationDialog({
 
   const formatValue = (val: number | string) => {
     const num = typeof val === 'string' ? parseFloat(val) || 0 : val;
-    return formatCurrency(num, currency, exchangeRate);
+    return formatCurrency(num);
   };
 
   const loadSettlement = async () => {
@@ -357,15 +369,197 @@ function TerminationDialog({
   );
 }
 
+const editLeaseFormSchema = z.object({
+  startDate: z.string().min(1, "Start date is required"),
+  endDate: z.string().min(1, "End date is required"),
+  securityDeposit: z.string().min(1, "Security deposit is required"),
+  monthlyRent: z.string().min(1, "Monthly rent is required"),
+  notes: z.string().optional(),
+});
+
+type EditLeaseFormData = z.infer<typeof editLeaseFormSchema>;
+
+function EditLeaseDialog({
+  lease,
+  onSuccess,
+}: {
+  lease: LeaseDetailData;
+  onSuccess: () => void;
+}) {
+  const { toast } = useToast();
+  const [isOpen, setIsOpen] = useState(false);
+
+  const form = useForm<EditLeaseFormData>({
+    resolver: zodResolver(editLeaseFormSchema),
+    defaultValues: {
+      startDate: lease.startDate,
+      endDate: lease.endDate,
+      securityDeposit: lease.securityDeposit,
+      monthlyRent: lease.monthlyRent,
+      notes: lease.notes || "",
+    },
+  });
+
+  const mutation = useMutation({
+    mutationFn: async (data: EditLeaseFormData) => {
+      return apiRequest("PUT", `/api/leases/${lease.id}`, {
+        startDate: data.startDate,
+        endDate: data.endDate,
+        securityDeposit: data.securityDeposit,
+        monthlyRent: data.monthlyRent,
+        notes: data.notes,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/leases/${lease.id}`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leases"] });
+      toast({ title: "Lease updated successfully" });
+      setIsOpen(false);
+      onSuccess();
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const onSubmit = (data: EditLeaseFormData) => {
+    mutation.mutate(data);
+  };
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        onClick={() => setIsOpen(true)}
+        disabled={lease.status === 'terminated'}
+      >
+        <Pencil className="h-4 w-4 mr-2" />
+        Edit Lease
+      </Button>
+
+      <Dialog open={isOpen} onOpenChange={setIsOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5" />
+              Edit Lease
+            </DialogTitle>
+            <DialogDescription>
+              Update lease details for Shop {lease.shop?.shopNumber}
+            </DialogDescription>
+          </DialogHeader>
+
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="startDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Start Date *</FormLabel>
+                      <FormControl>
+                        <Input {...field} type="date" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="endDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>End Date *</FormLabel>
+                      <FormControl>
+                        <Input {...field} type="date" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="securityDeposit"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Security Deposit (BDT) *</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type="number"
+                          step="0.01"
+                          placeholder="Advance amount"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="monthlyRent"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Monthly Rent (BDT) *</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type="number"
+                          step="0.01"
+                          placeholder="Monthly rent amount"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <FormField
+                control={form.control}
+                name="notes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Notes</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="Additional notes" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <DialogFooter className="gap-2 pt-4">
+                <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={mutation.isPending}>
+                  {mutation.isPending ? "Saving..." : "Save Changes"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 export default function LeaseDetailPage() {
   const [, params] = useRoute("/leases/:id");
   const leaseId = params?.id;
   const { toast } = useToast();
-  const { currency, exchangeRate } = useCurrencyStore();
+  const { currency } = useCurrencyStore();
 
   const formatValue = (val: number | string) => {
     const num = typeof val === 'string' ? parseFloat(val) || 0 : val;
-    return formatCurrency(num, currency, exchangeRate);
+    return formatCurrency(num);
   };
 
   const { data: lease, isLoading, error } = useQuery<LeaseDetailData>({
@@ -448,12 +642,20 @@ export default function LeaseDetailPage() {
         </div>
         <div className="flex gap-2">
           {lease.status !== 'terminated' && (
-            <TerminationDialog
-              lease={lease}
-              onSuccess={() => {
-                queryClient.invalidateQueries({ queryKey: [`/api/leases/${leaseId}`] });
-              }}
-            />
+            <>
+              <EditLeaseDialog
+                lease={lease}
+                onSuccess={() => {
+                  queryClient.invalidateQueries({ queryKey: [`/api/leases/${leaseId}`] });
+                }}
+              />
+              <TerminationDialog
+                lease={lease}
+                onSuccess={() => {
+                  queryClient.invalidateQueries({ queryKey: [`/api/leases/${leaseId}`] });
+                }}
+              />
+            </>
           )}
         </div>
       </div>

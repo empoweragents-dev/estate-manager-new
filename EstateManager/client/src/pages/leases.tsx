@@ -77,7 +77,7 @@ function LeaseForm({
   onSuccess: () => void;
 }) {
   const { toast } = useToast();
-  const { currency, exchangeRate } = useCurrencyStore();
+  const { currency } = useCurrencyStore();
 
   const vacantShops = shops.filter((s) => s.status === "vacant");
 
@@ -281,7 +281,7 @@ export default function LeasesPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const { toast } = useToast();
-  const { currency, exchangeRate } = useCurrencyStore();
+  const { currency } = useCurrencyStore();
 
   const { data: leases = [], isLoading } = useQuery<LeaseWithDetails[]>({
     queryKey: ["/api/leases"],
@@ -315,7 +315,7 @@ export default function LeasesPage() {
 
   const formatValue = (val: number | string) => {
     const num = typeof val === "string" ? parseFloat(val) || 0 : val;
-    return formatCurrency(num, currency, exchangeRate);
+    return formatCurrency(num);
   };
 
   const filteredLeases =
