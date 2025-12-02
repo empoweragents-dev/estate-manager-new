@@ -215,12 +215,12 @@ export default function UserManagementPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="ownerId">Link to Owner</Label>
-                <Select value={formData.ownerId} onValueChange={(value) => setFormData({ ...formData, ownerId: value })}>
+                <Select value={formData.ownerId || "none"} onValueChange={(value) => setFormData({ ...formData, ownerId: value === "none" ? "" : value })}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select an owner (optional)" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">No owner linked</SelectItem>
+                    <SelectItem value="none">No owner linked</SelectItem>
                     {owners.map((owner) => (
                       <SelectItem key={owner.id} value={owner.id.toString()}>{owner.name}</SelectItem>
                     ))}
@@ -415,12 +415,12 @@ export default function UserManagementPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="editOwnerId">Link to Owner</Label>
-              <Select value={formData.ownerId} onValueChange={(value) => setFormData({ ...formData, ownerId: value })}>
+              <Select value={formData.ownerId || "none"} onValueChange={(value) => setFormData({ ...formData, ownerId: value === "none" ? "" : value })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select an owner (optional)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">No owner linked</SelectItem>
+                  <SelectItem value="none">No owner linked</SelectItem>
                   {owners.map((owner) => (
                     <SelectItem key={owner.id} value={owner.id.toString()}>{owner.name}</SelectItem>
                   ))}
