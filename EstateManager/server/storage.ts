@@ -1,5 +1,6 @@
 import { eq, and, desc, sql, gte, lte, or, like, ilike } from "drizzle-orm";
 import { db } from "./db";
+import bcrypt from "bcrypt";
 import {
   owners, shops, tenants, leases, rentInvoices, payments, bankDeposits, expenses, settings, users,
   type Owner, type InsertOwner,
@@ -11,7 +12,7 @@ import {
   type BankDeposit, type InsertBankDeposit,
   type Expense, type InsertExpense,
   type Setting, type InsertSetting,
-  type User, type UpsertUser,
+  type User, type InsertUser,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -74,11 +75,14 @@ export interface IStorage {
   // Search
   search(query: string): Promise<{ type: string; id: number; title: string; subtitle: string; extra?: string }[]>;
   
-  // Users (for Replit Auth)
+  // Users
   getUser(id: string): Promise<User | undefined>;
-  upsertUser(user: UpsertUser): Promise<User>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
   getUsers(): Promise<User[]>;
-  updateUserRole(id: string, role: 'super_admin' | 'owner', ownerId?: number): Promise<User | undefined>;
+  updateUser(id: string, data: Partial<InsertUser>): Promise<User | undefined>;
+  deleteUser(id: string): Promise<void>;
+  initSuperAdmin(): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -335,29 +339,24 @@ export class DatabaseStorage implements IStorage {
     return results;
   }
 
-  // User operations (for Replit Auth)
+  // User operations
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user;
   }
 
-  async upsertUser(userData: UpsertUser): Promise<User> {
-    // Check if this is the first user - make them Super Admin automatically
-    const existingUsers = await db.select().from(users);
-    const isFirstUser = existingUsers.length === 0;
-    
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
+  }
+
+  async createUser(userData: InsertUser): Promise<User> {
+    const hashedPassword = await bcrypt.hash(userData.password, 10);
     const [user] = await db
       .insert(users)
       .values({
         ...userData,
-        role: isFirstUser ? 'super_admin' : undefined,
-      })
-      .onConflictDoUpdate({
-        target: users.id,
-        set: {
-          ...userData,
-          updatedAt: new Date(),
-        },
+        password: hashedPassword,
       })
       .returning();
     return user;
@@ -367,13 +366,35 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(users).orderBy(users.createdAt);
   }
 
-  async updateUserRole(id: string, role: 'super_admin' | 'owner', ownerId?: number): Promise<User | undefined> {
+  async updateUser(id: string, data: Partial<InsertUser>): Promise<User | undefined> {
+    const updateData: any = { ...data, updatedAt: new Date() };
+    if (data.password) {
+      updateData.password = await bcrypt.hash(data.password, 10);
+    }
     const [updated] = await db
       .update(users)
-      .set({ role, ownerId, updatedAt: new Date() })
+      .set(updateData)
       .where(eq(users.id, id))
       .returning();
     return updated;
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    await db.delete(users).where(eq(users.id, id));
+  }
+
+  async initSuperAdmin(): Promise<void> {
+    const existingAdmin = await this.getUserByUsername('super_admin');
+    if (!existingAdmin) {
+      await this.createUser({
+        username: 'super_admin',
+        password: 'Empower01#',
+        firstName: 'Super',
+        lastName: 'Admin',
+        role: 'super_admin',
+      });
+      console.log('Super Admin account created');
+    }
   }
 }
 

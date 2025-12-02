@@ -5,10 +5,11 @@ import { db } from "./db";
 import { 
   owners, shops, tenants, leases, rentInvoices, payments, bankDeposits, expenses,
   insertOwnerSchema, insertShopSchema, insertTenantSchema, insertLeaseSchema,
-  insertPaymentSchema, insertBankDepositSchema, insertExpenseSchema
+  insertPaymentSchema, insertBankDepositSchema, insertExpenseSchema,
+  insertUserSchema
 } from "@shared/schema";
 import { eq, desc, sql, and, gte, lte } from "drizzle-orm";
-import { setupAuth, isAuthenticated, requireSuperAdmin, requireOwnerOrAdmin } from "./replitAuth";
+import { setupAuth, isAuthenticated, requireSuperAdmin, requireOwnerOrAdmin } from "./auth";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -18,50 +19,84 @@ export async function registerRoutes(
   // Setup authentication
   await setupAuth(app);
 
-  // ===== AUTH ROUTES =====
-  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
-      if (!user) {
-        return res.status(404).json({ message: "User not found" });
-      }
-      
-      // If user is an owner, include owner details
-      let ownerDetails = null;
-      if (user.ownerId) {
-        ownerDetails = await storage.getOwner(user.ownerId);
-      }
-      
-      res.json({ ...user, ownerDetails });
-    } catch (error) {
-      console.error("Error fetching user:", error);
-      res.status(500).json({ message: "Failed to fetch user" });
-    }
-  });
-
-  // Get all users (Super Admin only)
+  // ===== USER MANAGEMENT (Super Admin only) =====
+  
+  // Get all users
   app.get('/api/users', isAuthenticated, requireSuperAdmin, async (req: Request, res: Response) => {
     try {
       const users = await storage.getUsers();
-      res.json(users);
+      const usersWithOwners = await Promise.all(users.map(async (user) => {
+        let ownerDetails = null;
+        if (user.ownerId) {
+          ownerDetails = await storage.getOwner(user.ownerId);
+        }
+        const { password: _, ...userWithoutPassword } = user;
+        return { ...userWithoutPassword, ownerDetails };
+      }));
+      res.json(usersWithOwners);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  // Update user role (Super Admin only)
-  app.patch('/api/users/:id/role', isAuthenticated, requireSuperAdmin, async (req: Request, res: Response) => {
+  // Create new user (Owner account)
+  app.post('/api/users', isAuthenticated, requireSuperAdmin, async (req: Request, res: Response) => {
     try {
-      const { role, ownerId } = req.body;
-      if (!['super_admin', 'owner'].includes(role)) {
-        return res.status(400).json({ message: "Invalid role" });
+      const data = insertUserSchema.parse(req.body);
+      
+      // Check if username already exists
+      const existingUser = await storage.getUserByUsername(data.username);
+      if (existingUser) {
+        return res.status(400).json({ message: "Username already exists" });
       }
-      const user = await storage.updateUserRole(req.params.id, role, ownerId);
+      
+      const user = await storage.createUser(data);
+      const { password: _, ...userWithoutPassword } = user;
+      res.status(201).json(userWithoutPassword);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // Update user
+  app.patch('/api/users/:id', isAuthenticated, requireSuperAdmin, async (req: Request, res: Response) => {
+    try {
+      const { username, password, email, firstName, lastName, phone, role, ownerId } = req.body;
+      
+      // Check if username is being changed and if it already exists
+      if (username) {
+        const existingUser = await storage.getUserByUsername(username);
+        if (existingUser && existingUser.id !== req.params.id) {
+          return res.status(400).json({ message: "Username already exists" });
+        }
+      }
+      
+      const user = await storage.updateUser(req.params.id, {
+        username, password, email, firstName, lastName, phone, role, ownerId
+      });
+      
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
-      res.json(user);
+      
+      const { password: _, ...userWithoutPassword } = user;
+      res.json(userWithoutPassword);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Delete user
+  app.delete('/api/users/:id', isAuthenticated, requireSuperAdmin, async (req: Request, res: Response) => {
+    try {
+      // Prevent deleting super_admin
+      const user = await storage.getUser(req.params.id);
+      if (user?.username === 'super_admin') {
+        return res.status(400).json({ message: "Cannot delete the main Super Admin account" });
+      }
+      
+      await storage.deleteUser(req.params.id);
+      res.status(204).send();
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

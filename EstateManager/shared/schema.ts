@@ -46,10 +46,12 @@ export const ownersRelations = relations(owners, ({ many }) => ({
 // Users table with roles - for authentication
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  email: varchar("email").unique(),
+  username: varchar("username").unique().notNull(),
+  password: varchar("password").notNull(),
+  email: varchar("email"),
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
-  profileImageUrl: varchar("profile_image_url"),
+  phone: varchar("phone"),
   role: userRoleEnum("role").notNull().default('owner'),
   ownerId: integer("owner_id").references(() => owners.id),
   createdAt: timestamp("created_at").defaultNow(),
@@ -233,10 +235,11 @@ export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true,
 export const insertBankDepositSchema = createInsertSchema(bankDeposits).omit({ id: true, createdAt: true });
 export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true, createdAt: true });
 export const insertSettingSchema = createInsertSchema(settings).omit({ id: true, updatedAt: true });
+export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true, updatedAt: true });
 
-// User types for Replit Auth
+// User types
 export type User = typeof users.$inferSelect;
-export type UpsertUser = typeof users.$inferInsert;
+export type InsertUser = z.infer<typeof insertUserSchema>;
 export type UserRole = 'super_admin' | 'owner';
 
 // Types
