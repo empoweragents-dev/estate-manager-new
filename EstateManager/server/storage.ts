@@ -386,9 +386,21 @@ export class DatabaseStorage implements IStorage {
   async initSuperAdmin(): Promise<void> {
     const existingAdmin = await this.getUserByUsername('super_admin');
     if (!existingAdmin) {
+      const adminPassword = process.env.SUPER_ADMIN_PASSWORD;
+      const adminUsername = process.env.SUPER_ADMIN_USERNAME || 'super_admin';
+      
+      if (!adminPassword) {
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error('SUPER_ADMIN_PASSWORD environment variable is required in production');
+        }
+        console.log('Warning: SUPER_ADMIN_PASSWORD not set. Super Admin account not created.');
+        console.log('Please set SUPER_ADMIN_PASSWORD and SUPER_ADMIN_USERNAME (optional) environment variables.');
+        return;
+      }
+      
       await this.createUser({
-        username: 'super_admin',
-        password: 'Empower01#',
+        username: adminUsername,
+        password: adminPassword,
         firstName: 'Super',
         lastName: 'Admin',
         role: 'super_admin',
