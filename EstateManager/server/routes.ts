@@ -1478,5 +1478,183 @@ export async function registerRoutes(
     }
   });
 
+  // ===== OWNER-TENANT DETAILS REPORT =====
+  app.get("/api/reports/owner-tenant-details", async (req: Request, res: Response) => {
+    try {
+      const { ownerId, tenantId, shopId, month, year, page = '1', limit = '20' } = req.query;
+      
+      const pageNum = parseInt(page as string);
+      const limitNum = parseInt(limit as string);
+      const currentDate = new Date();
+      const reportMonth = month ? parseInt(month as string) : currentDate.getMonth() + 1;
+      const reportYear = year ? parseInt(year as string) : currentDate.getFullYear();
+      
+      // Get all data needed
+      const allOwners = await storage.getOwners();
+      const allShops = await storage.getShops();
+      const allTenants = await storage.getTenants();
+      const allLeases = await storage.getLeases();
+      const allPayments = await storage.getPayments();
+      const allInvoices = await storage.getRentInvoices();
+      
+      // Filter shops by owner if specified
+      let filteredShops = allShops;
+      if (ownerId && ownerId !== 'all') {
+        filteredShops = allShops.filter(s => s.ownerId === parseInt(ownerId as string));
+      }
+      
+      // Filter by specific shop if specified
+      if (shopId && shopId !== 'all') {
+        filteredShops = filteredShops.filter(s => s.id === parseInt(shopId as string));
+      }
+      
+      // Get active leases for filtered shops
+      let activeLeases = allLeases.filter(l => 
+        (l.status === 'active' || l.status === 'expiring_soon') &&
+        filteredShops.some(s => s.id === l.shopId)
+      );
+      
+      // Filter by tenant if specified
+      if (tenantId && tenantId !== 'all') {
+        activeLeases = activeLeases.filter(l => l.tenantId === parseInt(tenantId as string));
+      }
+      
+      // Build report data
+      const reportData = [];
+      
+      for (const lease of activeLeases) {
+        const tenant = allTenants.find(t => t.id === lease.tenantId);
+        const shop = allShops.find(s => s.id === lease.shopId);
+        const owner = shop?.ownerId ? allOwners.find(o => o.id === shop.ownerId) : null;
+        
+        if (!tenant || !shop) continue;
+        
+        // Get invoices for this lease
+        const leaseInvoices = allInvoices.filter(inv => inv.leaseId === lease.id);
+        
+        // Get payments for this tenant's lease
+        const leasePayments = allPayments.filter(p => p.leaseId === lease.id);
+        
+        // Calculate current month's due
+        const currentMonthInvoice = leaseInvoices.find(inv => 
+          inv.month === reportMonth && inv.year === reportYear
+        );
+        const currentMonthDue = currentMonthInvoice ? parseFloat(currentMonthInvoice.amount) : 0;
+        
+        // Calculate current month's payments
+        const currentMonthPayments = leasePayments.filter(p => {
+          const pDate = new Date(p.paymentDate);
+          return pDate.getMonth() + 1 === reportMonth && pDate.getFullYear() === reportYear;
+        });
+        const currentMonthPaid = currentMonthPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const currentRentDue = Math.max(0, currentMonthDue - currentMonthPaid);
+        
+        // Calculate previous rent due (all dues before current month)
+        const previousInvoices = leaseInvoices.filter(inv => 
+          inv.year < reportYear || (inv.year === reportYear && inv.month < reportMonth)
+        );
+        const previousInvoiceTotal = previousInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+        
+        // Get all payments before current month
+        const previousPayments = leasePayments.filter(p => {
+          const pDate = new Date(p.paymentDate);
+          return pDate.getFullYear() < reportYear || 
+                 (pDate.getFullYear() === reportYear && pDate.getMonth() + 1 < reportMonth);
+        });
+        const previousPaid = previousPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        
+        // Add opening balance to previous due
+        const openingBalance = parseFloat(tenant.openingDueBalance || '0');
+        const previousRentDue = Math.max(0, openingBalance + previousInvoiceTotal - previousPaid);
+        
+        // Get most recent payment
+        const sortedPayments = [...leasePayments].sort((a, b) => 
+          new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime()
+        );
+        const recentPayment = sortedPayments[0];
+        
+        reportData.push({
+          leaseId: lease.id,
+          ownerId: owner?.id,
+          ownerName: owner?.name || 'Common',
+          shopId: shop.id,
+          shopLocation: `${shop.shopNumber} - ${shop.floor === 'ground' ? 'Ground' : shop.floor === 'first' ? '1st' : '2nd'} Floor`,
+          tenantId: tenant.id,
+          tenantName: tenant.name,
+          phone: tenant.phone,
+          monthlyRent: parseFloat(lease.monthlyRent),
+          recentPaymentAmount: recentPayment ? parseFloat(recentPayment.amount) : 0,
+          recentPaymentDate: recentPayment?.paymentDate || null,
+          currentRentDue,
+          previousRentDue,
+        });
+      }
+      
+      // Sort by owner name, then shop number
+      reportData.sort((a, b) => {
+        if (a.ownerName !== b.ownerName) {
+          return a.ownerName.localeCompare(b.ownerName);
+        }
+        return a.shopLocation.localeCompare(b.shopLocation);
+      });
+      
+      // Calculate totals
+      const totals = {
+        totalCurrentRentDue: reportData.reduce((sum, r) => sum + r.currentRentDue, 0),
+        totalPreviousRentDue: reportData.reduce((sum, r) => sum + r.previousRentDue, 0),
+        totalMonthlyRent: reportData.reduce((sum, r) => sum + r.monthlyRent, 0),
+        totalRecentPayments: reportData.reduce((sum, r) => sum + r.recentPaymentAmount, 0),
+      };
+      
+      // Calculate total received for selected period
+      let periodPayments = allPayments;
+      if (ownerId && ownerId !== 'all') {
+        const ownerShopIds = filteredShops.map(s => s.id);
+        const ownerLeaseIds = allLeases.filter(l => ownerShopIds.includes(l.shopId)).map(l => l.id);
+        periodPayments = allPayments.filter(p => ownerLeaseIds.includes(p.leaseId));
+      }
+      
+      const periodReceivedPayments = periodPayments.filter(p => {
+        const pDate = new Date(p.paymentDate);
+        return pDate.getMonth() + 1 === reportMonth && pDate.getFullYear() === reportYear;
+      });
+      totals.totalRecentPayments = periodReceivedPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      
+      // Paginate results
+      const totalRecords = reportData.length;
+      const totalPages = Math.ceil(totalRecords / limitNum);
+      const startIndex = (pageNum - 1) * limitNum;
+      const paginatedData = reportData.slice(startIndex, startIndex + limitNum);
+      
+      // Get owner info for header
+      const selectedOwner = ownerId && ownerId !== 'all' 
+        ? allOwners.find(o => o.id === parseInt(ownerId as string))
+        : null;
+      
+      res.json({
+        data: paginatedData,
+        allData: reportData, // For PDF export
+        totals,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          totalRecords,
+          totalPages,
+        },
+        filters: {
+          ownerId: ownerId || 'all',
+          ownerName: selectedOwner?.name || 'All Owners',
+          tenantId: tenantId || 'all',
+          shopId: shopId || 'all',
+          month: reportMonth,
+          year: reportYear,
+        },
+        reportDate: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   return httpServer;
 }
