@@ -1,0 +1,1087 @@
+import type { Express, Request, Response } from "express";
+import { createServer, type Server } from "http";
+import { storage } from "./storage";
+import { db } from "./db";
+import { 
+  owners, shops, tenants, leases, rentInvoices, payments, bankDeposits, expenses,
+  insertOwnerSchema, insertShopSchema, insertTenantSchema, insertLeaseSchema,
+  insertPaymentSchema, insertBankDepositSchema, insertExpenseSchema
+} from "@shared/schema";
+import { eq, desc, sql, and, gte, lte } from "drizzle-orm";
+
+export async function registerRoutes(
+  httpServer: Server,
+  app: Express
+): Promise<Server> {
+
+  // ===== OWNERS =====
+  app.get("/api/owners", async (req: Request, res: Response) => {
+    try {
+      const allOwners = await storage.getOwners();
+      
+      // Get shop counts for each owner
+      const ownersWithStats = await Promise.all(allOwners.map(async (owner) => {
+        const ownerShops = await db.select().from(shops).where(eq(shops.ownerId, owner.id));
+        
+        return {
+          ...owner,
+          shopCount: ownerShops.length,
+        };
+      }));
+      
+      res.json(ownersWithStats);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/owners/:id", async (req: Request, res: Response) => {
+    try {
+      const owner = await storage.getOwner(parseInt(req.params.id));
+      if (!owner) return res.status(404).json({ message: "Owner not found" });
+      res.json(owner);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/owners", async (req: Request, res: Response) => {
+    try {
+      const data = insertOwnerSchema.parse(req.body);
+      const owner = await storage.createOwner(data);
+      res.status(201).json(owner);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/owners/:id", async (req: Request, res: Response) => {
+    try {
+      const owner = await storage.updateOwner(parseInt(req.params.id), req.body);
+      if (!owner) return res.status(404).json({ message: "Owner not found" });
+      res.json(owner);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/owners/:id", async (req: Request, res: Response) => {
+    try {
+      await storage.deleteOwner(parseInt(req.params.id));
+      res.status(204).send();
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== SHOPS =====
+  app.get("/api/shops", async (req: Request, res: Response) => {
+    try {
+      const allShops = await storage.getShops();
+      
+      // Get owner details for each shop
+      const shopsWithOwners = await Promise.all(allShops.map(async (shop) => {
+        let owner = null;
+        if (shop.ownerId) {
+          owner = await storage.getOwner(shop.ownerId);
+        }
+        return { ...shop, owner };
+      }));
+      
+      res.json(shopsWithOwners);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/shops/:id", async (req: Request, res: Response) => {
+    try {
+      const shop = await storage.getShop(parseInt(req.params.id));
+      if (!shop) return res.status(404).json({ message: "Shop not found" });
+      
+      let owner = null;
+      if (shop.ownerId) {
+        owner = await storage.getOwner(shop.ownerId);
+      }
+      
+      res.json({ ...shop, owner });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/shops", async (req: Request, res: Response) => {
+    try {
+      const data = insertShopSchema.parse(req.body);
+      const shop = await storage.createShop(data);
+      res.status(201).json(shop);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/shops/:id", async (req: Request, res: Response) => {
+    try {
+      const shop = await storage.updateShop(parseInt(req.params.id), req.body);
+      if (!shop) return res.status(404).json({ message: "Shop not found" });
+      res.json(shop);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/shops/:id", async (req: Request, res: Response) => {
+    try {
+      await storage.deleteShop(parseInt(req.params.id));
+      res.status(204).send();
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== TENANTS =====
+  app.get("/api/tenants", async (req: Request, res: Response) => {
+    try {
+      const allTenants = await storage.getTenants();
+      
+      // Calculate dues for each tenant
+      const tenantsWithDues = await Promise.all(allTenants.map(async (tenant) => {
+        const invoices = await storage.getRentInvoicesByTenant(tenant.id);
+        const tenantPayments = await storage.getPaymentsByTenant(tenant.id);
+        
+        const totalInvoices = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+        const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const openingBalance = parseFloat(tenant.openingDueBalance);
+        
+        const totalDue = openingBalance + totalInvoices;
+        const currentDue = totalDue - totalPaid;
+        
+        // Build monthly breakdown
+        const monthlyDues: { [key: string]: number } = {};
+        invoices.forEach(inv => {
+          const key = `${inv.year}-${String(inv.month).padStart(2, '0')}`;
+          monthlyDues[key] = (monthlyDues[key] || 0) + parseFloat(inv.amount);
+        });
+        
+        return {
+          ...tenant,
+          totalDue,
+          totalPaid,
+          currentDue: Math.max(0, currentDue),
+          monthlyDues,
+        };
+      }));
+      
+      res.json(tenantsWithDues);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/tenants/with-leases", async (req: Request, res: Response) => {
+    try {
+      const allTenants = await storage.getTenants();
+      
+      const tenantsWithLeases = await Promise.all(allTenants.map(async (tenant) => {
+        const tenantLeases = await storage.getLeasesByTenant(tenant.id);
+        const leasesWithShops = await Promise.all(tenantLeases.map(async (lease) => {
+          const shop = await storage.getShop(lease.shopId);
+          return { ...lease, shop: shop ? { shopNumber: shop.shopNumber, floor: shop.floor } : null };
+        }));
+        return { ...tenant, leases: leasesWithShops };
+      }));
+      
+      res.json(tenantsWithLeases);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/tenants/:id", async (req: Request, res: Response) => {
+    try {
+      const tenant = await storage.getTenant(parseInt(req.params.id));
+      if (!tenant) return res.status(404).json({ message: "Tenant not found" });
+      
+      // Get leases with shop details
+      const tenantLeases = await storage.getLeasesByTenant(tenant.id);
+      const leasesWithShops = await Promise.all(tenantLeases.map(async (lease) => {
+        const shop = await storage.getShop(lease.shopId);
+        return { ...lease, shop: shop ? { shopNumber: shop.shopNumber, floor: shop.floor } : null };
+      }));
+      
+      // Get payments
+      const tenantPayments = await storage.getPaymentsByTenant(tenant.id);
+      
+      // Get invoices
+      const invoices = await storage.getRentInvoicesByTenant(tenant.id);
+      
+      // Calculate totals
+      const totalInvoices = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+      const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      const openingBalance = parseFloat(tenant.openingDueBalance);
+      const totalDue = openingBalance + totalInvoices;
+      const currentDue = Math.max(0, totalDue - totalPaid);
+      
+      // Build ledger entries
+      const ledgerEntries: any[] = [];
+      let runningBalance = 0;
+      
+      // Add opening balance first
+      if (openingBalance > 0) {
+        runningBalance = openingBalance;
+        ledgerEntries.push({
+          id: 0,
+          date: tenant.createdAt,
+          type: 'opening',
+          description: 'Opening Due Balance',
+          debit: openingBalance,
+          credit: 0,
+          balance: runningBalance,
+        });
+      }
+      
+      // Combine invoices and payments, sort by date
+      const allEntries: { date: Date | string; type: string; amount: number; description: string }[] = [];
+      
+      invoices.forEach(inv => {
+        allEntries.push({
+          date: inv.dueDate,
+          type: 'rent',
+          amount: parseFloat(inv.amount),
+          description: `Rent for ${inv.month}/${inv.year}`,
+        });
+      });
+      
+      tenantPayments.forEach(p => {
+        allEntries.push({
+          date: p.paymentDate,
+          type: 'payment',
+          amount: parseFloat(p.amount),
+          description: p.receiptNumber ? `Payment (${p.receiptNumber})` : 'Payment Received',
+        });
+      });
+      
+      // Sort by date
+      allEntries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      
+      // Build ledger with running balance
+      allEntries.forEach((entry, idx) => {
+        if (entry.type === 'rent') {
+          runningBalance += entry.amount;
+          ledgerEntries.push({
+            id: idx + 1,
+            date: entry.date,
+            type: 'rent',
+            description: entry.description,
+            debit: entry.amount,
+            credit: 0,
+            balance: runningBalance,
+          });
+        } else {
+          runningBalance -= entry.amount;
+          ledgerEntries.push({
+            id: idx + 1,
+            date: entry.date,
+            type: 'payment',
+            description: entry.description,
+            debit: 0,
+            credit: entry.amount,
+            balance: runningBalance,
+          });
+        }
+      });
+      
+      res.json({
+        ...tenant,
+        leases: leasesWithShops,
+        payments: tenantPayments,
+        ledgerEntries,
+        totalDue,
+        totalPaid,
+        currentDue,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/tenants", async (req: Request, res: Response) => {
+    try {
+      const data = insertTenantSchema.parse(req.body);
+      const tenant = await storage.createTenant(data);
+      res.status(201).json(tenant);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/tenants/:id", async (req: Request, res: Response) => {
+    try {
+      const tenant = await storage.updateTenant(parseInt(req.params.id), req.body);
+      if (!tenant) return res.status(404).json({ message: "Tenant not found" });
+      res.json(tenant);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/tenants/:id", async (req: Request, res: Response) => {
+    try {
+      await storage.deleteTenant(parseInt(req.params.id));
+      res.status(204).send();
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== LEASES =====
+  app.get("/api/leases", async (req: Request, res: Response) => {
+    try {
+      const allLeases = await storage.getLeases();
+      
+      // Update lease statuses and get details
+      const leasesWithDetails = await Promise.all(allLeases.map(async (lease) => {
+        const tenant = await storage.getTenant(lease.tenantId);
+        const shop = await storage.getShop(lease.shopId);
+        let owner = null;
+        if (shop?.ownerId) {
+          owner = await storage.getOwner(shop.ownerId);
+        }
+        
+        // Check and update status
+        const today = new Date();
+        const endDate = new Date(lease.endDate);
+        const thirtyDaysFromNow = new Date();
+        thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+        
+        let newStatus = lease.status;
+        if (lease.status !== 'terminated') {
+          if (endDate < today) {
+            newStatus = 'expired';
+          } else if (endDate <= thirtyDaysFromNow) {
+            newStatus = 'expiring_soon';
+          } else {
+            newStatus = 'active';
+          }
+          
+          if (newStatus !== lease.status) {
+            await storage.updateLease(lease.id, { status: newStatus });
+          }
+        }
+        
+        return {
+          ...lease,
+          status: newStatus,
+          tenant,
+          shop: shop ? { ...shop, owner } : null,
+        };
+      }));
+      
+      res.json(leasesWithDetails);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/leases/:id", async (req: Request, res: Response) => {
+    try {
+      const lease = await storage.getLease(parseInt(req.params.id));
+      if (!lease) return res.status(404).json({ message: "Lease not found" });
+      
+      const tenant = await storage.getTenant(lease.tenantId);
+      const shop = await storage.getShop(lease.shopId);
+      
+      res.json({ ...lease, tenant, shop });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/leases", async (req: Request, res: Response) => {
+    try {
+      const data = insertLeaseSchema.parse(req.body);
+      const lease = await storage.createLease(data);
+      
+      // Generate rent invoices for the lease period
+      const startDate = new Date(data.startDate);
+      const endDate = new Date(data.endDate);
+      let currentDate = new Date(startDate);
+      
+      while (currentDate <= endDate) {
+        const month = currentDate.getMonth() + 1;
+        const year = currentDate.getFullYear();
+        const dueDate = new Date(year, month - 1, 1);
+        
+        await storage.createRentInvoice({
+          leaseId: lease.id,
+          tenantId: data.tenantId,
+          amount: data.monthlyRent,
+          dueDate: dueDate.toISOString().split('T')[0],
+          month,
+          year,
+          isPaid: false,
+        });
+        
+        currentDate.setMonth(currentDate.getMonth() + 1);
+      }
+      
+      res.status(201).json(lease);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/leases/:id/settlement", async (req: Request, res: Response) => {
+    try {
+      const leaseId = parseInt(req.params.id);
+      const lease = await storage.getLease(leaseId);
+      if (!lease) return res.status(404).json({ message: "Lease not found" });
+      
+      const tenant = await storage.getTenant(lease.tenantId);
+      const shop = await storage.getShop(lease.shopId);
+      const invoices = await storage.getRentInvoicesByTenant(lease.tenantId);
+      const tenantPayments = await storage.getPaymentsByTenant(lease.tenantId);
+      
+      // Calculate all dues
+      const openingBalance = parseFloat(tenant?.openingDueBalance || '0');
+      const totalInvoices = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+      const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      const totalDue = openingBalance + totalInvoices;
+      const currentDue = Math.max(0, totalDue - totalPaid);
+      
+      // Calculate security deposit adjustment
+      const securityDeposit = parseFloat(lease.securityDeposit);
+      const securityDepositUsed = Math.min(currentDue, securityDeposit);
+      const finalSettledAmount = currentDue - securityDepositUsed;
+      const remainingSecurityDeposit = securityDeposit - securityDepositUsed;
+      
+      res.json({
+        leaseId: lease.id,
+        tenantName: tenant?.name,
+        shopNumber: shop?.shopNumber,
+        floor: shop?.floor,
+        startDate: lease.startDate,
+        endDate: lease.endDate,
+        monthlyRent: lease.monthlyRent,
+        openingBalance,
+        totalInvoices,
+        totalPaid,
+        totalDue,
+        currentDue,
+        securityDeposit,
+        securityDepositUsed,
+        finalSettledAmount,
+        remainingSecurityDeposit,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/leases/:id/terminate", async (req: Request, res: Response) => {
+    try {
+      const leaseId = parseInt(req.params.id);
+      const lease = await storage.getLease(leaseId);
+      if (!lease) return res.status(404).json({ message: "Lease not found" });
+      
+      // Calculate tenant's current due
+      const invoices = await storage.getRentInvoicesByTenant(lease.tenantId);
+      const tenantPayments = await storage.getPaymentsByTenant(lease.tenantId);
+      const tenant = await storage.getTenant(lease.tenantId);
+      
+      const totalInvoices = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+      const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      const openingBalance = parseFloat(tenant?.openingDueBalance || '0');
+      const currentDue = Math.max(0, openingBalance + totalInvoices - totalPaid);
+      
+      // Deduct from security deposit if tenant has due
+      const securityDepositUsed = Math.min(currentDue, parseFloat(lease.securityDeposit)).toString();
+      
+      // Update lease with security deposit used and terminate
+      const [updated] = await db.update(leases)
+        .set({ 
+          status: 'terminated',
+          securityDepositUsed: securityDepositUsed,
+        })
+        .where(eq(leases.id, leaseId))
+        .returning();
+      
+      // Update shop status to vacant
+      const shop = await storage.getShop(lease.shopId);
+      if (shop) {
+        await storage.updateShop(shop.id, { status: 'vacant' });
+      }
+      
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== PAYMENTS =====
+  app.get("/api/payments", async (req: Request, res: Response) => {
+    try {
+      const allPayments = await storage.getPayments();
+      
+      const paymentsWithDetails = await Promise.all(allPayments.map(async (payment) => {
+        const tenant = await storage.getTenant(payment.tenantId);
+        const lease = await storage.getLease(payment.leaseId);
+        let shop = null;
+        if (lease) {
+          shop = await storage.getShop(lease.shopId);
+        }
+        return { ...payment, tenant, lease: lease ? { ...lease, shop: shop ? { shopNumber: shop.shopNumber, floor: shop.floor } : null } : null };
+      }));
+      
+      res.json(paymentsWithDetails);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/payments", async (req: Request, res: Response) => {
+    try {
+      const data = insertPaymentSchema.parse(req.body);
+      const payment = await storage.createPayment(data);
+      res.status(201).json(payment);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/payments/:id", async (req: Request, res: Response) => {
+    try {
+      await storage.deletePayment(parseInt(req.params.id));
+      res.status(204).send();
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== BANK DEPOSITS =====
+  app.get("/api/bank-deposits", async (req: Request, res: Response) => {
+    try {
+      const allDeposits = await storage.getBankDeposits();
+      
+      const depositsWithOwners = await Promise.all(allDeposits.map(async (deposit) => {
+        const owner = await storage.getOwner(deposit.ownerId);
+        return { ...deposit, owner };
+      }));
+      
+      res.json(depositsWithOwners);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/bank-deposits", async (req: Request, res: Response) => {
+    try {
+      const data = insertBankDepositSchema.parse(req.body);
+      const deposit = await storage.createBankDeposit(data);
+      res.status(201).json(deposit);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/bank-deposits/:id", async (req: Request, res: Response) => {
+    try {
+      await storage.deleteBankDeposit(parseInt(req.params.id));
+      res.status(204).send();
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== EXPENSES =====
+  app.get("/api/expenses", async (req: Request, res: Response) => {
+    try {
+      const allExpenses = await storage.getExpenses();
+      
+      const expensesWithOwners = await Promise.all(allExpenses.map(async (expense) => {
+        let owner = null;
+        if (expense.ownerId) {
+          owner = await storage.getOwner(expense.ownerId);
+        }
+        return { ...expense, owner };
+      }));
+      
+      res.json(expensesWithOwners);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/expenses", async (req: Request, res: Response) => {
+    try {
+      const data = insertExpenseSchema.parse(req.body);
+      const expense = await storage.createExpense(data);
+      res.status(201).json(expense);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/expenses/:id", async (req: Request, res: Response) => {
+    try {
+      await storage.deleteExpense(parseInt(req.params.id));
+      res.status(204).send();
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== INVOICE GENERATION =====
+  app.post("/api/invoices/generate-monthly", async (req: Request, res: Response) => {
+    try {
+      const today = new Date();
+      const currentMonth = today.getMonth() + 1;
+      const currentYear = today.getFullYear();
+      
+      const allLeases = await storage.getLeases();
+      let generatedCount = 0;
+      const failed = [];
+      
+      for (const lease of allLeases) {
+        try {
+          if (lease.status === 'terminated') continue;
+          
+          const startDate = new Date(lease.startDate);
+          const endDate = new Date(lease.endDate);
+          
+          // Check if current month falls within lease period
+          if (startDate.getFullYear() > currentYear || 
+              (startDate.getFullYear() === currentYear && startDate.getMonth() + 1 > currentMonth)) {
+            continue; // Lease hasn't started yet
+          }
+          
+          if (endDate.getFullYear() < currentYear || 
+              (endDate.getFullYear() === currentYear && endDate.getMonth() + 1 < currentMonth)) {
+            continue; // Lease has ended
+          }
+          
+          // Check if invoice already exists for this month and lease
+          const existingInvoices = await storage.getRentInvoicesByTenant(lease.tenantId);
+          const invoiceExists = existingInvoices.some(inv => 
+            inv.month === currentMonth && inv.year === currentYear && inv.leaseId === lease.id
+          );
+          
+          if (!invoiceExists) {
+            const dueDate = new Date(currentYear, currentMonth - 1, 1);
+            await storage.createRentInvoice({
+              leaseId: lease.id,
+              tenantId: lease.tenantId,
+              amount: lease.monthlyRent,
+              dueDate: dueDate.toISOString().split('T')[0],
+              month: currentMonth,
+              year: currentYear,
+              isPaid: false,
+            });
+            generatedCount++;
+          }
+        } catch (leaseError) {
+          failed.push({ leaseId: lease.id, error: String(leaseError) });
+        }
+      }
+      
+      res.json({ 
+        message: `Generated ${generatedCount} invoices for ${currentMonth}/${currentYear}`,
+        generated: generatedCount,
+        failed: failed.length > 0 ? failed : undefined,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== SEARCH =====
+  app.get("/api/search", async (req: Request, res: Response) => {
+    try {
+      const query = req.query.q as string || req.query[0] as string || '';
+      if (query.length < 2) return res.json([]);
+      
+      const results = await storage.search(query);
+      res.json(results);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== DASHBOARD STATS =====
+  app.get("/api/dashboard/stats", async (req: Request, res: Response) => {
+    try {
+      const allTenants = await storage.getTenants();
+      const allShops = await storage.getShops();
+      const allLeases = await storage.getLeases();
+      const allPayments = await storage.getPayments();
+      
+      // Calculate total dues
+      let totalDues = 0;
+      const tenantsWithDues = await Promise.all(allTenants.map(async (tenant) => {
+        const invoices = await storage.getRentInvoicesByTenant(tenant.id);
+        const tenantPayments = await storage.getPaymentsByTenant(tenant.id);
+        
+        const totalInvoices = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+        const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const openingBalance = parseFloat(tenant.openingDueBalance);
+        
+        const currentDue = Math.max(0, openingBalance + totalInvoices - totalPaid);
+        totalDues += currentDue;
+        
+        return { ...tenant, currentDue, totalDue: openingBalance + totalInvoices, totalPaid };
+      }));
+      
+      // Calculate this month's collection
+      const thisMonth = new Date();
+      const firstOfMonth = new Date(thisMonth.getFullYear(), thisMonth.getMonth(), 1);
+      const monthlyPayments = allPayments.filter(p => new Date(p.paymentDate) >= firstOfMonth);
+      const monthlyCollection = monthlyPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      
+      // Shop stats
+      const occupiedShops = allShops.filter(s => s.status === 'occupied').length;
+      const vacantShops = allShops.filter(s => s.status === 'vacant').length;
+      const occupancyRate = allShops.length > 0 ? (occupiedShops / allShops.length) * 100 : 0;
+      
+      // Expiring leases (next 30 days)
+      const thirtyDaysFromNow = new Date();
+      thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+      
+      const expiringLeases = await Promise.all(
+        allLeases
+          .filter(l => l.status === 'active' || l.status === 'expiring_soon')
+          .filter(l => new Date(l.endDate) <= thirtyDaysFromNow && new Date(l.endDate) >= new Date())
+          .slice(0, 5)
+          .map(async (lease) => {
+            const tenant = await storage.getTenant(lease.tenantId);
+            const shop = await storage.getShop(lease.shopId);
+            return { ...lease, tenant, shop };
+          })
+      );
+      
+      // Top debtors
+      const topDebtors = tenantsWithDues
+        .filter(t => t.currentDue > 0)
+        .sort((a, b) => b.currentDue - a.currentDue)
+        .slice(0, 5);
+      
+      // Recent payments
+      const recentPayments = await Promise.all(
+        allPayments.slice(0, 5).map(async (p) => {
+          const tenant = await storage.getTenant(p.tenantId);
+          return {
+            id: p.id,
+            tenantName: tenant?.name || 'Unknown',
+            amount: p.amount,
+            date: new Date(p.paymentDate).toLocaleDateString(),
+          };
+        })
+      );
+      
+      // Monthly trend (last 6 months)
+      const monthlyTrend = [];
+      for (let i = 5; i >= 0; i--) {
+        const date = new Date();
+        date.setMonth(date.getMonth() - i);
+        const month = date.toLocaleDateString('en-US', { month: 'short' });
+        const year = date.getFullYear();
+        const monthNum = date.getMonth() + 1;
+        
+        const monthStart = new Date(year, monthNum - 1, 1);
+        const monthEnd = new Date(year, monthNum, 0);
+        
+        const monthPayments = allPayments.filter(p => {
+          const pDate = new Date(p.paymentDate);
+          return pDate >= monthStart && pDate <= monthEnd;
+        });
+        
+        const collected = monthPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        
+        // Calculate expected (sum of all monthly rents for active leases)
+        const activeLeases = allLeases.filter(l => l.status === 'active' || l.status === 'expiring_soon');
+        const expected = activeLeases.reduce((sum, l) => sum + parseFloat(l.monthlyRent), 0);
+        
+        monthlyTrend.push({
+          month: `${month}`,
+          collected,
+          expected,
+        });
+      }
+      
+      // Floor occupancy
+      const floorOccupancy = [
+        { floor: 'Ground', occupied: allShops.filter(s => s.floor === 'ground' && s.status === 'occupied').length, vacant: allShops.filter(s => s.floor === 'ground' && s.status === 'vacant').length },
+        { floor: '1st', occupied: allShops.filter(s => s.floor === 'first' && s.status === 'occupied').length, vacant: allShops.filter(s => s.floor === 'first' && s.status === 'vacant').length },
+        { floor: '2nd', occupied: allShops.filter(s => s.floor === 'second' && s.status === 'occupied').length, vacant: allShops.filter(s => s.floor === 'second' && s.status === 'vacant').length },
+      ];
+      
+      res.json({
+        totalDues,
+        monthlyCollection,
+        totalShops: allShops.length,
+        occupiedShops,
+        vacantShops,
+        occupancyRate,
+        expiringLeases,
+        topDebtors,
+        recentPayments,
+        monthlyTrend,
+        floorOccupancy,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== REPORTS =====
+  app.get("/api/reports/owner-statement", async (req: Request, res: Response) => {
+    try {
+      const ownerId = parseInt(req.query.ownerId as string || req.query[0] as string || '0');
+      const startDate = req.query.startDate as string || req.query[1] as string;
+      const endDate = req.query.endDate as string || req.query[2] as string;
+      
+      if (!ownerId) return res.json(null);
+      
+      const owner = await storage.getOwner(ownerId);
+      if (!owner) return res.status(404).json({ message: "Owner not found" });
+      
+      // Get all payments for this owner's shops in date range
+      const allPayments = await storage.getPayments();
+      const allLeases = await storage.getLeases();
+      const allShops = await storage.getShops();
+      const allOwners = await storage.getOwners();
+      
+      const ownerShops = allShops.filter(s => s.ownerId === ownerId);
+      const commonShops = allShops.filter(s => s.ownershipType === 'common');
+      
+      let totalRentCollected = 0;
+      let shareFromCommonShops = 0;
+      
+      // Calculate rent from owned shops
+      for (const payment of allPayments) {
+        const paymentDate = new Date(payment.paymentDate);
+        if (startDate && paymentDate < new Date(startDate)) continue;
+        if (endDate && paymentDate > new Date(endDate)) continue;
+        
+        const lease = allLeases.find(l => l.id === payment.leaseId);
+        if (!lease) continue;
+        
+        const shop = allShops.find(s => s.id === lease.shopId);
+        if (!shop) continue;
+        
+        if (shop.ownerId === ownerId) {
+          totalRentCollected += parseFloat(payment.amount);
+        } else if (shop.ownershipType === 'common') {
+          // Split among all owners (20% each for 5 owners)
+          shareFromCommonShops += parseFloat(payment.amount) / allOwners.length;
+        }
+      }
+      
+      // Get allocated expenses
+      const allExpenses = await storage.getExpenses();
+      let allocatedExpenses = 0;
+      
+      for (const expense of allExpenses) {
+        const expenseDate = new Date(expense.expenseDate);
+        if (startDate && expenseDate < new Date(startDate)) continue;
+        if (endDate && expenseDate > new Date(endDate)) continue;
+        
+        if (expense.allocation === 'owner' && expense.ownerId === ownerId) {
+          allocatedExpenses += parseFloat(expense.amount);
+        } else if (expense.allocation === 'common') {
+          // Split among all owners
+          allocatedExpenses += parseFloat(expense.amount) / allOwners.length;
+        }
+      }
+      
+      // Get bank deposits
+      const ownerDeposits = await storage.getBankDepositsByOwner(ownerId);
+      const filteredDeposits = ownerDeposits.filter(d => {
+        const depositDate = new Date(d.depositDate);
+        if (startDate && depositDate < new Date(startDate)) return false;
+        if (endDate && depositDate > new Date(endDate)) return false;
+        return true;
+      });
+      
+      const netPayout = totalRentCollected + shareFromCommonShops - allocatedExpenses;
+      
+      res.json({
+        owner,
+        totalRentCollected,
+        shareFromCommonShops,
+        allocatedExpenses,
+        netPayout,
+        bankDeposits: filteredDeposits.map(d => ({
+          id: d.id,
+          date: d.depositDate,
+          amount: d.amount,
+          bankName: d.bankName,
+          ref: d.depositSlipRef,
+        })),
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/reports/tenant-ledger", async (req: Request, res: Response) => {
+    try {
+      const tenantId = parseInt(req.query.tenantId as string || req.query[0] as string || '0');
+      if (!tenantId) return res.json(null);
+      
+      // Reuse the tenant detail endpoint logic
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) return res.status(404).json({ message: "Tenant not found" });
+      
+      const invoices = await storage.getRentInvoicesByTenant(tenantId);
+      const tenantPayments = await storage.getPaymentsByTenant(tenantId);
+      
+      const totalInvoices = invoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+      const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      const openingBalance = parseFloat(tenant.openingDueBalance);
+      const currentDue = Math.max(0, openingBalance + totalInvoices - totalPaid);
+      
+      // Build ledger entries
+      const entries: any[] = [];
+      let runningBalance = 0;
+      
+      if (openingBalance > 0) {
+        runningBalance = openingBalance;
+        entries.push({
+          id: 0,
+          date: tenant.createdAt,
+          description: 'Opening Due Balance',
+          debit: openingBalance,
+          credit: 0,
+          balance: runningBalance,
+        });
+      }
+      
+      const allEntries: { date: Date | string; type: string; amount: number; description: string }[] = [];
+      
+      invoices.forEach(inv => {
+        allEntries.push({
+          date: inv.dueDate,
+          type: 'rent',
+          amount: parseFloat(inv.amount),
+          description: `Rent for ${inv.month}/${inv.year}`,
+        });
+      });
+      
+      tenantPayments.forEach(p => {
+        allEntries.push({
+          date: p.paymentDate,
+          type: 'payment',
+          amount: parseFloat(p.amount),
+          description: p.receiptNumber ? `Payment (${p.receiptNumber})` : 'Payment Received',
+        });
+      });
+      
+      allEntries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      
+      allEntries.forEach((entry, idx) => {
+        if (entry.type === 'rent') {
+          runningBalance += entry.amount;
+          entries.push({
+            id: idx + 1,
+            date: entry.date,
+            description: entry.description,
+            debit: entry.amount,
+            credit: 0,
+            balance: runningBalance,
+          });
+        } else {
+          runningBalance -= entry.amount;
+          entries.push({
+            id: idx + 1,
+            date: entry.date,
+            description: entry.description,
+            debit: 0,
+            credit: entry.amount,
+            balance: runningBalance,
+          });
+        }
+      });
+      
+      res.json({
+        tenant: { ...tenant, currentDue },
+        entries,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/reports/collection", async (req: Request, res: Response) => {
+    try {
+      const allPayments = await storage.getPayments();
+      const allLeases = await storage.getLeases();
+      
+      const report = [];
+      
+      for (let i = 5; i >= 0; i--) {
+        const date = new Date();
+        date.setMonth(date.getMonth() - i);
+        const month = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+        const year = date.getFullYear();
+        const monthNum = date.getMonth() + 1;
+        
+        const monthStart = new Date(year, monthNum - 1, 1);
+        const monthEnd = new Date(year, monthNum, 0);
+        
+        // Expected = sum of all active lease monthly rents
+        const activeLeases = allLeases.filter(l => {
+          const startDate = new Date(l.startDate);
+          const endDate = new Date(l.endDate);
+          return startDate <= monthEnd && endDate >= monthStart && l.status !== 'terminated';
+        });
+        const expected = activeLeases.reduce((sum, l) => sum + parseFloat(l.monthlyRent), 0);
+        
+        // Collected = sum of payments in this month
+        const monthPayments = allPayments.filter(p => {
+          const pDate = new Date(p.paymentDate);
+          return pDate >= monthStart && pDate <= monthEnd;
+        });
+        const collected = monthPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        
+        const pending = Math.max(0, expected - collected);
+        
+        report.push({ month, expected, collected, pending });
+      }
+      
+      res.json(report);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/reports/shop-availability", async (req: Request, res: Response) => {
+    try {
+      const allShops = await storage.getShops();
+      const allOwners = await storage.getOwners();
+      
+      const floors = ['ground', 'first', 'second'];
+      const availability = floors.map(floor => {
+        const floorShops = allShops.filter(s => s.floor === floor);
+        return {
+          floor,
+          shops: floorShops.map(s => {
+            const owner = allOwners.find(o => o.id === s.ownerId);
+            return {
+              id: s.id,
+              shopNumber: s.shopNumber,
+              status: s.status,
+              ownershipType: s.ownershipType,
+              ownerName: owner?.name,
+            };
+          }),
+        };
+      });
+      
+      res.json(availability);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  return httpServer;
+}
