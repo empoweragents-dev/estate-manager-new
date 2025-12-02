@@ -35,7 +35,7 @@ localPort = 5000
 externalPort = 80
 
 [[ports]]
-localPort = 37935
+localPort = 35837
 externalPort = 3001
 
 [[ports]]
@@ -43,6 +43,6 @@ localPort = 39919
 externalPort = 3000
 
 [deployment]
-run = ["node", "EstateManager/dist/index.cjs"]
+run = ["bash", "-c", "cd EstateManager && NODE_ENV=production node dist/index.cjs"]
 deploymentTarget = "autoscale"
 build = ["bash", "-c", "cd EstateManager && npm run build"]

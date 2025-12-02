@@ -1,7 +1,7 @@
 import session from "express-session";
 import type { Express, Request, Response, NextFunction } from "express";
 import connectPg from "connect-pg-simple";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { storage } from "./storage";
 
 declare module "express-session" {

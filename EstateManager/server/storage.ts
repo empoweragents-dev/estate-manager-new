@@ -1,6 +1,6 @@
 import { eq, and, desc, sql, gte, lte, or, like, ilike } from "drizzle-orm";
 import { db } from "./db";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import {
   owners, shops, tenants, leases, rentInvoices, payments, bankDeposits, expenses, settings, users,
   type Owner, type InsertOwner,
