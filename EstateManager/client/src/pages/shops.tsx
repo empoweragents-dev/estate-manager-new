@@ -34,14 +34,13 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, Store, Edit2, Trash2, Users, Square, Building2, Layers } from "lucide-react";
+import { Plus, Store, Edit2, Trash2, Users, Building2, Layers } from "lucide-react";
 import type { Owner, ShopWithOwner } from "@shared/schema";
 import { formatFloor, getShopStatusColor } from "@/lib/currency";
 
 const shopFormSchema = z.object({
   shopNumber: z.string().min(1, "Shop number is required"),
   floor: z.enum(["ground", "first", "second"]),
-  squareFeet: z.string().optional(),
   status: z.enum(["vacant", "occupied"]),
   ownershipType: z.enum(["sole", "common"]),
   ownerId: z.string().optional(),
@@ -66,7 +65,6 @@ function ShopForm({
     defaultValues: {
       shopNumber: shop?.shopNumber ?? "",
       floor: (shop?.floor as "ground" | "first" | "second") ?? "ground",
-      squareFeet: shop?.squareFeet ?? "",
       status: (shop?.status as "vacant" | "occupied") ?? "vacant",
       ownershipType: (shop?.ownershipType as "sole" | "common") ?? "sole",
       ownerId: shop?.ownerId?.toString() ?? "",
@@ -164,43 +162,27 @@ function ShopForm({
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <FormField
-            control={form.control}
-            name="squareFeet"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Square Feet</FormLabel>
+        <FormField
+          control={form.control}
+          name="status"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Status *</FormLabel>
+              <Select onValueChange={field.onChange} defaultValue={field.value}>
                 <FormControl>
-                  <Input {...field} type="number" placeholder="e.g., 150" data-testid="input-shop-sqft" />
+                  <SelectTrigger data-testid="select-shop-status">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
                 </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="status"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Status *</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger data-testid="select-shop-status">
-                      <SelectValue placeholder="Select status" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="vacant">Vacant</SelectItem>
-                    <SelectItem value="occupied">Occupied</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
+                <SelectContent>
+                  <SelectItem value="vacant">Vacant</SelectItem>
+                  <SelectItem value="occupied">Occupied</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
 
         <FormField
           control={form.control}
@@ -318,13 +300,6 @@ function ShopCard({
             {shop.ownershipType === "common" ? "Common" : "Sole Owner"}
           </Badge>
         </div>
-
-        {shop.squareFeet && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
-            <Square className="h-4 w-4" />
-            <span>{shop.squareFeet} sq ft</span>
-          </div>
-        )}
 
         {shop.ownershipType === "sole" && shop.owner && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
