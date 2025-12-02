@@ -345,6 +345,7 @@ export default function ShopsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingShop, setEditingShop] = useState<ShopWithOwner | null>(null);
   const [selectedFloor, setSelectedFloor] = useState<string>("all");
+  const [selectedOwner, setSelectedOwner] = useState<string>("all");
   const { toast } = useToast();
 
   const { data: shops = [], isLoading } = useQuery<ShopWithOwner[]>({
@@ -378,15 +379,25 @@ export default function ShopsPage() {
     setEditingShop(null);
   };
 
-  const filteredShops = selectedFloor === "all" 
-    ? shops 
-    : shops.filter(shop => shop.floor === selectedFloor);
+  const filteredShops = shops.filter(shop => {
+    const floorMatch = selectedFloor === "all" || shop.floor === selectedFloor;
+    const ownerMatch = selectedOwner === "all" || 
+      (selectedOwner === "common" && shop.ownershipType === "common") ||
+      (shop.ownerId?.toString() === selectedOwner);
+    return floorMatch && ownerMatch;
+  });
 
   const floorStats = {
     ground: shops.filter(s => s.floor === "ground"),
     first: shops.filter(s => s.floor === "first"),
     second: shops.filter(s => s.floor === "second"),
   };
+
+  const getOwnerShopCount = (ownerId: number) => {
+    return shops.filter(s => s.ownerId === ownerId).length;
+  };
+
+  const commonShopCount = shops.filter(s => s.ownershipType === "common").length;
 
   if (isLoading) {
     return (
@@ -513,6 +524,58 @@ export default function ShopsPage() {
         </CardContent>
       </Card>
 
+      <Card className="overflow-visible">
+        <CardContent className="p-4">
+          <div className="flex items-center gap-3 mb-3">
+            <Users className="h-5 w-5 text-muted-foreground" />
+            <span className="font-medium">Filter by Owner</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant={selectedOwner === "all" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSelectedOwner("all")}
+              className="flex items-center gap-2"
+              data-testid="filter-all-owners"
+            >
+              All Owners
+              <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-xs">
+                {shops.length}
+              </Badge>
+            </Button>
+            {owners.map((owner) => (
+              <Button
+                key={owner.id}
+                variant={selectedOwner === owner.id.toString() ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSelectedOwner(owner.id.toString())}
+                className="flex items-center gap-2"
+                data-testid={`filter-owner-${owner.id}`}
+              >
+                {owner.name}
+                <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-xs">
+                  {getOwnerShopCount(owner.id)}
+                </Badge>
+              </Button>
+            ))}
+            {commonShopCount > 0 && (
+              <Button
+                variant={selectedOwner === "common" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSelectedOwner("common")}
+                className="flex items-center gap-2"
+                data-testid="filter-common-shops"
+              >
+                Common (Shared)
+                <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-xs">
+                  {commonShopCount}
+                </Badge>
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {filteredShops.map((shop) => (
           <ShopCard
@@ -529,12 +592,22 @@ export default function ShopsPage() {
               <Store className="h-12 w-12 text-muted-foreground/50 mb-4" />
               <h3 className="font-semibold mb-1">No shops found</h3>
               <p className="text-muted-foreground text-sm mb-4">
-                {selectedFloor === "all" ? "Add your first shop to get started" : `No shops on ${formatFloor(selectedFloor)}`}
+                {selectedFloor === "all" && selectedOwner === "all" 
+                  ? "Add your first shop to get started" 
+                  : `No shops matching the selected filters`}
               </p>
-              {selectedFloor === "all" && (
+              {selectedFloor === "all" && selectedOwner === "all" && (
                 <Button onClick={() => setIsDialogOpen(true)} data-testid="button-add-first-shop">
                   <Plus className="h-4 w-4 mr-2" />
                   Add Shop
+                </Button>
+              )}
+              {(selectedFloor !== "all" || selectedOwner !== "all") && (
+                <Button 
+                  variant="outline" 
+                  onClick={() => { setSelectedFloor("all"); setSelectedOwner("all"); }}
+                >
+                  Clear Filters
                 </Button>
               )}
             </CardContent>
