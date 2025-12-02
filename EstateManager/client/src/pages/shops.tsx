@@ -466,112 +466,113 @@ export default function ShopsPage() {
 
       <Card className="overflow-visible">
         <CardContent className="p-4">
-          <div className="flex items-center gap-3 mb-3">
-            <Layers className="h-5 w-5 text-muted-foreground" />
-            <span className="font-medium">Filter by Floor</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant={selectedFloor === "all" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setSelectedFloor("all")}
-              className="flex items-center gap-2"
-              data-testid="filter-all-floors"
-            >
-              <Building2 className="h-4 w-4" />
-              All Floors
-              <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-xs">
-                {shops.length}
-              </Badge>
-            </Button>
-            <Button
-              variant={selectedFloor === "ground" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setSelectedFloor("ground")}
-              className="flex items-center gap-2"
-              data-testid="filter-ground-floor"
-            >
-              Ground Floor
-              <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-xs">
-                {floorStats.ground.length}
-              </Badge>
-            </Button>
-            <Button
-              variant={selectedFloor === "first" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setSelectedFloor("first")}
-              className="flex items-center gap-2"
-              data-testid="filter-first-floor"
-            >
-              1st Floor
-              <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-xs">
-                {floorStats.first.length}
-              </Badge>
-            </Button>
-            <Button
-              variant={selectedFloor === "second" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setSelectedFloor("second")}
-              className="flex items-center gap-2"
-              data-testid="filter-second-floor"
-            >
-              2nd Floor
-              <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-xs">
-                {floorStats.second.length}
-              </Badge>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Layers className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium text-muted-foreground">Floor</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant={selectedFloor === "all" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedFloor("all")}
+                  className="h-8"
+                  data-testid="filter-all-floors"
+                >
+                  All
+                  <Badge variant="secondary" className="ml-1.5 px-1.5 py-0 text-xs">
+                    {shops.length}
+                  </Badge>
+                </Button>
+                <Button
+                  variant={selectedFloor === "ground" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedFloor("ground")}
+                  className="h-8"
+                  data-testid="filter-ground-floor"
+                >
+                  Ground
+                  <Badge variant="secondary" className="ml-1.5 px-1.5 py-0 text-xs">
+                    {floorStats.ground.length}
+                  </Badge>
+                </Button>
+                <Button
+                  variant={selectedFloor === "first" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedFloor("first")}
+                  className="h-8"
+                  data-testid="filter-first-floor"
+                >
+                  1st
+                  <Badge variant="secondary" className="ml-1.5 px-1.5 py-0 text-xs">
+                    {floorStats.first.length}
+                  </Badge>
+                </Button>
+                <Button
+                  variant={selectedFloor === "second" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedFloor("second")}
+                  className="h-8"
+                  data-testid="filter-second-floor"
+                >
+                  2nd
+                  <Badge variant="secondary" className="ml-1.5 px-1.5 py-0 text-xs">
+                    {floorStats.second.length}
+                  </Badge>
+                </Button>
+              </div>
+            </div>
 
-      <Card className="overflow-visible">
-        <CardContent className="p-4">
-          <div className="flex items-center gap-3 mb-3">
-            <Users className="h-5 w-5 text-muted-foreground" />
-            <span className="font-medium">Filter by Owner</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant={selectedOwner === "all" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setSelectedOwner("all")}
-              className="flex items-center gap-2"
-              data-testid="filter-all-owners"
-            >
-              All Owners
-              <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-xs">
-                {shops.length}
-              </Badge>
-            </Button>
-            {owners.map((owner) => (
-              <Button
-                key={owner.id}
-                variant={selectedOwner === owner.id.toString() ? "default" : "outline"}
-                size="sm"
-                onClick={() => setSelectedOwner(owner.id.toString())}
-                className="flex items-center gap-2"
-                data-testid={`filter-owner-${owner.id}`}
-              >
-                {owner.name}
-                <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-xs">
-                  {getOwnerShopCount(owner.id)}
-                </Badge>
-              </Button>
-            ))}
-            {commonShopCount > 0 && (
-              <Button
-                variant={selectedOwner === "common" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setSelectedOwner("common")}
-                className="flex items-center gap-2"
-                data-testid="filter-common-shops"
-              >
-                Common (Shared)
-                <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-xs">
-                  {commonShopCount}
-                </Badge>
-              </Button>
-            )}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium text-muted-foreground">Owner</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant={selectedOwner === "all" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedOwner("all")}
+                  className="h-8"
+                  data-testid="filter-all-owners"
+                >
+                  All
+                  <Badge variant="secondary" className="ml-1.5 px-1.5 py-0 text-xs">
+                    {shops.length}
+                  </Badge>
+                </Button>
+                {owners.map((owner) => (
+                  <Button
+                    key={owner.id}
+                    variant={selectedOwner === owner.id.toString() ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSelectedOwner(owner.id.toString())}
+                    className="h-8"
+                    data-testid={`filter-owner-${owner.id}`}
+                  >
+                    {owner.name}
+                    <Badge variant="secondary" className="ml-1.5 px-1.5 py-0 text-xs">
+                      {getOwnerShopCount(owner.id)}
+                    </Badge>
+                  </Button>
+                ))}
+                {commonShopCount > 0 && (
+                  <Button
+                    variant={selectedOwner === "common" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSelectedOwner("common")}
+                    className="h-8"
+                    data-testid="filter-common-shops"
+                  >
+                    Common
+                    <Badge variant="secondary" className="ml-1.5 px-1.5 py-0 text-xs">
+                      {commonShopCount}
+                    </Badge>
+                  </Button>
+                )}
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>

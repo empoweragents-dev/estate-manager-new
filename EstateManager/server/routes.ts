@@ -455,8 +455,64 @@ export async function registerRoutes(
       
       const tenant = await storage.getTenant(lease.tenantId);
       const shop = await storage.getShop(lease.shopId);
+      const owner = shop?.ownerId ? await storage.getOwner(shop.ownerId) : null;
       
-      res.json({ ...lease, tenant, shop });
+      // Get rent invoices for this lease
+      const allInvoices = await storage.getRentInvoices();
+      const leaseInvoices = allInvoices.filter(inv => inv.leaseId === lease.id);
+      
+      // Get payments for this tenant
+      const tenantPayments = await storage.getPaymentsByTenant(lease.tenantId);
+      const leasePayments = tenantPayments.filter(p => p.leaseId === lease.id);
+      
+      // Get expenses for this tenant - only filter if tenant exists
+      const allExpenses = await storage.getExpenses();
+      const tenantExpenses = tenant 
+        ? allExpenses.filter(exp => exp.notes?.includes(`Tenant: ${tenant.name}`) || exp.notes?.includes(`tenantId:${tenant.id}`))
+        : [];
+      
+      // Calculate outstanding per month
+      const totalPaid = leasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      const totalInvoiced = leaseInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+      const totalExpenses = tenantExpenses.reduce((sum, exp) => sum + parseFloat(exp.amount), 0);
+      
+      // Build monthly breakdown with outstanding
+      const monthlyBreakdown = leaseInvoices.map(invoice => {
+        const monthPayments = leasePayments.filter(p => {
+          const paymentDate = new Date(p.paymentDate);
+          return paymentDate.getMonth() + 1 === invoice.month && paymentDate.getFullYear() === invoice.year;
+        });
+        const paidForMonth = monthPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        return {
+          month: invoice.month,
+          year: invoice.year,
+          dueDate: invoice.dueDate,
+          rentAmount: parseFloat(invoice.amount),
+          paidAmount: paidForMonth,
+          outstanding: Math.max(0, parseFloat(invoice.amount) - paidForMonth),
+          isPaid: invoice.isPaid,
+        };
+      }).sort((a, b) => {
+        if (a.year !== b.year) return a.year - b.year;
+        return a.month - b.month;
+      });
+      
+      res.json({
+        ...lease,
+        tenant,
+        shop: shop ? { ...shop, owner } : null,
+        invoices: leaseInvoices,
+        payments: leasePayments,
+        expenses: tenantExpenses,
+        monthlyBreakdown,
+        summary: {
+          totalInvoiced,
+          totalPaid,
+          totalExpenses,
+          totalOutstanding: Math.max(0, totalInvoiced - totalPaid),
+          grandTotalOutstanding: Math.max(0, totalInvoiced + totalExpenses - totalPaid),
+        },
+      });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

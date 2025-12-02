@@ -16,6 +16,7 @@ import ShopsPage from "@/pages/shops";
 import TenantsPage from "@/pages/tenants";
 import TenantDetailPage from "@/pages/tenant-detail";
 import LeasesPage from "@/pages/leases";
+import LeaseDetailPage from "@/pages/lease-detail";
 import PaymentsPage from "@/pages/payments";
 import ExpensesPage from "@/pages/expenses";
 import BankDepositsPage from "@/pages/bank-deposits";
@@ -30,6 +31,7 @@ function Router() {
       <Route path="/tenants" component={TenantsPage} />
       <Route path="/tenants/:id" component={TenantDetailPage} />
       <Route path="/leases" component={LeasesPage} />
+      <Route path="/leases/:id" component={LeaseDetailPage} />
       <Route path="/payments" component={PaymentsPage} />
       <Route path="/expenses" component={ExpensesPage} />
       <Route path="/bank-deposits" component={BankDepositsPage} />
