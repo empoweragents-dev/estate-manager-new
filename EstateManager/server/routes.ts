@@ -197,6 +197,71 @@ export async function registerRoutes(
     }
   });
 
+  // ===== TENANTS BY OWNER FILTER ===== (Must be before /api/tenants/:id to avoid route conflict)
+  app.get("/api/tenants/by-owner", async (req: Request, res: Response) => {
+    try {
+      const ownerIds = req.query.ownerIds as string;
+      
+      const allTenants = await storage.getTenants();
+      const allLeases = await storage.getLeases();
+      const allShops = await storage.getShops();
+      const allInvoices = await storage.getRentInvoices();
+      const allPayments = await storage.getPayments();
+      
+      let filteredTenants = allTenants;
+      
+      if (ownerIds && ownerIds !== 'all' && ownerIds.trim() !== '') {
+        const ownerIdList = ownerIds.split(',')
+          .map(id => parseInt(id.trim()))
+          .filter(id => !isNaN(id) && id > 0);
+        
+        if (ownerIdList.length > 0) {
+          const ownerShopIds = allShops.filter(s => s.ownerId && ownerIdList.includes(s.ownerId)).map(s => s.id);
+          const tenantIdsWithOwnerLeases = allLeases
+            .filter(l => ownerShopIds.includes(l.shopId))
+            .map(l => l.tenantId);
+          const uniqueTenantIds = [...new Set(tenantIdsWithOwnerLeases)];
+          filteredTenants = allTenants.filter(t => uniqueTenantIds.includes(t.id));
+        }
+      }
+      
+      const tenantsWithDues = await Promise.all(filteredTenants.map(async (tenant) => {
+        const tenantInvoices = allInvoices.filter(inv => inv.tenantId === tenant.id);
+        const tenantPayments = allPayments.filter(p => p.tenantId === tenant.id);
+        
+        const totalInvoices = tenantInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+        const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const openingBalance = parseFloat(tenant.openingDueBalance);
+        const totalDue = openingBalance + totalInvoices;
+        const currentDue = Math.max(0, totalDue - totalPaid);
+        
+        const monthlyDues: Record<string, number> = {};
+        let remainingDue = currentDue;
+        
+        const sortedInvoices = [...tenantInvoices].sort((a, b) => 
+          new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
+        );
+        
+        for (const inv of sortedInvoices) {
+          if (remainingDue <= 0) break;
+          const invoiceAmount = parseFloat(inv.amount);
+          const dueForThisMonth = Math.min(remainingDue, invoiceAmount);
+          if (dueForThisMonth > 0) {
+            const monthKey = `${inv.year}-${String(inv.month).padStart(2, '0')}`;
+            monthlyDues[monthKey] = dueForThisMonth;
+            remainingDue -= dueForThisMonth;
+          }
+        }
+        
+        return { ...tenant, totalDue, totalPaid, currentDue, monthlyDues };
+      }));
+      
+      res.json(tenantsWithDues);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/tenants/:id", async (req: Request, res: Response) => {
     try {
       const tenant = await storage.getTenant(parseInt(req.params.id));
@@ -1078,6 +1143,280 @@ export async function registerRoutes(
       });
       
       res.json(availability);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== MONTHLY DEPOSIT SUMMARY (By Year, By Owner) =====
+  app.get("/api/reports/monthly-deposit-summary", async (req: Request, res: Response) => {
+    try {
+      const ownerIdParam = req.query.ownerId as string;
+      const yearParam = req.query.year as string;
+      
+      const allOwners = await storage.getOwners();
+      const allPayments = await storage.getPayments();
+      const allLeases = await storage.getLeases();
+      const allShops = await storage.getShops();
+      
+      const filterYear = yearParam ? parseInt(yearParam) : null;
+      const filterOwnerId = ownerIdParam && ownerIdParam !== 'all' ? parseInt(ownerIdParam) : null;
+      
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const summaryData: {
+        ownerId: number;
+        ownerName: string;
+        year: number;
+        month: number;
+        monthName: string;
+        rentPayments: number;
+        securityDeposits: number;
+        totalDeposit: number;
+      }[] = [];
+      
+      const ownersToProcess = filterOwnerId 
+        ? allOwners.filter(o => o.id === filterOwnerId) 
+        : allOwners;
+      
+      for (const owner of ownersToProcess) {
+        const ownerShops = allShops.filter(s => s.ownerId === owner.id);
+        const ownerShopIds = ownerShops.map(s => s.id);
+        
+        const ownerLeases = allLeases.filter(l => ownerShopIds.includes(l.shopId));
+        const ownerLeaseIds = ownerLeases.map(l => l.id);
+        
+        const ownerPayments = allPayments.filter(p => ownerLeaseIds.includes(p.leaseId));
+        
+        const depositsByYearMonth: Record<string, { rent: number; security: number }> = {};
+        
+        for (const payment of ownerPayments) {
+          const paymentDate = new Date(payment.paymentDate);
+          const year = paymentDate.getFullYear();
+          const month = paymentDate.getMonth() + 1;
+          
+          if (filterYear && year !== filterYear) continue;
+          
+          const key = `${year}-${month}`;
+          if (!depositsByYearMonth[key]) {
+            depositsByYearMonth[key] = { rent: 0, security: 0 };
+          }
+          depositsByYearMonth[key].rent += parseFloat(payment.amount);
+        }
+        
+        for (const lease of ownerLeases) {
+          const leaseStartDate = new Date(lease.startDate);
+          const year = leaseStartDate.getFullYear();
+          const month = leaseStartDate.getMonth() + 1;
+          
+          if (filterYear && year !== filterYear) continue;
+          
+          const key = `${year}-${month}`;
+          if (!depositsByYearMonth[key]) {
+            depositsByYearMonth[key] = { rent: 0, security: 0 };
+          }
+          depositsByYearMonth[key].security += parseFloat(lease.securityDeposit);
+        }
+        
+        for (const [key, data] of Object.entries(depositsByYearMonth)) {
+          const [year, month] = key.split('-').map(Number);
+          summaryData.push({
+            ownerId: owner.id,
+            ownerName: owner.name,
+            year,
+            month,
+            monthName: monthNames[month - 1],
+            rentPayments: data.rent,
+            securityDeposits: data.security,
+            totalDeposit: data.rent + data.security,
+          });
+        }
+      }
+      
+      summaryData.sort((a, b) => {
+        if (a.ownerName !== b.ownerName) return a.ownerName.localeCompare(b.ownerName);
+        if (a.year !== b.year) return b.year - a.year;
+        return b.month - a.month;
+      });
+      
+      const availableYears = [...new Set(allPayments.map(p => new Date(p.paymentDate).getFullYear()))]
+        .concat([...new Set(allLeases.map(l => new Date(l.startDate).getFullYear()))])
+        .filter((v, i, a) => a.indexOf(v) === i)
+        .sort((a, b) => b - a);
+      
+      res.json({
+        data: summaryData,
+        availableYears,
+        owners: allOwners.map(o => ({ id: o.id, name: o.name })),
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== OWNER TRANSACTION DETAILS REPORT =====
+  app.get("/api/reports/owner-transactions", async (req: Request, res: Response) => {
+    try {
+      const ownerIdParam = req.query.ownerId as string;
+      const startDateParam = req.query.startDate as string;
+      const endDateParam = req.query.endDate as string;
+      
+      if (!ownerIdParam) {
+        return res.json({ transactions: [], summary: null });
+      }
+      
+      const ownerId = parseInt(ownerIdParam);
+      const owner = await storage.getOwner(ownerId);
+      if (!owner) return res.status(404).json({ message: "Owner not found" });
+      
+      const allPayments = await storage.getPayments();
+      const allLeases = await storage.getLeases();
+      const allShops = await storage.getShops();
+      const allExpenses = await storage.getExpenses();
+      const allOwners = await storage.getOwners();
+      const allTenants = await storage.getTenants();
+      
+      const ownerShops = allShops.filter(s => s.ownerId === ownerId);
+      const ownerShopIds = ownerShops.map(s => s.id);
+      const commonShops = allShops.filter(s => s.ownershipType === 'common');
+      
+      const ownerLeases = allLeases.filter(l => ownerShopIds.includes(l.shopId));
+      const ownerLeaseIds = ownerLeases.map(l => l.id);
+      const commonLeases = allLeases.filter(l => commonShops.map(s => s.id).includes(l.shopId));
+      
+      const transactions: {
+        id: number;
+        date: string;
+        description: string;
+        type: 'credit' | 'debit';
+        category: string;
+        amount: number;
+        balance: number;
+        shopNumber?: string;
+        tenantName?: string;
+      }[] = [];
+      
+      for (const payment of allPayments) {
+        const paymentDate = new Date(payment.paymentDate);
+        if (startDateParam && paymentDate < new Date(startDateParam)) continue;
+        if (endDateParam && paymentDate > new Date(endDateParam)) continue;
+        
+        const lease = allLeases.find(l => l.id === payment.leaseId);
+        if (!lease) continue;
+        
+        const shop = allShops.find(s => s.id === lease.shopId);
+        const tenant = allTenants.find(t => t.id === payment.tenantId);
+        
+        if (ownerLeaseIds.includes(payment.leaseId)) {
+          transactions.push({
+            id: payment.id,
+            date: payment.paymentDate,
+            description: `Rent Payment - ${shop?.shopNumber || 'Unknown Shop'}`,
+            type: 'credit',
+            category: 'Rent Payment',
+            amount: parseFloat(payment.amount),
+            balance: 0,
+            shopNumber: shop?.shopNumber,
+            tenantName: tenant?.name,
+          });
+        } else if (commonLeases.map(l => l.id).includes(payment.leaseId)) {
+          const shareAmount = parseFloat(payment.amount) / allOwners.length;
+          transactions.push({
+            id: payment.id + 100000,
+            date: payment.paymentDate,
+            description: `Share from Common Shop ${shop?.shopNumber || ''} (1/${allOwners.length})`,
+            type: 'credit',
+            category: 'Common Shop Share',
+            amount: shareAmount,
+            balance: 0,
+            shopNumber: shop?.shopNumber,
+            tenantName: tenant?.name,
+          });
+        }
+      }
+      
+      for (const lease of ownerLeases) {
+        const leaseStartDate = new Date(lease.startDate);
+        if (startDateParam && leaseStartDate < new Date(startDateParam)) continue;
+        if (endDateParam && leaseStartDate > new Date(endDateParam)) continue;
+        
+        const shop = allShops.find(s => s.id === lease.shopId);
+        const tenant = allTenants.find(t => t.id === lease.tenantId);
+        
+        if (parseFloat(lease.securityDeposit) > 0) {
+          transactions.push({
+            id: lease.id + 200000,
+            date: lease.startDate,
+            description: `Security Deposit - ${shop?.shopNumber || 'Unknown Shop'}`,
+            type: 'credit',
+            category: 'Security Deposit',
+            amount: parseFloat(lease.securityDeposit),
+            balance: 0,
+            shopNumber: shop?.shopNumber,
+            tenantName: tenant?.name,
+          });
+        }
+      }
+      
+      for (const expense of allExpenses) {
+        const expenseDate = new Date(expense.expenseDate);
+        if (startDateParam && expenseDate < new Date(startDateParam)) continue;
+        if (endDateParam && expenseDate > new Date(endDateParam)) continue;
+        
+        if (expense.allocation === 'owner' && expense.ownerId === ownerId) {
+          transactions.push({
+            id: expense.id + 300000,
+            date: expense.expenseDate,
+            description: `${expense.description} (Owner Expense)`,
+            type: 'debit',
+            category: expense.expenseType,
+            amount: parseFloat(expense.amount),
+            balance: 0,
+          });
+        } else if (expense.allocation === 'common') {
+          const shareAmount = parseFloat(expense.amount) / allOwners.length;
+          transactions.push({
+            id: expense.id + 400000,
+            date: expense.expenseDate,
+            description: `${expense.description} (Common 1/${allOwners.length})`,
+            type: 'debit',
+            category: expense.expenseType,
+            amount: shareAmount,
+            balance: 0,
+          });
+        }
+      }
+      
+      transactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      
+      let runningBalance = 0;
+      for (const tx of transactions) {
+        if (tx.type === 'credit') {
+          runningBalance += tx.amount;
+        } else {
+          runningBalance -= tx.amount;
+        }
+        tx.balance = runningBalance;
+      }
+      
+      const totalCredits = transactions.filter(t => t.type === 'credit').reduce((sum, t) => sum + t.amount, 0);
+      const totalDebits = transactions.filter(t => t.type === 'debit').reduce((sum, t) => sum + t.amount, 0);
+      const rentPayments = transactions.filter(t => t.category === 'Rent Payment').reduce((sum, t) => sum + t.amount, 0);
+      const securityDeposits = transactions.filter(t => t.category === 'Security Deposit').reduce((sum, t) => sum + t.amount, 0);
+      const commonShopShare = transactions.filter(t => t.category === 'Common Shop Share').reduce((sum, t) => sum + t.amount, 0);
+      
+      res.json({
+        owner,
+        transactions,
+        summary: {
+          totalCredits,
+          totalDebits,
+          netBalance: runningBalance,
+          rentPayments,
+          securityDeposits,
+          commonShopShare,
+          totalExpenses: totalDebits,
+        },
+      });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

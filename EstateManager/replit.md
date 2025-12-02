@@ -115,10 +115,11 @@ Preferred communication style: Simple, everyday language.
 **Key Architectural Decisions**:
 
 1. **Dual Currency Support**: BDT as primary currency with AUD as secondary view using manual exchange rate configuration
-2. **Multi-Owner Revenue Sharing**: Common shops distribute revenue across all 5 owners; sole shops route to specific owners
-3. **Global Search**: Cross-entity search (tenants, shops, leases) accessible via header search bar with keyboard shortcut (Cmd/Ctrl+K)
-4. **Opening Balance Support**: Tenants can have pre-existing debt recorded during onboarding
-5. **Lease Lifecycle Management**: Automatic status tracking with 30-day expiring soon alerts
-6. **Financial Reporting**: Owner-specific statements showing rent collected, common shop shares, allocated expenses, and net payouts
-7. **Separation of Concerns**: Storage layer abstracts database operations from route handlers for testability and maintainability
-8. **Aggressive Client Caching**: React Query configured with infinite stale time to minimize unnecessary refetches during active sessions
+2. **Route Ordering**: Express routes with path parameters (e.g., `/api/tenants/:id`) must be defined AFTER specific path routes (e.g., `/api/tenants/by-owner`) to avoid path parameter matching before specific routes
+3. **Multi-Owner Revenue Sharing**: Common shops distribute revenue across all 5 owners; sole shops route to specific owners
+4. **Global Search**: Cross-entity search (tenants, shops, leases) accessible via header search bar with keyboard shortcut (Cmd/Ctrl+K)
+5. **Opening Balance Support**: Tenants can have pre-existing debt recorded during onboarding
+6. **Lease Lifecycle Management**: Automatic status tracking with 30-day expiring soon alerts
+7. **Financial Reporting**: Owner-specific statements showing rent collected, common shop shares, allocated expenses, and net payouts
+8. **Separation of Concerns**: Storage layer abstracts database operations from route handlers for testability and maintainability
+9. **Aggressive Client Caching**: React Query configured with infinite stale time to minimize unnecessary refetches during active sessions

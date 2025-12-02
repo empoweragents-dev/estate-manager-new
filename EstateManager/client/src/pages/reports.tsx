@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -34,10 +35,66 @@ import {
   User,
   CreditCard,
   Wallet,
+  ArrowUpCircle,
+  ArrowDownCircle,
+  DollarSign,
+  FileSpreadsheet,
+  Printer,
 } from "lucide-react";
 import type { Owner, TenantWithDues } from "@shared/schema";
 import { formatCurrency, useCurrencyStore, formatFloor, getShopStatusColor } from "@/lib/currency";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
+
+function exportToExcel(data: any[], filename: string, headers: string[]) {
+  const csvContent = [
+    headers.join(','),
+    ...data.map(row => headers.map(h => {
+      const key = h.toLowerCase().replace(/ /g, '');
+      const value = row[key] ?? row[h] ?? '';
+      return typeof value === 'string' && value.includes(',') ? `"${value}"` : value;
+    }).join(','))
+  ].join('\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${filename}.csv`;
+  link.click();
+}
+
+function exportToPDF(elementId: string, filename: string) {
+  const element = document.getElementById(elementId);
+  if (!element) return;
+
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) return;
+
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>${filename}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+          th { background-color: #f4f4f4; }
+          .header { margin-bottom: 20px; }
+          .summary { display: flex; gap: 20px; margin-bottom: 20px; }
+          .summary-item { padding: 10px; border: 1px solid #ddd; border-radius: 4px; }
+          .credit { color: green; }
+          .debit { color: red; }
+          @media print { body { -webkit-print-color-adjust: exact; } }
+        </style>
+      </head>
+      <body>
+        ${element.innerHTML}
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+  printWindow.print();
+}
 
 interface OwnerStatement {
   owner: Owner;
@@ -486,6 +543,492 @@ function CollectionReportView() {
   );
 }
 
+interface MonthlyDepositSummary {
+  ownerId: number;
+  ownerName: string;
+  year: number;
+  month: number;
+  monthName: string;
+  rentPayments: number;
+  securityDeposits: number;
+  totalDeposit: number;
+}
+
+interface OwnerTransaction {
+  id: number;
+  date: string;
+  description: string;
+  type: 'credit' | 'debit';
+  category: string;
+  amount: number;
+  balance: number;
+  shopNumber?: string;
+  tenantName?: string;
+}
+
+function MonthlyDepositSummaryReport() {
+  const [selectedOwnerId, setSelectedOwnerId] = useState<string>("all");
+  const [selectedYear, setSelectedYear] = useState<string>("all");
+  const { currency, exchangeRate } = useCurrencyStore();
+
+  const { data, isLoading } = useQuery<{
+    data: MonthlyDepositSummary[];
+    availableYears: number[];
+    owners: { id: number; name: string }[];
+  }>({
+    queryKey: ["/api/reports/monthly-deposit-summary", selectedOwnerId, selectedYear],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (selectedOwnerId !== "all") params.append("ownerId", selectedOwnerId);
+      if (selectedYear !== "all") params.append("year", selectedYear);
+      const response = await fetch(`/api/reports/monthly-deposit-summary?${params}`);
+      if (!response.ok) throw new Error("Failed to fetch report");
+      return response.json();
+    },
+  });
+
+  const formatValue = (val: number | string) => {
+    const num = typeof val === "string" ? parseFloat(val) || 0 : val;
+    return formatCurrency(num, currency, exchangeRate);
+  };
+
+  const totals = data?.data?.reduce(
+    (acc, row) => ({
+      rentPayments: acc.rentPayments + row.rentPayments,
+      securityDeposits: acc.securityDeposits + row.securityDeposits,
+      totalDeposit: acc.totalDeposit + row.totalDeposit,
+    }),
+    { rentPayments: 0, securityDeposits: 0, totalDeposit: 0 }
+  ) || { rentPayments: 0, securityDeposits: 0, totalDeposit: 0 };
+
+  const handleExportExcel = () => {
+    if (!data?.data) return;
+    const exportData = data.data.map(row => ({
+      'Owner Name': row.ownerName,
+      'Year': row.year,
+      'Month': row.monthName,
+      'Rent Payments': row.rentPayments.toFixed(2),
+      'Security Deposits': row.securityDeposits.toFixed(2),
+      'Total Deposit': row.totalDeposit.toFixed(2),
+    }));
+    exportToExcel(exportData, 'monthly-deposit-summary', ['Owner Name', 'Year', 'Month', 'Rent Payments', 'Security Deposits', 'Total Deposit']);
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Filter Options</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="text-sm font-medium mb-2 block">Owner</label>
+              <Select value={selectedOwnerId} onValueChange={setSelectedOwnerId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Owners" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Owners</SelectItem>
+                  {data?.owners?.map((owner) => (
+                    <SelectItem key={owner.id} value={owner.id.toString()}>
+                      {owner.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Year</label>
+              <Select value={selectedYear} onValueChange={setSelectedYear}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Years" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Years</SelectItem>
+                  {data?.availableYears?.map((year) => (
+                    <SelectItem key={year} value={year.toString()}>
+                      {year}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-end gap-2">
+              <Button variant="outline" onClick={handleExportExcel} disabled={!data?.data?.length}>
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+                Export Excel
+              </Button>
+              <Button variant="outline" onClick={() => exportToPDF('monthly-deposit-report', 'monthly-deposit-summary')} disabled={!data?.data?.length}>
+                <Printer className="h-4 w-4 mr-2" />
+                Export PDF
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {isLoading ? (
+        <Card>
+          <CardContent className="p-6">
+            <Skeleton className="h-64 w-full" />
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-sm text-muted-foreground">Total Rent Payments</p>
+                <p className="text-xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                  {formatValue(totals.rentPayments)}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-sm text-muted-foreground">Total Security Deposits</p>
+                <p className="text-xl font-semibold tabular-nums text-blue-600 dark:text-blue-400">
+                  {formatValue(totals.securityDeposits)}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-sm text-muted-foreground">Grand Total</p>
+                <p className="text-xl font-semibold tabular-nums text-primary">
+                  {formatValue(totals.totalDeposit)}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card id="monthly-deposit-report">
+            <CardHeader>
+              <CardTitle className="text-base">Monthly Deposit Summary</CardTitle>
+              <CardDescription>
+                Rent payments and security deposits grouped by owner, year, and month
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              {data?.data && data.data.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Owner Name</TableHead>
+                      <TableHead>Year</TableHead>
+                      <TableHead>Month</TableHead>
+                      <TableHead className="text-right">Rent Payments</TableHead>
+                      <TableHead className="text-right">Security Deposits</TableHead>
+                      <TableHead className="text-right">Total Deposit</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {data.data.map((row, idx) => (
+                      <TableRow key={`${row.ownerId}-${row.year}-${row.month}`}>
+                        <TableCell className="font-medium">{row.ownerName}</TableCell>
+                        <TableCell>{row.year}</TableCell>
+                        <TableCell>{row.monthName}</TableCell>
+                        <TableCell className="text-right tabular-nums text-emerald-600 dark:text-emerald-400">
+                          {formatValue(row.rentPayments)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-blue-600 dark:text-blue-400">
+                          {formatValue(row.securityDeposits)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums font-medium">
+                          {formatValue(row.totalDeposit)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <div className="p-12 text-center">
+                  <Calendar className="h-12 w-12 text-muted-foreground/50 mx-auto mb-4" />
+                  <p className="text-muted-foreground">No deposit data available</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+
+function OwnerTransactionDetailsReport() {
+  const [selectedOwnerId, setSelectedOwnerId] = useState<string>("");
+  const [startDate, setStartDate] = useState<string>(() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 1);
+    return d.toISOString().split("T")[0];
+  });
+  const [endDate, setEndDate] = useState<string>(new Date().toISOString().split("T")[0]);
+  const { currency, exchangeRate } = useCurrencyStore();
+
+  const { data: owners = [] } = useQuery<Owner[]>({
+    queryKey: ["/api/owners"],
+  });
+
+  const { data, isLoading } = useQuery<{
+    owner: Owner;
+    transactions: OwnerTransaction[];
+    summary: {
+      totalCredits: number;
+      totalDebits: number;
+      netBalance: number;
+      rentPayments: number;
+      securityDeposits: number;
+      commonShopShare: number;
+      totalExpenses: number;
+    };
+  }>({
+    queryKey: ["/api/reports/owner-transactions", selectedOwnerId, startDate, endDate],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.append("ownerId", selectedOwnerId);
+      if (startDate) params.append("startDate", startDate);
+      if (endDate) params.append("endDate", endDate);
+      const response = await fetch(`/api/reports/owner-transactions?${params}`);
+      if (!response.ok) throw new Error("Failed to fetch report");
+      return response.json();
+    },
+    enabled: !!selectedOwnerId,
+  });
+
+  const formatValue = (val: number | string) => {
+    const num = typeof val === "string" ? parseFloat(val) || 0 : val;
+    return formatCurrency(num, currency, exchangeRate);
+  };
+
+  const handleExportExcel = () => {
+    if (!data?.transactions) return;
+    const exportData = data.transactions.map(tx => ({
+      'Date': new Date(tx.date).toLocaleDateString(),
+      'Description': tx.description,
+      'Type': tx.type,
+      'Category': tx.category,
+      'Amount': tx.amount.toFixed(2),
+      'Balance': tx.balance.toFixed(2),
+      'Shop': tx.shopNumber || '',
+      'Tenant': tx.tenantName || '',
+    }));
+    exportToExcel(exportData, `owner-transactions-${data.owner.name}`, ['Date', 'Description', 'Type', 'Category', 'Amount', 'Balance', 'Shop', 'Tenant']);
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Filter Options</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className="text-sm font-medium mb-2 block">Owner</label>
+              <Select value={selectedOwnerId} onValueChange={setSelectedOwnerId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select owner" />
+                </SelectTrigger>
+                <SelectContent>
+                  {owners.map((owner) => (
+                    <SelectItem key={owner.id} value={owner.id.toString()}>
+                      {owner.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Start Date</label>
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">End Date</label>
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
+            </div>
+            <div className="flex items-end gap-2">
+              <Button variant="outline" onClick={handleExportExcel} disabled={!data?.transactions?.length}>
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+                Excel
+              </Button>
+              <Button variant="outline" onClick={() => exportToPDF('owner-transactions-report', `owner-transactions-${data?.owner?.name || 'report'}`)} disabled={!data?.transactions?.length}>
+                <Printer className="h-4 w-4 mr-2" />
+                PDF
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {!selectedOwnerId ? (
+        <Card>
+          <CardContent className="p-12 text-center">
+            <User className="h-12 w-12 text-muted-foreground/50 mx-auto mb-4" />
+            <p className="text-muted-foreground">Select an owner to view transaction details</p>
+          </CardContent>
+        </Card>
+      ) : isLoading ? (
+        <Card>
+          <CardContent className="p-6">
+            <Skeleton className="h-64 w-full" />
+          </CardContent>
+        </Card>
+      ) : data?.summary ? (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2">
+                  <ArrowUpCircle className="h-5 w-5 text-emerald-600" />
+                  <p className="text-sm text-muted-foreground">Total Credits</p>
+                </div>
+                <p className="text-xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400 mt-1">
+                  {formatValue(data.summary.totalCredits)}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2">
+                  <ArrowDownCircle className="h-5 w-5 text-red-600" />
+                  <p className="text-sm text-muted-foreground">Total Debits</p>
+                </div>
+                <p className="text-xl font-semibold tabular-nums text-red-600 dark:text-red-400 mt-1">
+                  {formatValue(data.summary.totalDebits)}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2">
+                  <DollarSign className="h-5 w-5 text-primary" />
+                  <p className="text-sm text-muted-foreground">Net Balance</p>
+                </div>
+                <p className={`text-xl font-semibold tabular-nums mt-1 ${data.summary.netBalance >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                  {formatValue(data.summary.netBalance)}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <p className="text-sm text-muted-foreground">Transactions</p>
+                <p className="text-xl font-semibold tabular-nums mt-1">
+                  {data.transactions?.length || 0}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Card className="bg-muted/50">
+              <CardContent className="p-3">
+                <p className="text-xs text-muted-foreground">Rent Payments</p>
+                <p className="font-semibold tabular-nums">{formatValue(data.summary.rentPayments)}</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-muted/50">
+              <CardContent className="p-3">
+                <p className="text-xs text-muted-foreground">Security Deposits</p>
+                <p className="font-semibold tabular-nums">{formatValue(data.summary.securityDeposits)}</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-muted/50">
+              <CardContent className="p-3">
+                <p className="text-xs text-muted-foreground">Common Shop Share</p>
+                <p className="font-semibold tabular-nums">{formatValue(data.summary.commonShopShare)}</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-muted/50">
+              <CardContent className="p-3">
+                <p className="text-xs text-muted-foreground">Total Expenses</p>
+                <p className="font-semibold tabular-nums text-red-600">{formatValue(data.summary.totalExpenses)}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card id="owner-transactions-report">
+            <CardHeader>
+              <CardTitle className="text-base">{data.owner?.name} - Transaction Details</CardTitle>
+              <CardDescription>
+                Period: {new Date(startDate).toLocaleDateString()} - {new Date(endDate).toLocaleDateString()}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              {data.transactions && data.transactions.length > 0 ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Description</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead className="text-right">Credit</TableHead>
+                      <TableHead className="text-right">Debit</TableHead>
+                      <TableHead className="text-right">Balance</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {data.transactions.map((tx) => (
+                      <TableRow key={tx.id}>
+                        <TableCell className="whitespace-nowrap">
+                          {new Date(tx.date).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <p>{tx.description}</p>
+                            {tx.tenantName && (
+                              <p className="text-xs text-muted-foreground">Tenant: {tx.tenantName}</p>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary" className="text-xs">
+                            {tx.category}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {tx.type === 'credit' ? (
+                            <span className="text-emerald-600 dark:text-emerald-400">
+                              {formatValue(tx.amount)}
+                            </span>
+                          ) : '-'}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {tx.type === 'debit' ? (
+                            <span className="text-red-600 dark:text-red-400">
+                              {formatValue(tx.amount)}
+                            </span>
+                          ) : '-'}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums font-medium">
+                          {formatValue(tx.balance)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <div className="p-12 text-center">
+                  <FileText className="h-12 w-12 text-muted-foreground/50 mx-auto mb-4" />
+                  <p className="text-muted-foreground">No transactions found in this period</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 function ShopAvailabilityReport() {
   const { data: availability, isLoading } = useQuery<ShopAvailability[]>({
     queryKey: ["/api/reports/shop-availability"],
@@ -628,25 +1171,44 @@ export default function ReportsPage() {
         <p className="text-muted-foreground">Comprehensive financial and operational reports</p>
       </div>
 
-      <Tabs defaultValue="owner-statement">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="owner-statement" data-testid="tab-owner-statement">
-            <User className="h-4 w-4 mr-2" />
-            Owner Statement
-          </TabsTrigger>
-          <TabsTrigger value="tenant-ledger" data-testid="tab-tenant-ledger">
-            <FileText className="h-4 w-4 mr-2" />
-            Tenant Ledger
-          </TabsTrigger>
-          <TabsTrigger value="collection" data-testid="tab-collection">
-            <CreditCard className="h-4 w-4 mr-2" />
-            Collection Report
-          </TabsTrigger>
-          <TabsTrigger value="availability" data-testid="tab-availability">
-            <Store className="h-4 w-4 mr-2" />
-            Shop Availability
-          </TabsTrigger>
-        </TabsList>
+      <Tabs defaultValue="monthly-deposit">
+        <ScrollArea className="w-full">
+          <TabsList className="inline-flex w-max">
+            <TabsTrigger value="monthly-deposit" data-testid="tab-monthly-deposit">
+              <Calendar className="h-4 w-4 mr-2" />
+              Monthly Deposits
+            </TabsTrigger>
+            <TabsTrigger value="owner-transactions" data-testid="tab-owner-transactions">
+              <Wallet className="h-4 w-4 mr-2" />
+              Owner Transactions
+            </TabsTrigger>
+            <TabsTrigger value="owner-statement" data-testid="tab-owner-statement">
+              <User className="h-4 w-4 mr-2" />
+              Owner Statement
+            </TabsTrigger>
+            <TabsTrigger value="tenant-ledger" data-testid="tab-tenant-ledger">
+              <FileText className="h-4 w-4 mr-2" />
+              Tenant Ledger
+            </TabsTrigger>
+            <TabsTrigger value="collection" data-testid="tab-collection">
+              <CreditCard className="h-4 w-4 mr-2" />
+              Collection Report
+            </TabsTrigger>
+            <TabsTrigger value="availability" data-testid="tab-availability">
+              <Store className="h-4 w-4 mr-2" />
+              Shop Availability
+            </TabsTrigger>
+          </TabsList>
+          <ScrollBar orientation="horizontal" />
+        </ScrollArea>
+
+        <TabsContent value="monthly-deposit" className="mt-6">
+          <MonthlyDepositSummaryReport />
+        </TabsContent>
+
+        <TabsContent value="owner-transactions" className="mt-6">
+          <OwnerTransactionDetailsReport />
+        </TabsContent>
 
         <TabsContent value="owner-statement" className="mt-6">
           <OwnerStatementReport />

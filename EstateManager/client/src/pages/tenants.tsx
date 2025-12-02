@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -45,12 +46,17 @@ import {
   FormMessage,
   FormDescription,
 } from "@/components/ui/form";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, User, Phone, Mail, MapPin, CreditCard, Eye, Edit2, Trash2, AlertTriangle, FileText, AlertCircle, Calendar } from "lucide-react";
-import type { TenantWithDues } from "@shared/schema";
+import { Plus, User, Phone, Mail, MapPin, CreditCard, Eye, Edit2, Trash2, AlertTriangle, FileText, AlertCircle, Calendar, Filter, ChevronDown, X, Building } from "lucide-react";
+import type { TenantWithDues, Owner } from "@shared/schema";
 import { formatCurrency, useCurrencyStore } from "@/lib/currency";
 
 interface MonthlyDuesModalProps {
@@ -322,20 +328,45 @@ export default function TenantsPage() {
   const [editingTenant, setEditingTenant] = useState<TenantWithDues | null>(null);
   const [monthlyDuesModalOpen, setMonthlyDuesModalOpen] = useState(false);
   const [selectedTenantForMonthly, setSelectedTenantForMonthly] = useState<TenantWithDues | null>(null);
+  const [selectedOwnerIds, setSelectedOwnerIds] = useState<number[]>([]);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { currency, exchangeRate } = useCurrencyStore();
 
-  const { data: tenants = [], isLoading } = useQuery<TenantWithDues[]>({
-    queryKey: ["/api/tenants"],
+  const { data: owners = [] } = useQuery<Owner[]>({
+    queryKey: ["/api/owners"],
   });
+
+  const ownerFilterParam = selectedOwnerIds.length > 0 ? selectedOwnerIds.join(',') : 'all';
+  
+  const { data: tenants = [], isLoading } = useQuery<TenantWithDues[]>({
+    queryKey: ["/api/tenants/by-owner", ownerFilterParam],
+    queryFn: async () => {
+      const response = await fetch(`/api/tenants/by-owner?ownerIds=${ownerFilterParam}`);
+      if (!response.ok) throw new Error("Failed to fetch tenants");
+      return response.json();
+    },
+  });
+
+  const handleOwnerToggle = (ownerId: number) => {
+    setSelectedOwnerIds(prev => 
+      prev.includes(ownerId) 
+        ? prev.filter(id => id !== ownerId) 
+        : [...prev, ownerId]
+    );
+  };
+
+  const clearOwnerFilters = () => {
+    setSelectedOwnerIds([]);
+  };
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
       return apiRequest("DELETE", `/api/tenants/${id}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tenants"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tenants/by-owner"] });
       toast({ title: "Tenant deleted successfully" });
     },
     onError: (error: Error) => {
@@ -423,6 +454,60 @@ export default function TenantsPage() {
           </DialogContent>
         </Dialog>
       </div>
+
+      <Card>
+        <Collapsible open={isFilterOpen} onOpenChange={setIsFilterOpen}>
+          <CardHeader className="pb-3">
+            <CollapsibleTrigger asChild>
+              <div className="flex items-center justify-between cursor-pointer">
+                <div className="flex items-center gap-2">
+                  <Filter className="h-4 w-4 text-muted-foreground" />
+                  <CardTitle className="text-base">Filter by Owner</CardTitle>
+                  {selectedOwnerIds.length > 0 && (
+                    <Badge variant="secondary" className="ml-2">
+                      {selectedOwnerIds.length} selected
+                    </Badge>
+                  )}
+                </div>
+                <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isFilterOpen ? 'rotate-180' : ''}`} />
+              </div>
+            </CollapsibleTrigger>
+          </CardHeader>
+          <CollapsibleContent>
+            <CardContent className="pt-0">
+              <div className="flex flex-wrap gap-3">
+                {owners.map((owner) => (
+                  <div key={owner.id} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`owner-${owner.id}`}
+                      checked={selectedOwnerIds.includes(owner.id)}
+                      onCheckedChange={() => handleOwnerToggle(owner.id)}
+                    />
+                    <label
+                      htmlFor={`owner-${owner.id}`}
+                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Building className="h-3.5 w-3.5 text-muted-foreground" />
+                      {owner.name}
+                    </label>
+                  </div>
+                ))}
+              </div>
+              {selectedOwnerIds.length > 0 && (
+                <div className="mt-3 pt-3 border-t flex items-center justify-between">
+                  <p className="text-sm text-muted-foreground">
+                    Showing tenants linked to {selectedOwnerIds.length} owner{selectedOwnerIds.length > 1 ? 's' : ''}
+                  </p>
+                  <Button variant="ghost" size="sm" onClick={clearOwnerFilters}>
+                    <X className="h-3.5 w-3.5 mr-1" />
+                    Clear filters
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </CollapsibleContent>
+        </Collapsible>
+      </Card>
 
       <Card>
         <CardContent className="p-0">
