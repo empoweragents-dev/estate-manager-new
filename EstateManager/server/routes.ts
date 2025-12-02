@@ -949,88 +949,82 @@ export async function registerRoutes(
 
   app.post("/api/payments", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      const data = insertPaymentSchema.parse(req.body);
+      const validatedData = insertPaymentSchema.parse(req.body);
+      const { tenantId, leaseId, amount, paymentDate, receiptNumber, notes } = validatedData;
       
-      // Get all invoices for this tenant sorted by month/year (oldest first)
-      const allInvoices = await storage.getRentInvoicesByTenant(data.tenantId);
-      const elapsedInvoices = getElapsedInvoices(allInvoices);
-      
-      // Get all existing payments for this tenant
-      const existingPayments = await storage.getPaymentsByTenant(data.tenantId);
-      
-      // Calculate paid amount per invoice
-      const invoicePaidMap = new Map<number, number>();
-      elapsedInvoices.forEach(inv => {
-        invoicePaidMap.set(inv.id, 0);
+      // Create the payment record - simple single record
+      const payment = await storage.createPayment({
+        tenantId,
+        leaseId,
+        amount: amount.toString(),
+        paymentDate,
+        receiptNumber: receiptNumber || '',
+        notes: notes || '',
       });
       
-      existingPayments.forEach(payment => {
-        const invoiceId = payment.leaseId;
-        const currentPaid = invoicePaidMap.get(invoiceId) || 0;
-        invoicePaidMap.set(invoiceId, currentPaid + parseFloat(payment.amount));
-      });
+      // Now update isPaid status on all invoices using FIFO logic
+      await updateInvoicePaidStatus(tenantId);
       
-      // Find unpaid/partially paid invoices in order (oldest first)
-      const unpaidInvoices = elapsedInvoices
-        .sort((a, b) => {
-          if (a.year !== b.year) return a.year - b.year;
-          return a.month - b.month;
-        })
-        .filter(inv => {
-          const paid = invoicePaidMap.get(inv.id) || 0;
-          return paid < parseFloat(inv.amount);
-        });
-      
-      // Allocate payment across oldest unpaid invoices (FIFO)
-      let remainingPayment = parseFloat(data.amount);
-      
-      for (const invoice of unpaidInvoices) {
-        if (remainingPayment <= 0) break;
-        
-        const invoiceAmount = parseFloat(invoice.amount);
-        const alreadyPaid = invoicePaidMap.get(invoice.id) || 0;
-        const invoiceDue = invoiceAmount - alreadyPaid;
-        const paymentToAllocate = Math.min(remainingPayment, invoiceDue);
-        
-        // Update or create payment record for this invoice
-        if (paymentToAllocate > 0) {
-          await storage.createPayment({
-            tenantId: data.tenantId,
-            leaseId: invoice.leaseId,
-            amount: paymentToAllocate.toString(),
-            paymentDate: data.paymentDate,
-            receiptNumber: data.receiptNumber || '',
-            notes: data.notes || `FIFO allocation for ${invoice.month}/${invoice.year}`,
-          });
-        }
-        
-        remainingPayment -= paymentToAllocate;
-      }
-      
-      // If there's remaining payment (tenant overpaid or no invoices), create a single payment record
-      if (remainingPayment > 0 && data.leaseId) {
-        await storage.createPayment({
-          tenantId: data.tenantId,
-          leaseId: data.leaseId,
-          amount: remainingPayment.toString(),
-          paymentDate: data.paymentDate,
-          receiptNumber: data.receiptNumber || '',
-          notes: data.notes || 'Overpayment or advance payment',
-        });
-      }
-      
-      // Return the first payment created as response
-      const payments = await storage.getPaymentsByTenant(data.tenantId);
-      const lastPayment = payments[payments.length - 1];
-      res.status(201).json(lastPayment);
+      res.status(201).json(payment);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
     }
   });
+  
+  // Helper function to update isPaid status on invoices using FIFO
+  async function updateInvoicePaidStatus(tenantId: number) {
+    // Get all invoices for this tenant sorted by month/year (oldest first)
+    const allInvoices = await storage.getRentInvoicesByTenant(tenantId);
+    const elapsedInvoices = getElapsedInvoices(allInvoices)
+      .sort((a, b) => {
+        if (a.year !== b.year) return a.year - b.year;
+        return a.month - b.month;
+      });
+    
+    // Get tenant opening balance
+    const tenant = await storage.getTenant(tenantId);
+    const openingBalance = parseFloat(tenant?.openingDueBalance || '0');
+    
+    // Get total payments for this tenant
+    const allPayments = await storage.getPaymentsByTenant(tenantId);
+    const totalPaid = allPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+    
+    // Calculate amount available for invoices (after covering opening balance)
+    let remainingForInvoices = totalPaid - openingBalance;
+    if (remainingForInvoices < 0) remainingForInvoices = 0;
+    
+    // Update isPaid status for each invoice in FIFO order
+    for (const invoice of elapsedInvoices) {
+      const invoiceAmount = parseFloat(invoice.amount);
+      if (remainingForInvoices >= invoiceAmount) {
+        // Fully paid - mark as paid
+        await db.update(rentInvoices)
+          .set({ isPaid: true })
+          .where(eq(rentInvoices.id, invoice.id));
+        remainingForInvoices -= invoiceAmount;
+      } else {
+        // Not fully paid - mark as unpaid
+        await db.update(rentInvoices)
+          .set({ isPaid: false })
+          .where(eq(rentInvoices.id, invoice.id));
+      }
+    }
+  }
 
   app.delete("/api/payments/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      await storage.deletePayment(parseInt(req.params.id));
+      const paymentId = parseInt(req.params.id);
+      // Get the payment first to find the tenantId
+      const payments = await storage.getPayments();
+      const paymentToDelete = payments.find(p => p.id === paymentId);
+      
+      await storage.deletePayment(paymentId);
+      
+      // Recalculate FIFO status after deleting payment
+      if (paymentToDelete) {
+        await updateInvoicePaidStatus(paymentToDelete.tenantId);
+      }
+      
       res.status(204).send();
     } catch (error: any) {
       res.status(500).json({ message: error.message });

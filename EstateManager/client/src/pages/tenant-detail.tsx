@@ -589,6 +589,89 @@ export default function TenantDetailPage() {
             </CardContent>
           </Card>
 
+          {/* Monthly Dues Breakdown - FIFO Display */}
+          {(() => {
+            const monthlyDues = tenant.monthlyDues || {};
+            const sortedMonths = Object.entries(monthlyDues)
+              .sort(([a], [b]) => {
+                const [yearA, monthA] = a.split('-').map(Number);
+                const [yearB, monthB] = b.split('-').map(Number);
+                if (yearA !== yearB) return yearA - yearB;
+                return monthA - monthB;
+              });
+            
+            if (sortedMonths.length === 0) return null;
+            
+            const openingBalance = parseFloat(tenant.openingDueBalance || '0');
+            let remainingPayment = tenant.totalPaid;
+            
+            remainingPayment -= openingBalance;
+            if (remainingPayment < 0) remainingPayment = 0;
+            
+            const monthsWithStatus = sortedMonths.map(([monthKey, amount]) => {
+              const [year, month] = monthKey.split('-').map(Number);
+              const monthAmount = amount as number;
+              const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'short', year: 'numeric' });
+              
+              let status: 'paid' | 'partial' | 'unpaid' = 'unpaid';
+              let paidAmount = 0;
+              
+              if (remainingPayment >= monthAmount) {
+                status = 'paid';
+                paidAmount = monthAmount;
+                remainingPayment -= monthAmount;
+              } else if (remainingPayment > 0) {
+                status = 'partial';
+                paidAmount = remainingPayment;
+                remainingPayment = 0;
+              }
+              
+              return { monthKey, monthName, amount: monthAmount, status, paidAmount, dueAmount: monthAmount - paidAmount };
+            });
+            
+            return (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Calendar className="h-4 w-4" />
+                    Monthly Dues (FIFO)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {openingBalance > 0 && (
+                    <div className="mb-3 p-2 rounded bg-muted/50 flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground">Opening Balance</span>
+                      <Badge variant={tenant.totalPaid >= openingBalance ? "default" : "destructive"} className={tenant.totalPaid >= openingBalance ? "bg-emerald-500" : ""}>
+                        {tenant.totalPaid >= openingBalance ? 'Paid' : formatValue(openingBalance)}
+                      </Badge>
+                    </div>
+                  )}
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {monthsWithStatus.map(({ monthKey, monthName, amount, status, paidAmount, dueAmount }) => (
+                      <div key={monthKey} className="flex justify-between items-center p-2 rounded bg-muted/30">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">{monthName}</span>
+                          <span className="text-xs text-muted-foreground">{formatValue(amount)}</span>
+                        </div>
+                        {status === 'paid' && (
+                          <Badge className="bg-emerald-500 text-white">Paid</Badge>
+                        )}
+                        {status === 'partial' && (
+                          <Badge variant="outline" className="text-amber-600 border-amber-400">
+                            Due: {formatValue(dueAmount)}
+                          </Badge>
+                        )}
+                        {status === 'unpaid' && (
+                          <Badge variant="destructive">Due: {formatValue(dueAmount)}</Badge>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
