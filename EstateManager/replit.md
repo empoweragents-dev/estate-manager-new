@@ -123,25 +123,37 @@ Preferred communication style: Simple, everyday language.
 7. **Financial Reporting**: Owner-specific statements showing rent collected, common shop shares, allocated expenses, and net payouts. Owner-Tenant Details Report with PDF export showing all tenants with current/previous dues, payment history, and summary totals
 8. **Separation of Concerns**: Storage layer abstracts database operations from route handlers for testability and maintainability
 9. **Aggressive Client Caching**: React Query configured with infinite stale time to minimize unnecessary refetches during active sessions
-10. **User Roles & Authentication**: Replit Auth (OpenID Connect) with two roles - Super Admin (full access) and Owner (filtered access to their data + common spaces)
+10. **User Roles & Authentication**: Traditional username/password authentication with two roles - Super Admin (full access) and Owner (filtered access to their data + common spaces)
 
 ### Authentication & Authorization
 
-**Authentication System**: Replit Auth via OpenID Connect
-- Login via `/api/login` redirects to Replit's OAuth flow
+**Authentication System**: Traditional Username/Password with bcrypt
+- Login via POST `/api/login` with username and password
+- Passwords hashed with bcrypt (10 salt rounds) before storage
 - Session management with PostgreSQL session store (connect-pg-simple)
 - Session secret stored in environment variables (SESSION_SECRET)
 
 **User Roles**:
-1. **Super Admin**: Full access to all data, owner management, system settings
+1. **Super Admin**: Full access to all data, user management, owner management, system settings
 2. **Owner**: Filtered access to only their shops, tenants, leases, and financial data + common spaces
+
+**Super Admin Account**:
+- Username from environment variable SUPER_ADMIN_USERNAME (default: "super_admin")
+- Password from environment variable SUPER_ADMIN_PASSWORD (required)
+- Created automatically on first server startup if not exists
+- Protected from deletion
+
+**Owner Accounts**:
+- Created by Super Admin through User Management page (/admin/users)
+- Each owner account can be linked to an Owner entity for data filtering
+- Passwords set by Super Admin, hashed with bcrypt
 
 **Database Tables for Auth**:
 - `sessions`: PostgreSQL session storage for authentication
-- `users`: User accounts with role (super_admin/owner), ownerId link, profile information
+- `users`: User accounts with username, hashed password, role (super_admin/owner), ownerId link, profile information
 
-**Authorization Middleware** (server/replitAuth.ts):
-- `isAuthenticated`: Validates user session and token expiry with auto-refresh
+**Authorization Middleware** (server/auth.ts):
+- `isAuthenticated`: Validates user session
 - `requireSuperAdmin`: Ensures user has super_admin role
 - `requireOwnerOrAdmin`: Allows both super_admin and owner roles
 
@@ -151,9 +163,15 @@ Preferred communication style: Simple, everyday language.
 - User menu with profile info and logout
 
 **Key Auth Routes**:
-- `GET /api/login` - Initiates Replit OAuth login
-- `GET /api/callback` - OAuth callback handler
-- `GET /api/logout` - Ends session and logs out
+- `POST /api/login` - Login with username and password
+- `POST /api/logout` - Ends session and logs out
 - `GET /api/auth/user` - Returns current authenticated user with role info
 - `GET /api/users` - (Super Admin only) List all users
-- `PATCH /api/users/:id/role` - (Super Admin only) Update user role and owner assignment
+- `POST /api/users` - (Super Admin only) Create new owner account
+- `PATCH /api/users/:id` - (Super Admin only) Update user account
+- `DELETE /api/users/:id` - (Super Admin only) Delete user account
+
+**Environment Variables Required**:
+- `SESSION_SECRET` - Secret key for session encryption
+- `SUPER_ADMIN_PASSWORD` - Password for Super Admin account (required)
+- `SUPER_ADMIN_USERNAME` - Username for Super Admin account (optional, defaults to "super_admin")
