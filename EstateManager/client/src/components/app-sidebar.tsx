@@ -79,6 +79,11 @@ const reportItems = [
     url: "/reports",
     icon: BarChart3,
   },
+  {
+    title: "Owner-Tenant Report",
+    url: "/reports/owner-tenant",
+    icon: FileText,
+  },
 ];
 
 export function AppSidebar() {

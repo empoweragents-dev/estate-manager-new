@@ -21,6 +21,7 @@ import PaymentsPage from "@/pages/payments";
 import ExpensesPage from "@/pages/expenses";
 import BankDepositsPage from "@/pages/bank-deposits";
 import ReportsPage from "@/pages/reports";
+import OwnerTenantReportPage from "@/pages/owner-tenant-report";
 
 function Router() {
   return (
@@ -36,6 +37,7 @@ function Router() {
       <Route path="/expenses" component={ExpensesPage} />
       <Route path="/bank-deposits" component={BankDepositsPage} />
       <Route path="/reports" component={ReportsPage} />
+      <Route path="/reports/owner-tenant" component={OwnerTenantReportPage} />
       <Route component={NotFound} />
     </Switch>
   );
