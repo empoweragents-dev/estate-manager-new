@@ -37,3 +37,11 @@ externalPort = 80
 [[ports]]
 localPort = 39919
 externalPort = 3000
+
+[[ports]]
+localPort = 43865
+externalPort = 3001
+
+[deployment]
+run = ["sh", "-c", "/"]
+deploymentTarget = "cloudrun"

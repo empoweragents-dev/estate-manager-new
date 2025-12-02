@@ -55,7 +55,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, User, Phone, Mail, MapPin, CreditCard, Eye, Edit2, Trash2, AlertTriangle, FileText, AlertCircle, Calendar, Filter, ChevronDown, X, Building } from "lucide-react";
+import { Plus, User, Phone, Mail, MapPin, CreditCard, Eye, Edit2, Trash2, AlertTriangle, FileText, AlertCircle, Calendar, Filter, ChevronDown, X, Building, Upload, FileSpreadsheet, Download, CheckCircle, XCircle } from "lucide-react";
 import type { TenantWithDues, Owner } from "@shared/schema";
 import { formatCurrency, useCurrencyStore } from "@/lib/currency";
 
@@ -323,8 +323,189 @@ function TenantForm({
   );
 }
 
+interface ImportResult {
+  message: string;
+  success: number;
+  failed: number;
+  errors: string[];
+}
+
+function BulkImportDialog({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const { toast } = useToast();
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (selectedFile) {
+      const validTypes = [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-excel',
+        'text/csv'
+      ];
+      if (!validTypes.includes(selectedFile.type) && !selectedFile.name.match(/\.(xlsx|xls|csv)$/i)) {
+        toast({ title: "Invalid file type", description: "Please upload an Excel file (.xlsx, .xls) or CSV", variant: "destructive" });
+        return;
+      }
+      setFile(selectedFile);
+      setResult(null);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!file) return;
+
+    setIsUploading(true);
+    setResult(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('/api/tenants/bulk-import', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Import failed');
+      }
+
+      setResult(data);
+      queryClient.invalidateQueries({ queryKey: ["/api/tenants/by-owner"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tenants"] });
+
+      if (data.success > 0) {
+        toast({ title: "Import successful", description: `${data.success} tenants imported` });
+      }
+    } catch (error: any) {
+      toast({ title: "Import failed", description: error.message, variant: "destructive" });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleClose = () => {
+    setFile(null);
+    setResult(null);
+    onClose();
+  };
+
+  const downloadTemplate = () => {
+    const headers = ['Name', 'Phone', 'Outstanding Balance', 'Email', 'NID/Passport', 'Address'];
+    const sampleData = [
+      ['John Doe', '01712345678', '5000', 'john@example.com', '1234567890123', 'Dhaka, Bangladesh'],
+      ['Jane Smith', '01898765432', '0', '', '', ''],
+    ];
+    
+    const csvContent = [headers.join(','), ...sampleData.map(row => row.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'tenant_import_template.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={handleClose}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FileSpreadsheet className="h-5 w-5" />
+            Bulk Import Tenants
+          </DialogTitle>
+          <DialogDescription>
+            Upload an Excel file with tenant data. Required columns: Name, Phone. Optional: Outstanding Balance, Email, NID/Passport, Address.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <Button variant="outline" size="sm" onClick={downloadTemplate} className="w-full">
+            <Download className="h-4 w-4 mr-2" />
+            Download Template
+          </Button>
+
+          <div className="border-2 border-dashed rounded-lg p-6 text-center">
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={handleFileChange}
+              className="hidden"
+              id="file-upload"
+            />
+            <label htmlFor="file-upload" className="cursor-pointer">
+              {file ? (
+                <div className="flex items-center justify-center gap-2">
+                  <FileSpreadsheet className="h-8 w-8 text-primary" />
+                  <div className="text-left">
+                    <p className="font-medium">{file.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {(file.size / 1024).toFixed(1)} KB
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">
+                    Click to upload or drag and drop
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Excel (.xlsx, .xls) or CSV files
+                  </p>
+                </div>
+              )}
+            </label>
+          </div>
+
+          {result && (
+            <div className="space-y-3 p-4 bg-secondary/50 rounded-lg">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 text-emerald-600">
+                  <CheckCircle className="h-4 w-4" />
+                  <span className="font-medium">{result.success} imported</span>
+                </div>
+                {result.failed > 0 && (
+                  <div className="flex items-center gap-2 text-red-600">
+                    <XCircle className="h-4 w-4" />
+                    <span className="font-medium">{result.failed} failed</span>
+                  </div>
+                )}
+              </div>
+              {result.errors.length > 0 && (
+                <div className="max-h-32 overflow-y-auto text-sm">
+                  {result.errors.map((error, i) => (
+                    <p key={i} className="text-red-600">{error}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={handleClose}>
+              {result ? 'Close' : 'Cancel'}
+            </Button>
+            {!result && (
+              <Button onClick={handleUpload} disabled={!file || isUploading}>
+                {isUploading ? 'Importing...' : 'Import Tenants'}
+              </Button>
+            )}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function TenantsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [editingTenant, setEditingTenant] = useState<TenantWithDues | null>(null);
   const [monthlyDuesModalOpen, setMonthlyDuesModalOpen] = useState(false);
   const [selectedTenantForMonthly, setSelectedTenantForMonthly] = useState<TenantWithDues | null>(null);
@@ -436,24 +617,32 @@ export default function TenantsPage() {
           <h1 className="text-2xl font-semibold">Tenants</h1>
           <p className="text-muted-foreground">Manage tenant profiles and track their dues</p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button onClick={() => setEditingTenant(null)} data-testid="button-add-tenant">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Tenant
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>{editingTenant ? "Edit Tenant" : "Add New Tenant"}</DialogTitle>
-              <DialogDescription>
-                {!editingTenant && "Add a new tenant profile. Don't forget to record any existing debt in the Opening Due Balance field."}
-              </DialogDescription>
-            </DialogHeader>
-            <TenantForm tenant={editingTenant ?? undefined} onSuccess={handleDialogClose} />
-          </DialogContent>
-        </Dialog>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setIsImportDialogOpen(true)}>
+            <Upload className="h-4 w-4 mr-2" />
+            Import Excel
+          </Button>
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button onClick={() => setEditingTenant(null)} data-testid="button-add-tenant">
+                <Plus className="h-4 w-4 mr-2" />
+                Add Tenant
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>{editingTenant ? "Edit Tenant" : "Add New Tenant"}</DialogTitle>
+                <DialogDescription>
+                  {!editingTenant && "Add a new tenant profile. Don't forget to record any existing debt in the Opening Due Balance field."}
+                </DialogDescription>
+              </DialogHeader>
+              <TenantForm tenant={editingTenant ?? undefined} onSuccess={handleDialogClose} />
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
+      
+      <BulkImportDialog isOpen={isImportDialogOpen} onClose={() => setIsImportDialogOpen(false)} />
 
       <Card>
         <Collapsible open={isFilterOpen} onOpenChange={setIsFilterOpen}>

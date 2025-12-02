@@ -10,6 +10,10 @@ import {
 } from "@shared/schema";
 import { eq, desc, sql, and, gte, lte } from "drizzle-orm";
 import { setupAuth, isAuthenticated, requireSuperAdmin, requireOwnerOrAdmin } from "./auth";
+import multer from "multer";
+import * as XLSX from "xlsx";
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 export async function registerRoutes(
   httpServer: Server,
@@ -504,6 +508,140 @@ export async function registerRoutes(
       res.status(204).send();
     } catch (error: any) {
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Bulk import tenants from Excel
+  app.post("/api/tenants/bulk-import", isAuthenticated, upload.single('file'), async (req: Request, res: Response) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      let workbook;
+      try {
+        workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+      } catch (parseError: any) {
+        return res.status(400).json({ message: "Could not read file. Please ensure it's a valid Excel (.xlsx, .xls) or CSV file." });
+      }
+
+      if (!workbook.SheetNames.length) {
+        return res.status(400).json({ message: "The file has no worksheets" });
+      }
+
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      
+      // Get all rows as arrays (header:1 means first row becomes index 0)
+      const allRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' }) as any[][];
+      
+      if (!allRows.length || allRows.length < 2) {
+        return res.status(400).json({ message: "Excel file is empty or has no data rows (needs header row + at least one data row)" });
+      }
+      
+      // First row is headers, rest are data
+      const headerRow = allRows[0];
+      const dataRows = allRows.slice(1);
+      
+      // Create header-to-index mapping for data access (include all non-empty headers)
+      const headerIndices: Record<string, number> = {};
+      const headers: string[] = [];
+      headerRow.forEach((h, idx) => {
+        const headerStr = h ? String(h).trim() : '';
+        if (headerStr) {
+          headerIndices[headerStr] = idx;
+          headers.push(headerStr);
+        }
+      });
+      
+      if (!headers.length) {
+        return res.status(400).json({ message: "Excel file has no column headers" });
+      }
+      
+      // Helper to check if header pattern matches any column in headers array
+      const findHeaderIndex = (patterns: string[]): number => {
+        for (const [header, idx] of Object.entries(headerIndices)) {
+          const normalizedHeader = header.toLowerCase().trim().replace(/[_\-\s]+/g, '');
+          for (const pattern of patterns) {
+            const normalizedPattern = pattern.toLowerCase().trim().replace(/[_\-\s]+/g, '');
+            if (normalizedHeader === normalizedPattern || normalizedHeader.includes(normalizedPattern)) {
+              return idx;
+            }
+          }
+        }
+        return -1;
+      };
+
+      // Check if required columns exist in headers
+      const nameIdx = findHeaderIndex(['name', 'tenantname', 'fullname']);
+      const phoneIdx = findHeaderIndex(['phone', 'phoneno', 'phonenumber', 'mobile', 'contact']);
+
+      if (nameIdx === -1 || phoneIdx === -1) {
+        const missingCols = [];
+        if (nameIdx === -1) missingCols.push('Name');
+        if (phoneIdx === -1) missingCols.push('Phone');
+        return res.status(400).json({ 
+          message: `Missing required columns: ${missingCols.join(', ')}. Your file has columns: ${headers.join(', ')}` 
+        });
+      }
+      
+      // Find optional column indices
+      const balanceIdx = findHeaderIndex(['outstandingbalance', 'balance', 'outstanding', 'openingduebalance', 'openingbalance', 'due', 'duebalance']);
+      const emailIdx = findHeaderIndex(['email', 'emailaddress', 'mail']);
+      const nidIdx = findHeaderIndex(['nid', 'passport', 'nidpassport', 'nationalid', 'idnumber']);
+      const addressIdx = findHeaderIndex(['address', 'permanentaddress', 'location']);
+
+      const results = {
+        success: 0,
+        failed: 0,
+        errors: [] as string[],
+      };
+
+      for (let i = 0; i < dataRows.length; i++) {
+        const row = dataRows[i];
+        const rowNum = i + 2; // Excel row number (1-indexed, plus header row)
+
+        try {
+          // Get values by column index
+          const nameVal = row[nameIdx] ? String(row[nameIdx]).trim() : '';
+          const phoneVal = row[phoneIdx] ? String(row[phoneIdx]).trim() : '';
+          const balance = balanceIdx !== -1 && row[balanceIdx] !== undefined ? row[balanceIdx] : '0';
+          const email = emailIdx !== -1 && row[emailIdx] !== undefined ? String(row[emailIdx]).trim() : '';
+          const nid = nidIdx !== -1 && row[nidIdx] !== undefined ? String(row[nidIdx]).trim() : '';
+          const address = addressIdx !== -1 && row[addressIdx] !== undefined ? String(row[addressIdx]).trim() : '';
+
+          if (!nameVal || !phoneVal) {
+            results.failed++;
+            results.errors.push(`Row ${rowNum}: Name and Phone are required (Name: "${nameVal || 'empty'}", Phone: "${phoneVal || 'empty'}")`);
+            continue;
+          }
+
+          // Parse balance as number and convert to string for decimal field
+          const balanceNum = parseFloat(String(balance).replace(/[^0-9.-]/g, '')) || 0;
+
+          await storage.createTenant({
+            name: nameVal,
+            phone: phoneVal,
+            email: email,
+            nidPassport: nid,
+            permanentAddress: address,
+            photoUrl: '',
+            openingDueBalance: balanceNum.toFixed(2),
+          });
+
+          results.success++;
+        } catch (error: any) {
+          results.failed++;
+          results.errors.push(`Row ${rowNum}: ${error.message}`);
+        }
+      }
+
+      res.json({
+        message: `Import completed: ${results.success} tenants added, ${results.failed} failed`,
+        ...results,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: `Import failed: ${error.message}` });
     }
   });
 
