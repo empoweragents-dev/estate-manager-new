@@ -123,3 +123,37 @@ Preferred communication style: Simple, everyday language.
 7. **Financial Reporting**: Owner-specific statements showing rent collected, common shop shares, allocated expenses, and net payouts. Owner-Tenant Details Report with PDF export showing all tenants with current/previous dues, payment history, and summary totals
 8. **Separation of Concerns**: Storage layer abstracts database operations from route handlers for testability and maintainability
 9. **Aggressive Client Caching**: React Query configured with infinite stale time to minimize unnecessary refetches during active sessions
+10. **User Roles & Authentication**: Replit Auth (OpenID Connect) with two roles - Super Admin (full access) and Owner (filtered access to their data + common spaces)
+
+### Authentication & Authorization
+
+**Authentication System**: Replit Auth via OpenID Connect
+- Login via `/api/login` redirects to Replit's OAuth flow
+- Session management with PostgreSQL session store (connect-pg-simple)
+- Session secret stored in environment variables (SESSION_SECRET)
+
+**User Roles**:
+1. **Super Admin**: Full access to all data, owner management, system settings
+2. **Owner**: Filtered access to only their shops, tenants, leases, and financial data + common spaces
+
+**Database Tables for Auth**:
+- `sessions`: PostgreSQL session storage for authentication
+- `users`: User accounts with role (super_admin/owner), ownerId link, profile information
+
+**Authorization Middleware** (server/replitAuth.ts):
+- `isAuthenticated`: Validates user session and token expiry with auto-refresh
+- `requireSuperAdmin`: Ensures user has super_admin role
+- `requireOwnerOrAdmin`: Allows both super_admin and owner roles
+
+**Client-Side Auth** (hooks/useAuth.ts):
+- `useAuth` hook provides: user, isAuthenticated, isLoading, isSuperAdmin, isOwner
+- Role-based sidebar navigation showing/hiding menu items
+- User menu with profile info and logout
+
+**Key Auth Routes**:
+- `GET /api/login` - Initiates Replit OAuth login
+- `GET /api/callback` - OAuth callback handler
+- `GET /api/logout` - Ends session and logs out
+- `GET /api/auth/user` - Returns current authenticated user with role info
+- `GET /api/users` - (Super Admin only) List all users
+- `PATCH /api/users/:id/role` - (Super Admin only) Update user role and owner assignment

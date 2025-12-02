@@ -8,14 +8,67 @@ import {
   insertPaymentSchema, insertBankDepositSchema, insertExpenseSchema
 } from "@shared/schema";
 import { eq, desc, sql, and, gte, lte } from "drizzle-orm";
+import { setupAuth, isAuthenticated, requireSuperAdmin, requireOwnerOrAdmin } from "./replitAuth";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
 
-  // ===== OWNERS =====
-  app.get("/api/owners", async (req: Request, res: Response) => {
+  // Setup authentication
+  await setupAuth(app);
+
+  // ===== AUTH ROUTES =====
+  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      // If user is an owner, include owner details
+      let ownerDetails = null;
+      if (user.ownerId) {
+        ownerDetails = await storage.getOwner(user.ownerId);
+      }
+      
+      res.json({ ...user, ownerDetails });
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+  // Get all users (Super Admin only)
+  app.get('/api/users', isAuthenticated, requireSuperAdmin, async (req: Request, res: Response) => {
+    try {
+      const users = await storage.getUsers();
+      res.json(users);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Update user role (Super Admin only)
+  app.patch('/api/users/:id/role', isAuthenticated, requireSuperAdmin, async (req: Request, res: Response) => {
+    try {
+      const { role, ownerId } = req.body;
+      if (!['super_admin', 'owner'].includes(role)) {
+        return res.status(400).json({ message: "Invalid role" });
+      }
+      const user = await storage.updateUserRole(req.params.id, role, ownerId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      res.json(user);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== OWNERS (Super Admin only for write operations) =====
+  app.get("/api/owners", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const allOwners = await storage.getOwners();
       
@@ -35,7 +88,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/owners/:id", async (req: Request, res: Response) => {
+  app.get("/api/owners/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const owner = await storage.getOwner(parseInt(req.params.id));
       if (!owner) return res.status(404).json({ message: "Owner not found" });
@@ -45,7 +98,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/owners", async (req: Request, res: Response) => {
+  app.post("/api/owners", isAuthenticated, requireSuperAdmin, async (req: Request, res: Response) => {
     try {
       const data = insertOwnerSchema.parse(req.body);
       const owner = await storage.createOwner(data);
@@ -55,7 +108,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/owners/:id", async (req: Request, res: Response) => {
+  app.patch("/api/owners/:id", isAuthenticated, requireSuperAdmin, async (req: Request, res: Response) => {
     try {
       const owner = await storage.updateOwner(parseInt(req.params.id), req.body);
       if (!owner) return res.status(404).json({ message: "Owner not found" });
@@ -65,7 +118,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/owners/:id", async (req: Request, res: Response) => {
+  app.delete("/api/owners/:id", isAuthenticated, requireSuperAdmin, async (req: Request, res: Response) => {
     try {
       await storage.deleteOwner(parseInt(req.params.id));
       res.status(204).send();
@@ -75,7 +128,7 @@ export async function registerRoutes(
   });
 
   // ===== SHOPS =====
-  app.get("/api/shops", async (req: Request, res: Response) => {
+  app.get("/api/shops", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const allShops = await storage.getShops();
       
@@ -94,7 +147,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/shops/:id", async (req: Request, res: Response) => {
+  app.get("/api/shops/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const shop = await storage.getShop(parseInt(req.params.id));
       if (!shop) return res.status(404).json({ message: "Shop not found" });
@@ -110,7 +163,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/shops", async (req: Request, res: Response) => {
+  app.post("/api/shops", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const data = insertShopSchema.parse(req.body);
       const shop = await storage.createShop(data);
@@ -120,7 +173,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/shops/:id", async (req: Request, res: Response) => {
+  app.patch("/api/shops/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const shop = await storage.updateShop(parseInt(req.params.id), req.body);
       if (!shop) return res.status(404).json({ message: "Shop not found" });
@@ -130,7 +183,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/shops/:id", async (req: Request, res: Response) => {
+  app.delete("/api/shops/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       await storage.deleteShop(parseInt(req.params.id));
       res.status(204).send();
@@ -151,7 +204,7 @@ export async function registerRoutes(
   };
 
   // ===== TENANTS =====
-  app.get("/api/tenants", async (req: Request, res: Response) => {
+  app.get("/api/tenants", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const allTenants = await storage.getTenants();
       
@@ -192,7 +245,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/tenants/with-leases", async (req: Request, res: Response) => {
+  app.get("/api/tenants/with-leases", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const allTenants = await storage.getTenants();
       
@@ -212,7 +265,7 @@ export async function registerRoutes(
   });
 
   // ===== TENANTS BY OWNER FILTER ===== (Must be before /api/tenants/:id to avoid route conflict)
-  app.get("/api/tenants/by-owner", async (req: Request, res: Response) => {
+  app.get("/api/tenants/by-owner", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const ownerIds = req.query.ownerIds as string;
       
@@ -279,7 +332,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/tenants/:id", async (req: Request, res: Response) => {
+  app.get("/api/tenants/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const tenant = await storage.getTenant(parseInt(req.params.id));
       if (!tenant) return res.status(404).json({ message: "Tenant not found" });
@@ -390,7 +443,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/tenants", async (req: Request, res: Response) => {
+  app.post("/api/tenants", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const data = insertTenantSchema.parse(req.body);
       const tenant = await storage.createTenant(data);
@@ -400,7 +453,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/tenants/:id", async (req: Request, res: Response) => {
+  app.patch("/api/tenants/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const tenant = await storage.updateTenant(parseInt(req.params.id), req.body);
       if (!tenant) return res.status(404).json({ message: "Tenant not found" });
@@ -410,7 +463,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/tenants/:id", async (req: Request, res: Response) => {
+  app.delete("/api/tenants/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       await storage.deleteTenant(parseInt(req.params.id));
       res.status(204).send();
@@ -420,7 +473,7 @@ export async function registerRoutes(
   });
 
   // ===== LEASES =====
-  app.get("/api/leases", async (req: Request, res: Response) => {
+  app.get("/api/leases", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const allLeases = await storage.getLeases();
       
@@ -468,7 +521,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/leases/:id", async (req: Request, res: Response) => {
+  app.get("/api/leases/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const lease = await storage.getLease(parseInt(req.params.id));
       if (!lease) return res.status(404).json({ message: "Lease not found" });
@@ -541,7 +594,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/leases", async (req: Request, res: Response) => {
+  app.post("/api/leases", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const data = insertLeaseSchema.parse(req.body);
       const lease = await storage.createLease(data);
@@ -575,7 +628,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/leases/:id/settlement", async (req: Request, res: Response) => {
+  app.get("/api/leases/:id/settlement", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const leaseId = parseInt(req.params.id);
       const lease = await storage.getLease(leaseId);
@@ -625,7 +678,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/leases/:id/terminate", async (req: Request, res: Response) => {
+  app.patch("/api/leases/:id/terminate", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const leaseId = parseInt(req.params.id);
       const lease = await storage.getLease(leaseId);
@@ -669,7 +722,7 @@ export async function registerRoutes(
   });
 
   // ===== PAYMENTS =====
-  app.get("/api/payments", async (req: Request, res: Response) => {
+  app.get("/api/payments", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const allPayments = await storage.getPayments();
       
@@ -689,7 +742,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/payments", async (req: Request, res: Response) => {
+  app.post("/api/payments", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const data = insertPaymentSchema.parse(req.body);
       const payment = await storage.createPayment(data);
@@ -699,7 +752,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/payments/:id", async (req: Request, res: Response) => {
+  app.delete("/api/payments/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       await storage.deletePayment(parseInt(req.params.id));
       res.status(204).send();
@@ -709,7 +762,7 @@ export async function registerRoutes(
   });
 
   // ===== BANK DEPOSITS =====
-  app.get("/api/bank-deposits", async (req: Request, res: Response) => {
+  app.get("/api/bank-deposits", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const allDeposits = await storage.getBankDeposits();
       
@@ -724,7 +777,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/bank-deposits", async (req: Request, res: Response) => {
+  app.post("/api/bank-deposits", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const data = insertBankDepositSchema.parse(req.body);
       const deposit = await storage.createBankDeposit(data);
@@ -734,7 +787,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/bank-deposits/:id", async (req: Request, res: Response) => {
+  app.delete("/api/bank-deposits/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       await storage.deleteBankDeposit(parseInt(req.params.id));
       res.status(204).send();
@@ -744,7 +797,7 @@ export async function registerRoutes(
   });
 
   // ===== EXPENSES =====
-  app.get("/api/expenses", async (req: Request, res: Response) => {
+  app.get("/api/expenses", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const allExpenses = await storage.getExpenses();
       
@@ -762,7 +815,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/expenses", async (req: Request, res: Response) => {
+  app.post("/api/expenses", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const data = insertExpenseSchema.parse(req.body);
       const expense = await storage.createExpense(data);
@@ -772,7 +825,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/expenses/:id", async (req: Request, res: Response) => {
+  app.delete("/api/expenses/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       await storage.deleteExpense(parseInt(req.params.id));
       res.status(204).send();
@@ -782,7 +835,7 @@ export async function registerRoutes(
   });
 
   // ===== INVOICE GENERATION =====
-  app.post("/api/invoices/generate-monthly", async (req: Request, res: Response) => {
+  app.post("/api/invoices/generate-monthly", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const today = new Date();
       const currentMonth = today.getMonth() + 1;
@@ -845,7 +898,7 @@ export async function registerRoutes(
   });
 
   // ===== SEARCH =====
-  app.get("/api/search", async (req: Request, res: Response) => {
+  app.get("/api/search", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const query = req.query.q as string || req.query[0] as string || '';
       if (query.length < 2) return res.json([]);
@@ -858,7 +911,7 @@ export async function registerRoutes(
   });
 
   // ===== DASHBOARD STATS =====
-  app.get("/api/dashboard/stats", async (req: Request, res: Response) => {
+  app.get("/api/dashboard/stats", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const allTenants = await storage.getTenants();
       const allShops = await storage.getShops();
@@ -986,7 +1039,7 @@ export async function registerRoutes(
   });
 
   // ===== REPORTS =====
-  app.get("/api/reports/owner-statement", async (req: Request, res: Response) => {
+  app.get("/api/reports/owner-statement", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const ownerId = parseInt(req.query.ownerId as string || req.query[0] as string || '0');
       const startDate = req.query.startDate as string || req.query[1] as string;
@@ -1076,7 +1129,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/reports/tenant-ledger", async (req: Request, res: Response) => {
+  app.get("/api/reports/tenant-ledger", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const tenantId = parseInt(req.query.tenantId as string || req.query[0] as string || '0');
       if (!tenantId) return res.json(null);
@@ -1167,7 +1220,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/reports/collection", async (req: Request, res: Response) => {
+  app.get("/api/reports/collection", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const allPayments = await storage.getPayments();
       const allLeases = await storage.getLeases();
@@ -1210,7 +1263,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/reports/shop-availability", async (req: Request, res: Response) => {
+  app.get("/api/reports/shop-availability", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const allShops = await storage.getShops();
       const allOwners = await storage.getOwners();
@@ -1240,7 +1293,7 @@ export async function registerRoutes(
   });
 
   // ===== MONTHLY DEPOSIT SUMMARY (By Year, By Owner) =====
-  app.get("/api/reports/monthly-deposit-summary", async (req: Request, res: Response) => {
+  app.get("/api/reports/monthly-deposit-summary", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const ownerIdParam = req.query.ownerId as string;
       const yearParam = req.query.year as string;
@@ -1345,7 +1398,7 @@ export async function registerRoutes(
   });
 
   // ===== OWNER TRANSACTION DETAILS REPORT =====
-  app.get("/api/reports/owner-transactions", async (req: Request, res: Response) => {
+  app.get("/api/reports/owner-transactions", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const ownerIdParam = req.query.ownerId as string;
       const startDateParam = req.query.startDate as string;
@@ -1514,7 +1567,7 @@ export async function registerRoutes(
   });
 
   // ===== OWNER-TENANT DETAILS REPORT =====
-  app.get("/api/reports/owner-tenant-details", async (req: Request, res: Response) => {
+  app.get("/api/reports/owner-tenant-details", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const { ownerId, tenantId, shopId, month, year, page = '1', limit = '20' } = req.query;
       

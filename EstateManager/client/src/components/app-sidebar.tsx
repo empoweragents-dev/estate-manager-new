@@ -7,9 +7,10 @@ import {
   CreditCard,
   Receipt,
   BarChart3,
-  Settings,
   Building2,
   Wallet,
+  Shield,
+  UserCog,
 } from "lucide-react";
 import {
   Sidebar,
@@ -23,76 +24,86 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
-
-const mainNavItems = [
-  {
-    title: "Dashboard",
-    url: "/",
-    icon: LayoutDashboard,
-  },
-];
-
-const propertyItems = [
-  {
-    title: "Owners",
-    url: "/owners",
-    icon: Users,
-  },
-  {
-    title: "Shops",
-    url: "/shops",
-    icon: Store,
-  },
-  {
-    title: "Tenants",
-    url: "/tenants",
-    icon: Building2,
-  },
-  {
-    title: "Leases",
-    url: "/leases",
-    icon: FileText,
-  },
-];
-
-const financialItems = [
-  {
-    title: "Payments",
-    url: "/payments",
-    icon: CreditCard,
-  },
-  {
-    title: "Expenses",
-    url: "/expenses",
-    icon: Receipt,
-  },
-  {
-    title: "Bank Deposits",
-    url: "/bank-deposits",
-    icon: Wallet,
-  },
-];
-
-const reportItems = [
-  {
-    title: "Reports",
-    url: "/reports",
-    icon: BarChart3,
-  },
-  {
-    title: "Owner-Tenant Report",
-    url: "/reports/owner-tenant",
-    icon: FileText,
-  },
-];
+import { useAuth } from "@/hooks/useAuth";
 
 export function AppSidebar() {
   const [location] = useLocation();
+  const { isSuperAdmin, user } = useAuth();
 
   const isActive = (url: string) => {
     if (url === '/') return location === '/';
     return location.startsWith(url);
   };
+
+  const mainNavItems = [
+    {
+      title: "Dashboard",
+      url: "/",
+      icon: LayoutDashboard,
+    },
+  ];
+
+  const adminItems = isSuperAdmin ? [
+    {
+      title: "User Management",
+      url: "/admin/users",
+      icon: UserCog,
+    },
+  ] : [];
+
+  const propertyItems = [
+    ...(isSuperAdmin ? [{
+      title: "Owners",
+      url: "/owners",
+      icon: Users,
+    }] : []),
+    {
+      title: "Shops",
+      url: "/shops",
+      icon: Store,
+    },
+    {
+      title: "Tenants",
+      url: "/tenants",
+      icon: Building2,
+    },
+    {
+      title: "Leases",
+      url: "/leases",
+      icon: FileText,
+    },
+  ];
+
+  const financialItems = [
+    {
+      title: "Payments",
+      url: "/payments",
+      icon: CreditCard,
+    },
+    {
+      title: "Expenses",
+      url: "/expenses",
+      icon: Receipt,
+    },
+    {
+      title: "Bank Deposits",
+      url: "/bank-deposits",
+      icon: Wallet,
+    },
+  ];
+
+  const reportItems = [
+    {
+      title: "Reports",
+      url: "/reports",
+      icon: BarChart3,
+    },
+    {
+      title: "Owner-Tenant Report",
+      url: "/reports/owner-tenant",
+      icon: FileText,
+    },
+  ];
 
   return (
     <Sidebar>
@@ -125,6 +136,29 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {isSuperAdmin && adminItems.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel className="flex items-center gap-2">
+              <Shield className="h-3 w-3" />
+              Admin
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {adminItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild isActive={isActive(item.url)}>
+                      <Link href={item.url} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, '-')}`}>
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
         <SidebarGroup>
           <SidebarGroupLabel>Properties</SidebarGroupLabel>
