@@ -877,6 +877,18 @@ export async function registerRoutes(
       if (notes !== undefined) updateData.notes = notes;
       
       const updated = await storage.updateLease(leaseId, updateData);
+      
+      // If monthly rent changed, update all existing unpaid invoices for this lease
+      if (monthlyRent !== undefined && monthlyRent !== lease.monthlyRent) {
+        // Update all invoices for this lease with the new rent amount
+        await db.update(rentInvoices)
+          .set({ amount: monthlyRent.toString() })
+          .where(eq(rentInvoices.leaseId, leaseId));
+        
+        // Recalculate FIFO status for the tenant
+        await updateInvoicePaidStatus(lease.tenantId);
+      }
+      
       res.json(updated);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
