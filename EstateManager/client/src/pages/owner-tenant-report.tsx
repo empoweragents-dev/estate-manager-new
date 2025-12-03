@@ -55,6 +55,7 @@ interface ReportData {
   ownerName: string;
   shopId: number;
   shopLocation: string;
+  floor: string;
   tenantId: number;
   tenantName: string;
   phone: string;
@@ -63,6 +64,7 @@ interface ReportData {
   recentPaymentDate: string | null;
   currentRentDue: number;
   previousRentDue: number;
+  currentOutstanding: number;
 }
 
 interface ReportResponse {
@@ -73,6 +75,13 @@ interface ReportResponse {
     totalPreviousRentDue: number;
     totalMonthlyRent: number;
     totalRecentPayments: number;
+    totalCurrentOutstanding: number;
+  };
+  locationTotals: {
+    ground: number;
+    first: number;
+    second: number;
+    subedari: number;
   };
   pagination: {
     page: number;
@@ -196,12 +205,18 @@ export default function OwnerTenantReportPage() {
       row.shopLocation,
       row.tenantName,
       row.phone,
-      formatNumberOnly(row.monthlyRent),
+      formatNumberOnly(row.monthlyRent || 0),
       row.recentPaymentAmount > 0 ? formatNumberOnly(row.recentPaymentAmount) : "-",
       row.recentPaymentDate || "-",
-      row.currentRentDue > 0 ? formatNumberOnly(row.currentRentDue) : "-",
-      row.previousRentDue > 0 ? formatNumberOnly(row.previousRentDue) : "-",
+      formatNumberOnly(row.currentOutstanding || 0),
     ]);
+
+    // Calculate totals for each column
+    const columnTotals = report.allData.reduce((acc, row) => ({
+      monthlyRent: acc.monthlyRent + (row.monthlyRent || 0),
+      recentPayment: acc.recentPayment + (row.recentPaymentAmount || 0),
+      currentOutstanding: acc.currentOutstanding + (row.currentOutstanding || 0),
+    }), { monthlyRent: 0, recentPayment: 0, currentOutstanding: 0 });
 
     autoTable(doc, {
       startY: 38,
@@ -214,9 +229,18 @@ export default function OwnerTenantReportPage() {
         "Recent Payment",
         "Payment Date",
         "Current Due",
-        "Previous Due",
       ]],
       body: tableData,
+      foot: [[
+        "",
+        "TOTAL",
+        `${report.allData.length} Tenants`,
+        "",
+        formatNumberOnly(columnTotals.monthlyRent),
+        formatNumberOnly(columnTotals.recentPayment),
+        "",
+        formatNumberOnly(columnTotals.currentOutstanding),
+      ]],
       theme: "grid",
       headStyles: {
         fillColor: [41, 128, 185],
@@ -229,16 +253,21 @@ export default function OwnerTenantReportPage() {
         fontSize: 7,
         cellPadding: 1.5,
       },
+      footStyles: {
+        fillColor: [41, 128, 185],
+        textColor: 255,
+        fontStyle: "bold",
+        fontSize: 8,
+      },
       columnStyles: {
-        0: { halign: "center", cellWidth: 8 },
-        1: { cellWidth: 28 },
-        2: { cellWidth: 28 },
-        3: { cellWidth: 20 },
-        4: { halign: "right", cellWidth: 20 },
-        5: { halign: "right", cellWidth: 20 },
-        6: { halign: "center", cellWidth: 20 },
-        7: { halign: "right", cellWidth: 20 },
-        8: { halign: "right", cellWidth: 20 },
+        0: { halign: "center", cellWidth: 10 },
+        1: { cellWidth: 38 },
+        2: { cellWidth: 38 },
+        3: { cellWidth: 28 },
+        4: { halign: "right", cellWidth: 28 },
+        5: { halign: "right", cellWidth: 28 },
+        6: { halign: "center", cellWidth: 25 },
+        7: { halign: "right", cellWidth: 30 },
       },
       margin: { top: 38, left: 14, right: 14, bottom: 25 },
       didDrawPage: (data) => {
@@ -254,24 +283,59 @@ export default function OwnerTenantReportPage() {
 
     const finalY = (doc as any).lastAutoTable.finalY || 150;
 
-    doc.setDrawColor(0);
-    doc.setLineWidth(0.5);
-    doc.line(14, finalY + 5, pageWidth - 14, finalY + 5);
-
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "bold");
-    doc.text("Summary Totals", 14, finalY + 12);
-
-    doc.setFont("helvetica", "normal");
-    doc.text(`Total Current Rent Due: ${formatNumberOnly(report.totals.totalCurrentRentDue)}`, 14, finalY + 18);
-    doc.text(`Total Previous Rent Due: ${formatNumberOnly(report.totals.totalPreviousRentDue)}`, 14, finalY + 24);
-    doc.text(`Total Received (Selected Period): ${formatNumberOnly(report.totals.totalRecentPayments)}`, pageWidth / 2, finalY + 18);
-    doc.text(`Total Monthly Rent: ${formatNumberOnly(report.totals.totalMonthlyRent)}`, pageWidth / 2, finalY + 24);
+    // Check if we need a new page for the summary
+    if (finalY > pageHeight - 60) {
+      doc.addPage();
+      const summaryY = 20;
+      drawSummary(doc, summaryY, pageWidth, report);
+    } else {
+      drawSummary(doc, finalY + 8, pageWidth, report);
+    }
 
     const fileName = `Owner_Tenant_Report_${report.filters.ownerName.replace(/\s+/g, '_')}_${monthNames[report.filters.month - 1]}_${report.filters.year}.pdf`;
     doc.save(fileName);
 
     toast({ title: "PDF exported successfully" });
+  };
+
+  const drawSummary = (doc: jsPDF, startY: number, pageWidth: number, report: ReportResponse) => {
+    doc.setDrawColor(0);
+    doc.setLineWidth(0.5);
+    doc.line(14, startY, pageWidth - 14, startY);
+
+    let y = startY + 8;
+    
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.text("Rent Collection by Location", 14, y);
+    doc.text(`Period: ${monthNames[report.filters.month - 1]} ${report.filters.year}`, pageWidth - 14, y, { align: "right" });
+    y += 8;
+
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    
+    const locTotals = report.locationTotals || { ground: 0, first: 0, second: 0, subedari: 0 };
+    
+    doc.text("Ground Floor:", 14, y);
+    doc.text(formatNumberOnly(locTotals.ground || 0), 70, y, { align: "right" });
+    
+    doc.text("1st Floor:", pageWidth / 2, y);
+    doc.text(formatNumberOnly(locTotals.first || 0), pageWidth / 2 + 56, y, { align: "right" });
+    y += 6;
+    
+    doc.text("2nd Floor:", 14, y);
+    doc.text(formatNumberOnly(locTotals.second || 0), 70, y, { align: "right" });
+    
+    doc.text("Subedari:", pageWidth / 2, y);
+    doc.text(formatNumberOnly(locTotals.subedari || 0), pageWidth / 2 + 56, y, { align: "right" });
+    y += 8;
+    
+    doc.setFont("helvetica", "bold");
+    doc.text("Total Collection:", 14, y);
+    doc.text(formatNumberOnly(report.totals.totalRecentPayments || 0), 70, y, { align: "right" });
+    
+    doc.text("Total Outstanding:", pageWidth / 2, y);
+    doc.text(formatNumberOnly(report.totals.totalCurrentOutstanding || 0), pageWidth / 2 + 56, y, { align: "right" });
   };
 
   const resetFilters = () => {

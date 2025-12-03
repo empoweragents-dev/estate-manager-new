@@ -2376,12 +2376,18 @@ export async function registerRoutes(
         );
         const recentPayment = sortedPayments[0];
         
+        // Calculate current outstanding (total due across all elapsed invoices)
+        const totalElapsedInvoices = elapsedLeaseInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+        const totalAllPayments = leasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const currentOutstanding = Math.max(0, openingBalance + totalElapsedInvoices - totalAllPayments);
+        
         reportData.push({
           leaseId: lease.id,
           ownerId: owner?.id,
           ownerName: owner?.name || 'Common',
           shopId: shop.id,
-          shopLocation: `${shop.shopNumber} - ${shop.floor === 'ground' ? 'Ground' : shop.floor === 'first' ? '1st' : '2nd'} Floor`,
+          shopLocation: `${shop.shopNumber} - ${shop.floor === 'ground' ? 'Ground' : shop.floor === 'first' ? '1st' : shop.floor === 'second' ? '2nd' : 'Subedari'} Floor`,
+          floor: shop.floor,
           tenantId: tenant.id,
           tenantName: tenant.name,
           phone: tenant.phone,
@@ -2390,6 +2396,7 @@ export async function registerRoutes(
           recentPaymentDate: recentPayment?.paymentDate || null,
           currentRentDue,
           previousRentDue,
+          currentOutstanding,
         });
       }
       
@@ -2407,6 +2414,7 @@ export async function registerRoutes(
         totalPreviousRentDue: reportData.reduce((sum, r) => sum + r.previousRentDue, 0),
         totalMonthlyRent: reportData.reduce((sum, r) => sum + r.monthlyRent, 0),
         totalRecentPayments: reportData.reduce((sum, r) => sum + r.recentPaymentAmount, 0),
+        totalCurrentOutstanding: reportData.reduce((sum, r) => sum + r.currentOutstanding, 0),
       };
       
       // Calculate total received for selected period
@@ -2423,6 +2431,32 @@ export async function registerRoutes(
       });
       totals.totalRecentPayments = periodReceivedPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
       
+      // Calculate rent collection by location/floor for selected period
+      const locationTotals = {
+        ground: 0,
+        first: 0,
+        second: 0,
+        subedari: 0,
+      };
+      
+      for (const payment of periodReceivedPayments) {
+        const lease = allLeases.find(l => l.id === payment.leaseId);
+        if (!lease) continue;
+        const shop = allShops.find(s => s.id === lease.shopId);
+        if (!shop) continue;
+        
+        const amount = parseFloat(payment.amount);
+        if (shop.floor === 'ground') {
+          locationTotals.ground += amount;
+        } else if (shop.floor === 'first') {
+          locationTotals.first += amount;
+        } else if (shop.floor === 'second') {
+          locationTotals.second += amount;
+        } else {
+          locationTotals.subedari += amount;
+        }
+      }
+      
       // Paginate results
       const totalRecords = reportData.length;
       const totalPages = Math.ceil(totalRecords / limitNum);
@@ -2438,6 +2472,7 @@ export async function registerRoutes(
         data: paginatedData,
         allData: reportData, // For PDF export
         totals,
+        locationTotals,
         pagination: {
           page: pageNum,
           limit: limitNum,
