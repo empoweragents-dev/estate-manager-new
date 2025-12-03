@@ -649,11 +649,17 @@ export async function registerRoutes(
         });
       });
       
-      tenantPayments.forEach(p => {
+      for (const p of tenantPayments) {
         const rentMonths = p.rentMonths as string[] | null;
         const paymentAmount = parseFloat(p.amount);
         const receiptSuffix = p.receiptNumber ? ` (${p.receiptNumber})` : '';
         const paymentDateFormatted = new Date(p.paymentDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        
+        // Get shop info from the lease
+        const leaseWithShop = leasesWithShops.find(l => l.id === p.leaseId);
+        const shopInfo = leaseWithShop?.shop 
+          ? `, for Shop No. ${leaseWithShop.shop.shopNumber}, ${leaseWithShop.shop.floor}`
+          : '';
         
         if (rentMonths && Array.isArray(rentMonths) && rentMonths.length > 0) {
           // Sort rent months chronologically
@@ -675,7 +681,7 @@ export async function registerRoutes(
               date: monthDate.toISOString().split('T')[0], // Use rent month as entry date
               type: 'payment',
               amount: entryAmount,
-              description: `Payment for ${formattedMonth} made on ${paymentDateFormatted}${receiptSuffix}`,
+              description: `Payment for ${formattedMonth} made on ${paymentDateFormatted}${shopInfo}${receiptSuffix}`,
             });
           });
         } else {
@@ -684,10 +690,10 @@ export async function registerRoutes(
             date: p.paymentDate,
             type: 'payment',
             amount: paymentAmount,
-            description: `Payment Received${receiptSuffix}`,
+            description: `Payment Received${shopInfo}${receiptSuffix}`,
           });
         }
-      });
+      }
       
       // Sort by date to ensure proper chronological order
       allEntries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -1785,6 +1791,13 @@ export async function registerRoutes(
       const invoices = await storage.getRentInvoicesByTenant(tenantId);
       const tenantPayments = await storage.getPaymentsByTenant(tenantId);
       
+      // Get leases with shop details for payment descriptions
+      const tenantLeases = await storage.getLeasesByTenant(tenantId);
+      const leasesWithShops = await Promise.all(tenantLeases.map(async (lease) => {
+        const shop = await storage.getShop(lease.shopId);
+        return { ...lease, shop: shop ? { shopNumber: shop.shopNumber, floor: shop.floor } : null };
+      }));
+      
       // Only count invoices for elapsed months (up to current month)
       const elapsedInvoices = getElapsedInvoices(invoices);
       
@@ -1820,11 +1833,17 @@ export async function registerRoutes(
         });
       });
       
-      tenantPayments.forEach(p => {
+      for (const p of tenantPayments) {
         const rentMonths = p.rentMonths as string[] | null;
         const paymentAmount = parseFloat(p.amount);
         const receiptSuffix = p.receiptNumber ? ` (${p.receiptNumber})` : '';
         const paymentDateFormatted = new Date(p.paymentDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        
+        // Get shop info from the lease
+        const leaseWithShop = leasesWithShops.find(l => l.id === p.leaseId);
+        const shopInfo = leaseWithShop?.shop 
+          ? `, for Shop No. ${leaseWithShop.shop.shopNumber}, ${leaseWithShop.shop.floor}`
+          : '';
         
         if (rentMonths && Array.isArray(rentMonths) && rentMonths.length > 0) {
           // Sort rent months chronologically
@@ -1846,7 +1865,7 @@ export async function registerRoutes(
               date: monthDate.toISOString().split('T')[0], // Use rent month as entry date
               type: 'payment',
               amount: entryAmount,
-              description: `Payment for ${formattedMonth} made on ${paymentDateFormatted}${receiptSuffix}`,
+              description: `Payment for ${formattedMonth} made on ${paymentDateFormatted}${shopInfo}${receiptSuffix}`,
             });
           });
         } else {
@@ -1855,10 +1874,10 @@ export async function registerRoutes(
             date: p.paymentDate,
             type: 'payment',
             amount: paymentAmount,
-            description: `Payment Received${receiptSuffix}`,
+            description: `Payment Received${shopInfo}${receiptSuffix}`,
           });
         }
-      });
+      }
       
       allEntries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       
