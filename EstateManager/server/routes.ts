@@ -653,6 +653,7 @@ export async function registerRoutes(
         const rentMonths = p.rentMonths as string[] | null;
         const paymentAmount = parseFloat(p.amount);
         const receiptSuffix = p.receiptNumber ? ` (${p.receiptNumber})` : '';
+        const paymentDateFormatted = new Date(p.paymentDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
         
         if (rentMonths && Array.isArray(rentMonths) && rentMonths.length > 0) {
           // Sort rent months chronologically
@@ -674,7 +675,7 @@ export async function registerRoutes(
               date: monthDate.toISOString().split('T')[0], // Use rent month as entry date
               type: 'payment',
               amount: entryAmount,
-              description: `Payment for ${formattedMonth}${receiptSuffix}`,
+              description: `Payment for ${formattedMonth} made on ${paymentDateFormatted}${receiptSuffix}`,
             });
           });
         } else {
@@ -1823,6 +1824,7 @@ export async function registerRoutes(
         const rentMonths = p.rentMonths as string[] | null;
         const paymentAmount = parseFloat(p.amount);
         const receiptSuffix = p.receiptNumber ? ` (${p.receiptNumber})` : '';
+        const paymentDateFormatted = new Date(p.paymentDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
         
         if (rentMonths && Array.isArray(rentMonths) && rentMonths.length > 0) {
           // Sort rent months chronologically
@@ -1844,7 +1846,7 @@ export async function registerRoutes(
               date: monthDate.toISOString().split('T')[0], // Use rent month as entry date
               type: 'payment',
               amount: entryAmount,
-              description: `Payment for ${formattedMonth}${receiptSuffix}`,
+              description: `Payment for ${formattedMonth} made on ${paymentDateFormatted}${receiptSuffix}`,
             });
           });
         } else {
