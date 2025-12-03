@@ -66,12 +66,32 @@ interface LedgerEntry {
 const paymentFormSchema = z.object({
   amount: z.string().min(1, "Amount is required"),
   paymentDate: z.string().min(1, "Date is required"),
+  rentMonth: z.string().min(1, "Rent month is required"),
   leaseId: z.string().min(1, "Please select a lease"),
   receiptNumber: z.string().optional(),
   notes: z.string().optional(),
 });
 
 type PaymentFormData = z.infer<typeof paymentFormSchema>;
+
+const monthNames = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"
+];
+
+function getAvailableRentMonths() {
+  const months: { value: string; label: string }[] = [];
+  const currentDate = new Date();
+  
+  for (let i = -6; i <= 2; i++) {
+    const date = new Date(currentDate.getFullYear(), currentDate.getMonth() + i, 1);
+    const monthValue = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    const label = `${monthNames[date.getMonth()]} ${date.getFullYear()}`;
+    months.push({ value: monthValue, label });
+  }
+  
+  return months;
+}
 
 interface SettlementDetails {
   leaseId: number;
@@ -274,19 +294,37 @@ function ReceivePaymentDialog({
   const { toast } = useToast();
   const { currency } = useCurrencyStore();
   const [isOpen, setIsOpen] = useState(false);
+  const availableRentMonths = getAvailableRentMonths();
+  const currentMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
 
   const activeLeases = leases.filter((l) => l.status === 'active' || l.status === 'expiring_soon');
+  
+  const selectedLeaseId = activeLeases.length === 1 ? activeLeases[0].id.toString() : "";
+  const selectedLease = activeLeases.find(l => l.id.toString() === selectedLeaseId);
+  const monthlyRent = selectedLease ? parseFloat(selectedLease.monthlyRent) : 0;
+  const currentDue = tenant.currentDue || 0;
+  const suggestedAmount = monthlyRent + currentDue;
 
   const form = useForm<PaymentFormData>({
     resolver: zodResolver(paymentFormSchema),
     defaultValues: {
-      amount: "",
+      amount: suggestedAmount > 0 ? suggestedAmount.toString() : "",
       paymentDate: new Date().toISOString().split("T")[0],
-      leaseId: activeLeases.length === 1 ? activeLeases[0].id.toString() : "",
+      rentMonth: currentMonth,
+      leaseId: selectedLeaseId,
       receiptNumber: "",
       notes: "",
     },
   });
+
+  const watchedLeaseId = form.watch("leaseId");
+  const watchedLease = activeLeases.find(l => l.id.toString() === watchedLeaseId);
+  const watchedMonthlyRent = watchedLease ? parseFloat(watchedLease.monthlyRent) : 0;
+  const calculatedAmount = watchedMonthlyRent + currentDue;
+
+  const updateAmountToSuggested = () => {
+    form.setValue("amount", calculatedAmount.toString());
+  };
 
   const mutation = useMutation({
     mutationFn: async (data: PaymentFormData) => {
@@ -295,6 +333,7 @@ function ReceivePaymentDialog({
         leaseId: parseInt(data.leaseId),
         amount: data.amount,
         paymentDate: data.paymentDate,
+        rentMonth: data.rentMonth,
         receiptNumber: data.receiptNumber,
         notes: data.notes,
       });
@@ -340,10 +379,32 @@ function ReceivePaymentDialog({
         <DialogHeader>
           <DialogTitle>Receive Payment from {tenant.name}</DialogTitle>
         </DialogHeader>
-        <div className="mb-4 p-3 bg-muted rounded-lg">
+        <div className="mb-4 p-3 bg-muted rounded-lg space-y-2">
+          <div className="text-sm font-medium text-muted-foreground mb-2">Payment Calculation</div>
           <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Current Due</span>
-            <span className="font-semibold text-destructive">{formatValue(tenant.currentDue)}</span>
+            <span className="text-muted-foreground">Monthly Rent</span>
+            <span className="font-medium tabular-nums">{formatValue(watchedMonthlyRent)}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">Outstanding Due</span>
+            <span className="font-medium tabular-nums text-amber-600">{formatValue(currentDue)}</span>
+          </div>
+          <div className="border-t pt-2 mt-2">
+            <div className="flex justify-between items-center">
+              <span className="font-medium">Suggested Amount</span>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-lg tabular-nums text-primary">{formatValue(calculatedAmount)}</span>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  size="sm"
+                  onClick={updateAmountToSuggested}
+                  className="text-xs h-7"
+                >
+                  Use
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
         <Form {...form}>
@@ -377,10 +438,34 @@ function ReceivePaymentDialog({
 
             <FormField
               control={form.control}
+              name="rentMonth"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Rent Month *</FormLabel>
+                  <FormControl>
+                    <select
+                      {...field}
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                      data-testid="select-rent-month"
+                    >
+                      {availableRentMonths.map((month) => (
+                        <option key={month.value} value={month.value}>
+                          {month.label}
+                        </option>
+                      ))}
+                    </select>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
               name="amount"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Amount (BDT) *</FormLabel>
+                  <FormLabel>Payment Amount (BDT) *</FormLabel>
                   <FormControl>
                     <Input
                       {...field}

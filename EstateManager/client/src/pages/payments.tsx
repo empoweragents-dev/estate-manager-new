@@ -51,6 +51,7 @@ interface PaymentWithDetails extends Payment {
 
 interface TenantWithLeases extends Tenant {
   leases: (Lease & { shop: { shopNumber: string; floor: string } })[];
+  currentDue?: number;
 }
 
 const paymentFormSchema = z.object({
@@ -58,11 +59,31 @@ const paymentFormSchema = z.object({
   leaseId: z.string().min(1, "Lease is required"),
   amount: z.string().min(1, "Amount is required"),
   paymentDate: z.string().min(1, "Date is required"),
+  rentMonth: z.string().min(1, "Rent month is required"),
   receiptNumber: z.string().optional(),
   notes: z.string().optional(),
 });
 
 type PaymentFormData = z.infer<typeof paymentFormSchema>;
+
+const monthNames = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"
+];
+
+function getAvailableRentMonths() {
+  const months: { value: string; label: string }[] = [];
+  const currentDate = new Date();
+  
+  for (let i = -6; i <= 2; i++) {
+    const date = new Date(currentDate.getFullYear(), currentDate.getMonth() + i, 1);
+    const monthValue = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    const label = `${monthNames[date.getMonth()]} ${date.getFullYear()}`;
+    months.push({ value: monthValue, label });
+  }
+  
+  return months;
+}
 
 function PaymentForm({
   tenants,
@@ -74,9 +95,17 @@ function PaymentForm({
   const { toast } = useToast();
   const { currency, exchangeRate } = useCurrencyStore();
   const [selectedTenantId, setSelectedTenantId] = useState<string>("");
+  const [selectedLeaseId, setSelectedLeaseId] = useState<string>("");
+  const availableRentMonths = getAvailableRentMonths();
+  const currentMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
 
   const selectedTenant = tenants.find(t => t.id.toString() === selectedTenantId);
   const activeLeases = selectedTenant?.leases?.filter(l => l.status === 'active' || l.status === 'expiring_soon') ?? [];
+  const selectedLease = activeLeases.find(l => l.id.toString() === selectedLeaseId);
+  
+  const monthlyRent = selectedLease ? parseFloat(selectedLease.monthlyRent) : 0;
+  const currentDue = selectedTenant?.currentDue || 0;
+  const suggestedAmount = monthlyRent + currentDue;
 
   const form = useForm<PaymentFormData>({
     resolver: zodResolver(paymentFormSchema),
@@ -85,10 +114,15 @@ function PaymentForm({
       leaseId: "",
       amount: "",
       paymentDate: new Date().toISOString().split("T")[0],
+      rentMonth: currentMonth,
       receiptNumber: "",
       notes: "",
     },
   });
+  
+  const updateAmountToSuggested = () => {
+    form.setValue("amount", suggestedAmount.toString());
+  };
 
   const mutation = useMutation({
     mutationFn: async (data: PaymentFormData) => {
@@ -97,6 +131,7 @@ function PaymentForm({
         leaseId: parseInt(data.leaseId),
         amount: data.amount,
         paymentDate: data.paymentDate,
+        rentMonth: data.rentMonth,
         receiptNumber: data.receiptNumber,
         notes: data.notes,
       });
@@ -119,8 +154,15 @@ function PaymentForm({
 
   const handleTenantChange = (value: string) => {
     setSelectedTenantId(value);
+    setSelectedLeaseId("");
     form.setValue("tenantId", value);
     form.setValue("leaseId", "");
+    form.setValue("amount", "");
+  };
+
+  const handleLeaseChange = (value: string) => {
+    setSelectedLeaseId(value);
+    form.setValue("leaseId", value);
   };
 
   const formatValue = (val: number | string) => {
@@ -163,7 +205,7 @@ function PaymentForm({
             <FormItem>
               <FormLabel>Lease *</FormLabel>
               <Select 
-                onValueChange={field.onChange} 
+                onValueChange={handleLeaseChange} 
                 defaultValue={field.value}
                 disabled={!selectedTenantId}
               >
@@ -185,12 +227,68 @@ function PaymentForm({
           )}
         />
 
+        {selectedLeaseId && (
+          <div className="p-3 bg-muted rounded-lg space-y-2">
+            <div className="text-sm font-medium text-muted-foreground mb-2">Payment Calculation</div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Monthly Rent</span>
+              <span className="font-medium tabular-nums">{formatValue(monthlyRent)}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Outstanding Due</span>
+              <span className="font-medium tabular-nums text-amber-600">{formatValue(currentDue)}</span>
+            </div>
+            <div className="border-t pt-2 mt-2">
+              <div className="flex justify-between items-center">
+                <span className="font-medium">Suggested Amount</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-lg tabular-nums text-primary">{formatValue(suggestedAmount)}</span>
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    size="sm"
+                    onClick={updateAmountToSuggested}
+                    className="text-xs h-7"
+                  >
+                    Use
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <FormField
+          control={form.control}
+          name="rentMonth"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Rent Month *</FormLabel>
+              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <FormControl>
+                  <SelectTrigger data-testid="select-rent-month">
+                    <SelectValue placeholder="Select rent month" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {availableRentMonths.map((month) => (
+                    <SelectItem key={month.value} value={month.value}>
+                      {month.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
         <FormField
           control={form.control}
           name="amount"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Amount (BDT) *</FormLabel>
+              <FormLabel>Payment Amount (BDT) *</FormLabel>
               <FormControl>
                 <Input
                   {...field}
