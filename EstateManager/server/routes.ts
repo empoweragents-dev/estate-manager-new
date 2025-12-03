@@ -1268,7 +1268,7 @@ export async function registerRoutes(
   app.post("/api/payments", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const validatedData = insertPaymentSchema.parse(req.body);
-      const { tenantId, leaseId, amount, paymentDate, receiptNumber, notes } = validatedData;
+      const { tenantId, leaseId, amount, paymentDate, rentMonths, receiptNumber, notes } = validatedData;
       
       // Create the payment record - simple single record
       const payment = await storage.createPayment({
@@ -1276,6 +1276,7 @@ export async function registerRoutes(
         leaseId,
         amount: amount.toString(),
         paymentDate,
+        rentMonths: rentMonths || null,
         receiptNumber: receiptNumber || '',
         notes: notes || '',
       });

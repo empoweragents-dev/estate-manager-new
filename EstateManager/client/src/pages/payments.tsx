@@ -59,7 +59,7 @@ const paymentFormSchema = z.object({
   leaseId: z.string().min(1, "Lease is required"),
   amount: z.string().min(1, "Amount is required"),
   paymentDate: z.string().min(1, "Date is required"),
-  rentMonth: z.string().min(1, "Rent month is required"),
+  rentMonths: z.array(z.string()).min(1, "At least one rent month is required"),
   receiptNumber: z.string().optional(),
   notes: z.string().optional(),
 });
@@ -71,15 +71,23 @@ const monthNames = [
   "July", "August", "September", "October", "November", "December"
 ];
 
-function getAvailableRentMonths() {
+function getLeaseRentMonths(leaseStartDate: string | undefined) {
   const months: { value: string; label: string }[] = [];
-  const currentDate = new Date();
+  if (!leaseStartDate) return months;
   
-  for (let i = -6; i <= 2; i++) {
-    const date = new Date(currentDate.getFullYear(), currentDate.getMonth() + i, 1);
+  const startDate = new Date(leaseStartDate);
+  const currentDate = new Date();
+  const currentYear = currentDate.getFullYear();
+  const currentMonth = currentDate.getMonth();
+  
+  let date = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+  const endDate = new Date(currentYear, currentMonth, 1);
+  
+  while (date <= endDate) {
     const monthValue = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
     const label = `${monthNames[date.getMonth()]} ${date.getFullYear()}`;
     months.push({ value: monthValue, label });
+    date.setMonth(date.getMonth() + 1);
   }
   
   return months;
@@ -96,16 +104,19 @@ function PaymentForm({
   const { currency, exchangeRate } = useCurrencyStore();
   const [selectedTenantId, setSelectedTenantId] = useState<string>("");
   const [selectedLeaseId, setSelectedLeaseId] = useState<string>("");
-  const availableRentMonths = getAvailableRentMonths();
-  const currentMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+  const [selectedRentMonths, setSelectedRentMonths] = useState<string[]>([]);
+  const [isMonthDropdownOpen, setIsMonthDropdownOpen] = useState(false);
 
   const selectedTenant = tenants.find(t => t.id.toString() === selectedTenantId);
   const activeLeases = selectedTenant?.leases?.filter(l => l.status === 'active' || l.status === 'expiring_soon') ?? [];
   const selectedLease = activeLeases.find(l => l.id.toString() === selectedLeaseId);
   
+  const availableRentMonths = getLeaseRentMonths(selectedLease?.startDate);
   const monthlyRent = selectedLease ? parseFloat(selectedLease.monthlyRent) : 0;
   const currentDue = selectedTenant?.currentDue || 0;
-  const suggestedAmount = monthlyRent + currentDue;
+  const selectedMonthsCount = selectedRentMonths.length;
+  const rentForSelectedMonths = monthlyRent * selectedMonthsCount;
+  const suggestedAmount = rentForSelectedMonths + currentDue;
 
   const form = useForm<PaymentFormData>({
     resolver: zodResolver(paymentFormSchema),
@@ -114,7 +125,7 @@ function PaymentForm({
       leaseId: "",
       amount: "",
       paymentDate: new Date().toISOString().split("T")[0],
-      rentMonth: currentMonth,
+      rentMonths: [],
       receiptNumber: "",
       notes: "",
     },
@@ -122,6 +133,27 @@ function PaymentForm({
   
   const updateAmountToSuggested = () => {
     form.setValue("amount", suggestedAmount.toString());
+  };
+  
+  const toggleMonth = (monthValue: string) => {
+    setSelectedRentMonths(prev => {
+      const newMonths = prev.includes(monthValue)
+        ? prev.filter(m => m !== monthValue)
+        : [...prev, monthValue].sort();
+      form.setValue("rentMonths", newMonths);
+      return newMonths;
+    });
+  };
+  
+  const selectAllMonths = () => {
+    const allMonths = availableRentMonths.map(m => m.value);
+    setSelectedRentMonths(allMonths);
+    form.setValue("rentMonths", allMonths);
+  };
+  
+  const clearAllMonths = () => {
+    setSelectedRentMonths([]);
+    form.setValue("rentMonths", []);
   };
 
   const mutation = useMutation({
@@ -131,7 +163,7 @@ function PaymentForm({
         leaseId: parseInt(data.leaseId),
         amount: data.amount,
         paymentDate: data.paymentDate,
-        rentMonth: data.rentMonth,
+        rentMonths: data.rentMonths,
         receiptNumber: data.receiptNumber,
         notes: data.notes,
       });
@@ -155,14 +187,19 @@ function PaymentForm({
   const handleTenantChange = (value: string) => {
     setSelectedTenantId(value);
     setSelectedLeaseId("");
+    setSelectedRentMonths([]);
     form.setValue("tenantId", value);
     form.setValue("leaseId", "");
+    form.setValue("rentMonths", []);
     form.setValue("amount", "");
   };
 
   const handleLeaseChange = (value: string) => {
     setSelectedLeaseId(value);
+    setSelectedRentMonths([]);
     form.setValue("leaseId", value);
+    form.setValue("rentMonths", []);
+    form.setValue("amount", "");
   };
 
   const formatValue = (val: number | string) => {
@@ -228,60 +265,110 @@ function PaymentForm({
         />
 
         {selectedLeaseId && (
-          <div className="p-3 bg-muted rounded-lg space-y-2">
-            <div className="text-sm font-medium text-muted-foreground mb-2">Payment Calculation</div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Monthly Rent</span>
-              <span className="font-medium tabular-nums">{formatValue(monthlyRent)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Outstanding Due</span>
-              <span className="font-medium tabular-nums text-amber-600">{formatValue(currentDue)}</span>
-            </div>
-            <div className="border-t pt-2 mt-2">
-              <div className="flex justify-between items-center">
-                <span className="font-medium">Suggested Amount</span>
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-lg tabular-nums text-primary">{formatValue(suggestedAmount)}</span>
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    size="sm"
-                    onClick={updateAmountToSuggested}
-                    className="text-xs h-7"
-                  >
-                    Use
-                  </Button>
+          <>
+            <FormField
+              control={form.control}
+              name="rentMonths"
+              render={() => (
+                <FormItem>
+                  <FormLabel>Select Rent Month(s) *</FormLabel>
+                  <div className="border rounded-lg">
+                    <div className="flex items-center justify-between p-2 border-b bg-muted/50">
+                      <span className="text-sm text-muted-foreground">
+                        {selectedRentMonths.length === 0 
+                          ? "No months selected" 
+                          : `${selectedRentMonths.length} month(s) selected`}
+                      </span>
+                      <div className="flex gap-2">
+                        <Button 
+                          type="button" 
+                          variant="outline" 
+                          size="sm" 
+                          className="h-7 text-xs"
+                          onClick={selectAllMonths}
+                        >
+                          Select All
+                        </Button>
+                        <Button 
+                          type="button" 
+                          variant="outline" 
+                          size="sm" 
+                          className="h-7 text-xs"
+                          onClick={clearAllMonths}
+                        >
+                          Clear
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="max-h-48 overflow-y-auto p-2 grid grid-cols-2 gap-1">
+                      {availableRentMonths.length === 0 ? (
+                        <p className="text-sm text-muted-foreground col-span-2 text-center py-2">
+                          Select a lease to see available months
+                        </p>
+                      ) : (
+                        availableRentMonths.map((month) => (
+                          <label 
+                            key={month.value}
+                            className={`flex items-center gap-2 p-2 rounded cursor-pointer hover:bg-muted ${
+                              selectedRentMonths.includes(month.value) ? 'bg-primary/10' : ''
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedRentMonths.includes(month.value)}
+                              onChange={() => toggleMonth(month.value)}
+                              className="h-4 w-4 rounded border-gray-300"
+                            />
+                            <span className="text-sm">{month.label}</span>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="p-3 bg-muted rounded-lg space-y-2">
+              <div className="text-sm font-medium text-muted-foreground mb-2">Payment Calculation</div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Monthly Rent</span>
+                <span className="font-medium tabular-nums">{formatValue(monthlyRent)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Selected Months</span>
+                <span className="font-medium tabular-nums">{selectedMonthsCount} month(s)</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Rent for Selected Months</span>
+                <span className="font-medium tabular-nums">{formatValue(rentForSelectedMonths)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Outstanding Due</span>
+                <span className="font-medium tabular-nums text-amber-600">{formatValue(currentDue)}</span>
+              </div>
+              <div className="border-t pt-2 mt-2">
+                <div className="flex justify-between items-center">
+                  <span className="font-medium">Suggested Amount</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-lg tabular-nums text-primary">{formatValue(suggestedAmount)}</span>
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      size="sm"
+                      onClick={updateAmountToSuggested}
+                      className="text-xs h-7"
+                      disabled={selectedMonthsCount === 0}
+                    >
+                      Use
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          </>
         )}
-
-        <FormField
-          control={form.control}
-          name="rentMonth"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Rent Month *</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
-                <FormControl>
-                  <SelectTrigger data-testid="select-rent-month">
-                    <SelectValue placeholder="Select rent month" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  {availableRentMonths.map((month) => (
-                    <SelectItem key={month.value} value={month.value}>
-                      {month.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
 
         <FormField
           control={form.control}
