@@ -44,15 +44,15 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Plus, CreditCard, User, Store, Calendar, Receipt, Trash2, Search, Building2, CheckCircle2, Circle, X } from "lucide-react";
 import type { Payment, Tenant, Lease } from "@shared/schema";
-import { formatCurrency, useCurrencyStore } from "@/lib/currency";
+import { formatCurrency, useCurrencyStore, formatShopLocation } from "@/lib/currency";
 
 interface PaymentWithDetails extends Payment {
   tenant: Tenant;
-  lease: Lease & { shop: { shopNumber: string; floor: string } };
+  lease: Lease & { shop: { shopNumber: string; floor: string; subedariCategory?: string | null } };
 }
 
 interface TenantWithLeases extends Tenant {
-  leases: (Lease & { shop: { shopNumber: string; floor: string } })[];
+  leases: (Lease & { shop: { shopNumber: string; floor: string; subedariCategory?: string | null } })[];
   currentDue?: number;
 }
 
@@ -101,6 +101,7 @@ interface SearchableItem {
   tenantPhone: string;
   shopNumber: string;
   floor: string;
+  subedariCategory?: string | null;
   monthlyRent: string;
   leaseId: number;
   tenantId: number;
@@ -131,6 +132,7 @@ function PaymentForm({
           tenantPhone: tenant.phone,
           shopNumber: lease.shop.shopNumber,
           floor: lease.shop.floor,
+          subedariCategory: lease.shop.subedariCategory,
           monthlyRent: lease.monthlyRent,
           leaseId: lease.id,
           tenantId: tenant.id,
@@ -250,12 +252,6 @@ function PaymentForm({
     return formatCurrency(num, currency, exchangeRate);
   };
 
-  const floorLabels: Record<string, string> = {
-    ground: "Ground Floor",
-    first: "1st Floor",
-    second: "2nd Floor",
-    subedari: "Subedari",
-  };
 
   return (
     <Form {...form}>
@@ -314,7 +310,7 @@ function PaymentForm({
                       </div>
                       <div className="text-right">
                         <Badge variant="outline" className="text-xs">
-                          {floorLabels[item.floor] || item.floor}
+                          {formatShopLocation(item.floor, item.shopNumber, item.subedariCategory)}
                         </Badge>
                         <div className="text-sm font-medium text-primary mt-1">
                           {formatValue(parseFloat(item.monthlyRent))}/mo
@@ -341,10 +337,7 @@ function PaymentForm({
                       <div className="flex items-center gap-2 mt-2">
                         <Badge variant="secondary" className="gap-1">
                           <Building2 className="h-3 w-3" />
-                          Shop {selectedItem.shopNumber}
-                        </Badge>
-                        <Badge variant="outline">
-                          {floorLabels[selectedItem.floor] || selectedItem.floor}
+                          {formatShopLocation(selectedItem.floor, selectedItem.shopNumber, selectedItem.subedariCategory)}
                         </Badge>
                       </div>
                     </div>

@@ -234,11 +234,10 @@ export async function registerRoutes(
         );
         const lastPaymentDate = sortedPayments.length > 0 ? sortedPayments[0].paymentDate : null;
 
-        // Format floor name
-        const floorName = shop.floor === 'ground' ? 'Ground Floor' :
-                         shop.floor === 'first' ? '1st Floor' :
-                         shop.floor === 'second' ? '2nd Floor' : 
-                         shop.floor === 'subedari' ? 'Subedari' : shop.floor;
+        // Format shop location
+        const shopLocation = shop.floor === 'subedari' 
+          ? `Subedari ${shop.subedariCategory === 'residential' ? 'Res' : 'Shop'} ${shop.shopNumber}`
+          : `${shop.floor === 'ground' ? 'Ground' : shop.floor === 'first' ? '1st' : '2nd'} Floor ${shop.shopNumber}`;
 
         tenantList.push({
           id: tenant.id,
@@ -246,7 +245,7 @@ export async function registerRoutes(
           name: tenant.name,
           phone: tenant.phone,
           shopNumber: shop.shopNumber,
-          shopLocation: `${floorName} - ${shop.shopNumber}`,
+          shopLocation,
           securityDeposit: securityDeposit,
           monthlyRent: parseFloat(lease.monthlyRent),
           currentDues: Math.max(0, totalDues),
@@ -2386,7 +2385,9 @@ export async function registerRoutes(
           ownerId: owner?.id,
           ownerName: owner?.name || 'Common',
           shopId: shop.id,
-          shopLocation: `${shop.shopNumber} - ${shop.floor === 'ground' ? 'Ground' : shop.floor === 'first' ? '1st' : shop.floor === 'second' ? '2nd' : 'Subedari'} Floor`,
+          shopLocation: shop.floor === 'subedari' 
+            ? `Subedari ${shop.subedariCategory === 'residential' ? 'Res' : 'Shop'} ${shop.shopNumber}`
+            : `${shop.floor === 'ground' ? 'Ground' : shop.floor === 'first' ? '1st' : '2nd'} Floor ${shop.shopNumber}`,
           floor: shop.floor,
           tenantId: tenant.id,
           tenantName: tenant.name,
