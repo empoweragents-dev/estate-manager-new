@@ -1,9 +1,11 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { format } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -11,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { DateRangeFilter } from "@/components/date-filter";
 import {
   Table,
   TableBody,
@@ -103,10 +106,17 @@ export default function OwnerTenantReportPage() {
   const [selectedShop, setSelectedShop] = useState<string>("all");
   const [selectedMonth, setSelectedMonth] = useState<string>((currentDate.getMonth() + 1).toString());
   const [selectedYear, setSelectedYear] = useState<string>(currentDate.getFullYear().toString());
+  const [startDate, setStartDate] = useState<Date | undefined>();
+  const [endDate, setEndDate] = useState<Date | undefined>();
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize] = useState(20);
 
   const formatValue = (val: number) => formatCurrency(val);
+
+  const clearDateFilters = () => {
+    setStartDate(undefined);
+    setEndDate(undefined);
+  };
 
   const { data: owners } = useQuery<Owner[]>({
     queryKey: ["/api/owners"],
@@ -127,10 +137,12 @@ export default function OwnerTenantReportPage() {
     if (selectedShop !== "all") params.append("shopId", selectedShop);
     params.append("month", selectedMonth);
     params.append("year", selectedYear);
+    if (startDate) params.append("startDate", format(startDate, "yyyy-MM-dd"));
+    if (endDate) params.append("endDate", format(endDate, "yyyy-MM-dd"));
     params.append("page", currentPage.toString());
     params.append("limit", pageSize.toString());
     return params.toString();
-  }, [selectedOwner, selectedTenant, selectedShop, selectedMonth, selectedYear, currentPage, pageSize]);
+  }, [selectedOwner, selectedTenant, selectedShop, selectedMonth, selectedYear, startDate, endDate, currentPage, pageSize]);
 
   const { data: report, isLoading } = useQuery<ReportResponse>({
     queryKey: [`/api/reports/owner-tenant-details?${queryString}`],
@@ -268,6 +280,8 @@ export default function OwnerTenantReportPage() {
     setSelectedShop("all");
     setSelectedMonth((currentDate.getMonth() + 1).toString());
     setSelectedYear(currentDate.getFullYear().toString());
+    setStartDate(undefined);
+    setEndDate(undefined);
     setCurrentPage(1);
   };
 
@@ -400,6 +414,29 @@ export default function OwnerTenantReportPage() {
               <Button variant="outline" onClick={resetFilters} className="w-full">
                 Reset Filters
               </Button>
+            </div>
+          </div>
+
+          <Separator className="my-4" />
+
+          <div>
+            <label className="text-sm font-medium mb-2 block flex items-center gap-2">
+              <Calendar className="h-4 w-4" />
+              Date Range Filter
+            </label>
+            <div className="flex gap-2 items-center">
+              <DateRangeFilter
+                startDate={startDate}
+                endDate={endDate}
+                onStartDateChange={(d) => { setStartDate(d); setCurrentPage(1); }}
+                onEndDateChange={(d) => { setEndDate(d); setCurrentPage(1); }}
+                className="flex-1"
+              />
+              {(startDate || endDate) && (
+                <Button variant="ghost" size="sm" onClick={clearDateFilters}>
+                  Clear
+                </Button>
+              )}
             </div>
           </div>
         </CardContent>

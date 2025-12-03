@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { format } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { DateFilter, DateRangeFilter } from "@/components/date-filter";
 import {
   Table,
   TableBody,
@@ -566,9 +568,17 @@ interface OwnerTransaction {
   tenantName?: string;
 }
 
+const monthNames = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"
+];
+
 function MonthlyDepositSummaryReport() {
   const [selectedOwnerId, setSelectedOwnerId] = useState<string>("all");
   const [selectedYear, setSelectedYear] = useState<string>("all");
+  const [selectedMonth, setSelectedMonth] = useState<string>("all");
+  const [startDate, setStartDate] = useState<Date | undefined>();
+  const [endDate, setEndDate] = useState<Date | undefined>();
   const { currency, exchangeRate } = useCurrencyStore();
 
   const { data, isLoading } = useQuery<{
@@ -576,11 +586,14 @@ function MonthlyDepositSummaryReport() {
     availableYears: number[];
     owners: { id: number; name: string }[];
   }>({
-    queryKey: ["/api/reports/monthly-deposit-summary", selectedOwnerId, selectedYear],
+    queryKey: ["/api/reports/monthly-deposit-summary", selectedOwnerId, selectedYear, selectedMonth, startDate?.toISOString(), endDate?.toISOString()],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (selectedOwnerId !== "all") params.append("ownerId", selectedOwnerId);
       if (selectedYear !== "all") params.append("year", selectedYear);
+      if (selectedMonth !== "all") params.append("month", selectedMonth);
+      if (startDate) params.append("startDate", format(startDate, "yyyy-MM-dd"));
+      if (endDate) params.append("endDate", format(endDate, "yyyy-MM-dd"));
       const response = await fetch(`/api/reports/monthly-deposit-summary?${params}`);
       if (!response.ok) throw new Error("Failed to fetch report");
       return response.json();
@@ -614,14 +627,19 @@ function MonthlyDepositSummaryReport() {
     exportToExcel(exportData, 'monthly-deposit-summary', ['Owner Name', 'Year', 'Month', 'Rent Payments', 'Security Deposits', 'Total Deposit']);
   };
 
+  const clearDateFilters = () => {
+    setStartDate(undefined);
+    setEndDate(undefined);
+  };
+
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Filter Options</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <label className="text-sm font-medium mb-2 block">Owner</label>
               <Select value={selectedOwnerId} onValueChange={setSelectedOwnerId}>
@@ -654,15 +672,54 @@ function MonthlyDepositSummaryReport() {
                 </SelectContent>
               </Select>
             </div>
+            <div>
+              <label className="text-sm font-medium mb-2 block">Month</label>
+              <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Months" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Months</SelectItem>
+                  {monthNames.map((name, index) => (
+                    <SelectItem key={index} value={(index + 1).toString()}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="flex items-end gap-2">
               <Button variant="outline" onClick={handleExportExcel} disabled={!data?.data?.length}>
                 <FileSpreadsheet className="h-4 w-4 mr-2" />
-                Export Excel
+                Export
               </Button>
               <Button variant="outline" onClick={() => exportToPDF('monthly-deposit-report', 'monthly-deposit-summary')} disabled={!data?.data?.length}>
                 <Printer className="h-4 w-4 mr-2" />
-                Export PDF
+                Print
               </Button>
+            </div>
+          </div>
+
+          <Separator />
+
+          <div>
+            <label className="text-sm font-medium mb-2 block flex items-center gap-2">
+              <Calendar className="h-4 w-4" />
+              Date Range Filter
+            </label>
+            <div className="flex gap-2 items-center">
+              <DateRangeFilter
+                startDate={startDate}
+                endDate={endDate}
+                onStartDateChange={setStartDate}
+                onEndDateChange={setEndDate}
+                className="flex-1"
+              />
+              {(startDate || endDate) && (
+                <Button variant="ghost" size="sm" onClick={clearDateFilters}>
+                  Clear
+                </Button>
+              )}
             </div>
           </div>
         </CardContent>
