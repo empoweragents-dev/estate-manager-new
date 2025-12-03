@@ -1071,28 +1071,8 @@ export async function registerRoutes(
         await storage.updateShop(shop.id, { status: 'occupied' });
       }
       
-      // Generate rent invoices for the lease period
-      const startDate = new Date(data.startDate);
-      const endDate = new Date(data.endDate);
-      let currentDate = new Date(startDate);
-      
-      while (currentDate <= endDate) {
-        const month = currentDate.getMonth() + 1;
-        const year = currentDate.getFullYear();
-        const dueDate = new Date(year, month - 1, 1);
-        
-        await storage.createRentInvoice({
-          leaseId: lease.id,
-          tenantId: data.tenantId,
-          amount: data.monthlyRent,
-          dueDate: dueDate.toISOString().split('T')[0],
-          month,
-          year,
-          isPaid: false,
-        });
-        
-        currentDate.setMonth(currentDate.getMonth() + 1);
-      }
+      // Generate rent invoices using the shared regeneration function
+      await regenerateLeaseBilling(lease.id);
       
       res.status(201).json(lease);
     } catch (error: any) {
@@ -1171,15 +1151,14 @@ export async function registerRoutes(
       
       const updated = await storage.updateLease(leaseId, updateData);
       
-      // If monthly rent changed, update all existing unpaid invoices for this lease
-      if (monthlyRent !== undefined && monthlyRent !== lease.monthlyRent) {
-        // Update all invoices for this lease with the new rent amount
-        await db.update(rentInvoices)
-          .set({ amount: monthlyRent.toString() })
-          .where(eq(rentInvoices.leaseId, leaseId));
-        
-        // Recalculate FIFO status for the tenant
-        await updateInvoicePaidStatus(lease.tenantId);
+      // Regenerate all invoices if dates or rent changed
+      const needsRegeneration = 
+        (startDate !== undefined && startDate !== lease.startDate) ||
+        (endDate !== undefined && endDate !== lease.endDate) ||
+        (monthlyRent !== undefined && monthlyRent !== lease.monthlyRent);
+      
+      if (needsRegeneration) {
+        await regenerateLeaseBilling(leaseId);
       }
       
       res.json(updated);
@@ -1351,6 +1330,47 @@ export async function registerRoutes(
     }
   });
   
+  // Helper function to regenerate all invoices for a lease from start date to current month
+  async function regenerateLeaseBilling(leaseId: number) {
+    const lease = await storage.getLease(leaseId);
+    if (!lease) throw new Error("Lease not found");
+    if (lease.status === 'terminated') return; // Don't regenerate for terminated leases
+    
+    // Delete all existing invoices for this lease
+    await db.delete(rentInvoices).where(eq(rentInvoices.leaseId, leaseId));
+    
+    // Calculate the date range for invoice generation
+    const startDate = new Date(lease.startDate);
+    const endDate = new Date(lease.endDate);
+    const today = new Date();
+    const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    
+    // Generate invoices from start date to min(endDate, current month)
+    let currentDate = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+    const endLimit = endDate < currentMonth ? endDate : currentMonth;
+    
+    while (currentDate <= endLimit) {
+      const month = currentDate.getMonth() + 1;
+      const year = currentDate.getFullYear();
+      const dueDate = new Date(year, month - 1, 1);
+      
+      await storage.createRentInvoice({
+        leaseId: lease.id,
+        tenantId: lease.tenantId,
+        amount: lease.monthlyRent,
+        dueDate: dueDate.toISOString().split('T')[0],
+        month,
+        year,
+        isPaid: false,
+      });
+      
+      currentDate.setMonth(currentDate.getMonth() + 1);
+    }
+    
+    // Recalculate FIFO paid status for all invoices
+    await updateInvoicePaidStatus(lease.tenantId);
+  }
+
   // Helper function to update isPaid status on invoices using FIFO
   async function updateInvoicePaidStatus(tenantId: number) {
     // Get all invoices for this tenant sorted by month/year (oldest first)
