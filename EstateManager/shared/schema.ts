@@ -68,7 +68,7 @@ export const usersRelations = relations(users, ({ one }) => ({
 // Shops/Units table
 export const shops = pgTable("shops", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  shopNumber: text("shop_number").notNull().unique(),
+  shopNumber: text("shop_number").notNull(),
   floor: floorEnum("floor").notNull(),
   subedariCategory: subedariCategoryEnum("subedari_category"), // only used when floor is 'subedari'
   squareFeet: decimal("square_feet", { precision: 10, scale: 2 }),
