@@ -35,7 +35,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, Users, Building2, Phone, Mail, CreditCard, Edit2, Trash2 } from "lucide-react";
+import { Plus, Users, Building2, Phone, Mail, CreditCard, Edit2 } from "lucide-react";
 import type { Owner } from "@shared/schema";
 import { formatCurrency, useCurrencyStore } from "@/lib/currency";
 
@@ -244,19 +244,6 @@ export default function OwnersPage() {
     queryKey: ["/api/owners"],
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: async (id: number) => {
-      return apiRequest("DELETE", `/api/owners/${id}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/owners"] });
-      toast({ title: "Owner deleted successfully" });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    },
-  });
-
   const handleEdit = (owner: Owner) => {
     setEditingOwner(owner);
     setIsDialogOpen(true);
@@ -338,25 +325,14 @@ export default function OwnersPage() {
                     )}
                   </div>
                 </div>
-                <div className="flex gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleEdit(owner)}
-                    data-testid={`button-edit-owner-${owner.id}`}
-                  >
-                    <Edit2 className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => deleteMutation.mutate(owner.id)}
-                    disabled={deleteMutation.isPending}
-                    data-testid={`button-delete-owner-${owner.id}`}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => handleEdit(owner)}
+                  data-testid={`button-edit-owner-${owner.id}`}
+                >
+                  <Edit2 className="h-4 w-4" />
+                </Button>
               </div>
 
               <div className="space-y-3">
