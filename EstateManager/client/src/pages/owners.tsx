@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -324,7 +325,11 @@ export default function OwnersPage() {
                     {owner.name.charAt(0).toUpperCase()}
                   </div>
                   <div className="min-w-0">
-                    <h3 className="font-semibold truncate">{owner.name}</h3>
+                    <Link href={`/owners/${owner.id}`}>
+                      <h3 className="font-semibold truncate text-primary hover:underline cursor-pointer">
+                        {owner.name}
+                      </h3>
+                    </Link>
                     {owner.phone && (
                       <div className="flex items-center gap-1 text-sm text-muted-foreground">
                         <Phone className="h-3 w-3" />

@@ -23,6 +23,7 @@ import { LogOut, User, Shield, Loader2 } from "lucide-react";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
 import OwnersPage from "@/pages/owners";
+import OwnerDetailPage from "@/pages/owner-detail";
 import ShopsPage from "@/pages/shops";
 import TenantsPage from "@/pages/tenants";
 import TenantDetailPage from "@/pages/tenant-detail";
@@ -99,6 +100,7 @@ function Router() {
       <Route path="/" component={Dashboard} />
       <Route path="/admin/users" component={UserManagementPage} />
       <Route path="/owners" component={OwnersPage} />
+      <Route path="/owners/:id" component={OwnerDetailPage} />
       <Route path="/shops" component={ShopsPage} />
       <Route path="/tenants" component={TenantsPage} />
       <Route path="/tenants/:id" component={TenantDetailPage} />
