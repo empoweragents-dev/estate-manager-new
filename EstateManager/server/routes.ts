@@ -166,6 +166,226 @@ export async function registerRoutes(
     }
   });
 
+  // Owner Details - comprehensive view with tenants, deposits, expenses, reports
+  app.get("/api/owners/:id/details", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const ownerId = parseInt(req.params.id);
+      const owner = await storage.getOwner(ownerId);
+      if (!owner) return res.status(404).json({ message: "Owner not found" });
+
+      // Get all shops owned by this owner (sole ownership)
+      const allShops = await storage.getShops();
+      const ownerShops = allShops.filter(s => s.ownerId === ownerId);
+      const shopIds = ownerShops.map(s => s.id);
+
+      // Also include common ownership shops for revenue calculations
+      const commonShops = allShops.filter(s => s.ownershipType === 'common');
+      const allOwners = await storage.getOwners();
+      const totalOwners = allOwners.length || 1;
+
+      // Get all leases for owner's shops
+      const allLeases = await storage.getLeases();
+      const ownerLeases = allLeases.filter(l => shopIds.includes(l.shopId));
+
+      // Get all tenants and their data
+      const allTenants = await storage.getTenants();
+      const allPayments = await storage.getPayments();
+      const allInvoices = await storage.getRentInvoices();
+
+      // Build tenant list with details
+      const tenantList = [];
+      let totalSecurityDeposit = 0;
+      let totalOutstandingDues = 0;
+
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+
+      for (const lease of ownerLeases) {
+        if (lease.status === 'terminated') continue;
+
+        const tenant = allTenants.find(t => t.id === lease.tenantId);
+        const shop = ownerShops.find(s => s.id === lease.shopId);
+        if (!tenant || !shop) continue;
+
+        // Calculate security deposit for this lease
+        const securityDeposit = parseFloat(lease.securityDeposit) - parseFloat(lease.securityDepositUsed || '0');
+        totalSecurityDeposit += securityDeposit;
+
+        // Get invoices for this lease (only elapsed months)
+        const leaseInvoices = allInvoices.filter(inv => 
+          inv.leaseId === lease.id &&
+          (inv.year < currentYear || (inv.year === currentYear && inv.month <= currentMonth))
+        );
+
+        // Get payments for this lease
+        const leasePayments = allPayments.filter(p => p.leaseId === lease.id);
+        const totalPaid = leasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+
+        // Calculate total dues
+        const openingDue = parseFloat(tenant.openingDueBalance || '0');
+        const totalInvoiced = leaseInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+        const totalDues = openingDue + totalInvoiced - totalPaid;
+        totalOutstandingDues += Math.max(0, totalDues);
+
+        // Get last payment date
+        const sortedPayments = leasePayments.sort((a, b) => 
+          new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime()
+        );
+        const lastPaymentDate = sortedPayments.length > 0 ? sortedPayments[0].paymentDate : null;
+
+        // Format floor name
+        const floorName = shop.floor === 'ground' ? 'Ground Floor' :
+                         shop.floor === 'first' ? '1st Floor' :
+                         shop.floor === 'second' ? '2nd Floor' : 
+                         shop.floor === 'subedari' ? 'Subedari' : shop.floor;
+
+        tenantList.push({
+          id: tenant.id,
+          leaseId: lease.id,
+          name: tenant.name,
+          phone: tenant.phone,
+          shopNumber: shop.shopNumber,
+          shopLocation: `${floorName} - ${shop.shopNumber}`,
+          securityDeposit: securityDeposit,
+          monthlyRent: parseFloat(lease.monthlyRent),
+          currentDues: Math.max(0, totalDues),
+          lastPaymentDate,
+          leaseStatus: lease.status,
+        });
+      }
+
+      // Get bank deposits for this owner
+      const bankDeposits = await storage.getBankDepositsByOwner(ownerId);
+      const depositsWithMonth = bankDeposits.map(d => {
+        const date = new Date(d.depositDate);
+        return {
+          ...d,
+          month: date.getMonth() + 1,
+          year: date.getFullYear(),
+          monthName: date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+        };
+      }).sort((a, b) => new Date(b.depositDate).getTime() - new Date(a.depositDate).getTime());
+
+      // Group deposits by month
+      const depositsByMonth: Record<string, typeof depositsWithMonth> = {};
+      for (const deposit of depositsWithMonth) {
+        const key = deposit.monthName;
+        if (!depositsByMonth[key]) depositsByMonth[key] = [];
+        depositsByMonth[key].push(deposit);
+      }
+
+      // Get expenses for this owner (both owner-specific and common allocated)
+      const allExpenses = await storage.getExpenses();
+      const ownerExpenses = allExpenses.filter(e => 
+        e.ownerId === ownerId || e.allocation === 'common'
+      ).map(e => ({
+        ...e,
+        allocatedAmount: e.allocation === 'common' 
+          ? parseFloat(e.amount) / totalOwners 
+          : parseFloat(e.amount),
+        isCommon: e.allocation === 'common'
+      })).sort((a, b) => new Date(b.expenseDate).getTime() - new Date(a.expenseDate).getTime());
+
+      // Build monthly/yearly income-expense report
+      const monthlyReports: Record<string, { 
+        month: string, 
+        rentCollection: number, 
+        bankDeposits: number, 
+        expenses: number,
+        netIncome: number
+      }> = {};
+
+      // Last 12 months of data
+      for (let i = 0; i < 12; i++) {
+        const date = new Date(currentYear, currentMonth - 1 - i, 1);
+        const year = date.getFullYear();
+        const month = date.getMonth() + 1;
+        const key = `${year}-${month.toString().padStart(2, '0')}`;
+        const monthName = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+
+        // Rent collection for owner's shops in this month
+        const monthPayments = allPayments.filter(p => {
+          const pDate = new Date(p.paymentDate);
+          return pDate.getFullYear() === year && 
+                 pDate.getMonth() + 1 === month &&
+                 ownerLeases.some(l => l.id === p.leaseId);
+        });
+        const rentCollection = monthPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+
+        // Bank deposits in this month
+        const monthDeposits = bankDeposits.filter(d => {
+          const dDate = new Date(d.depositDate);
+          return dDate.getFullYear() === year && dDate.getMonth() + 1 === month;
+        });
+        const totalDeposits = monthDeposits.reduce((sum, d) => sum + parseFloat(d.amount), 0);
+
+        // Expenses in this month
+        const monthExpenses = allExpenses.filter(e => {
+          const eDate = new Date(e.expenseDate);
+          return eDate.getFullYear() === year && 
+                 eDate.getMonth() + 1 === month &&
+                 (e.ownerId === ownerId || e.allocation === 'common');
+        });
+        const totalExpenses = monthExpenses.reduce((sum, e) => 
+          sum + (e.allocation === 'common' ? parseFloat(e.amount) / totalOwners : parseFloat(e.amount)), 0);
+
+        monthlyReports[key] = {
+          month: monthName,
+          rentCollection,
+          bankDeposits: totalDeposits,
+          expenses: totalExpenses,
+          netIncome: rentCollection - totalExpenses
+        };
+      }
+
+      // Convert to sorted array (newest first)
+      const monthlyReportArray = Object.entries(monthlyReports)
+        .sort((a, b) => b[0].localeCompare(a[0]))
+        .map(([, data]) => data);
+
+      // Calculate yearly summary
+      const yearlyReports: Record<number, {
+        year: number,
+        rentCollection: number,
+        bankDeposits: number,
+        expenses: number,
+        netIncome: number
+      }> = {};
+
+      for (const [key, data] of Object.entries(monthlyReports)) {
+        const year = parseInt(key.split('-')[0]);
+        if (!yearlyReports[year]) {
+          yearlyReports[year] = { year, rentCollection: 0, bankDeposits: 0, expenses: 0, netIncome: 0 };
+        }
+        yearlyReports[year].rentCollection += data.rentCollection;
+        yearlyReports[year].bankDeposits += data.bankDeposits;
+        yearlyReports[year].expenses += data.expenses;
+        yearlyReports[year].netIncome += data.netIncome;
+      }
+
+      const yearlyReportArray = Object.values(yearlyReports).sort((a, b) => b.year - a.year);
+
+      res.json({
+        owner,
+        summary: {
+          totalSecurityDeposit,
+          totalOutstandingDues,
+          totalTenants: tenantList.length,
+          totalShops: ownerShops.length,
+        },
+        tenants: tenantList,
+        bankDeposits: depositsWithMonth,
+        depositsByMonth,
+        expenses: ownerExpenses,
+        monthlyReports: monthlyReportArray,
+        yearlyReports: yearlyReportArray,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // ===== SHOPS =====
   app.get("/api/shops", isAuthenticated, async (req: Request, res: Response) => {
     try {
