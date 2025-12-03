@@ -26,20 +26,11 @@ export function formatFloor(floor: string, subedariCategory?: string | null): st
     case 'first': return '1st Floor';
     case 'second': return '2nd Floor';
     case 'subedari': 
-      if (subedariCategory === 'shops') return 'Subedari Shop';
-      if (subedariCategory === 'residential') return 'Subedari Res';
+      if (subedariCategory === 'shops') return 'Subedari - Shops';
+      if (subedariCategory === 'residential') return 'Subedari - Residential';
       return 'Subedari';
     default: return floor;
   }
-}
-
-export function formatShopLocation(floor: string, shopNumber: string, subedariCategory?: string | null): string {
-  if (floor === 'subedari') {
-    const category = subedariCategory === 'residential' ? 'Res' : 'Shop';
-    return `Subedari ${category} ${shopNumber}`;
-  }
-  const floorLabel = floor === 'ground' ? 'Ground' : floor === 'first' ? '1st' : '2nd';
-  return `${floorLabel} Floor ${shopNumber}`;
 }
 
 export function getLeaseStatusColor(status: string): string {

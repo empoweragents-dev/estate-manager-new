@@ -44,7 +44,7 @@ import {
   AlertCircle,
   CheckCircle2,
 } from "lucide-react";
-import { formatCurrency, formatNumberOnly, useCurrencyStore, formatShopLocation } from "@/lib/currency";
+import { formatCurrency, formatNumberOnly, useCurrencyStore, formatFloor } from "@/lib/currency";
 import type { Owner, Tenant, Shop } from "@shared/schema";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -409,7 +409,7 @@ export default function OwnerTenantReportPage() {
                   <SelectItem value="all">All Shops</SelectItem>
                   {filteredShops.map((shop) => (
                     <SelectItem key={shop.id} value={shop.id.toString()}>
-                      {formatShopLocation(shop.floor, shop.shopNumber, shop.subedariCategory)}
+                      {formatFloor(shop.floor, shop.subedariCategory)} - {shop.shopNumber}
                     </SelectItem>
                   ))}
                 </SelectContent>
