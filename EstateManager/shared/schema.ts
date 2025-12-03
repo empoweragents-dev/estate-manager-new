@@ -183,6 +183,7 @@ export const payments = pgTable("payments", {
   leaseId: integer("lease_id").notNull().references(() => leases.id),
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
   paymentDate: date("payment_date").notNull(),
+  rentMonths: jsonb("rent_months").$type<string[]>(), // Array of "YYYY-MM" strings
   receiptNumber: text("receipt_number"),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
