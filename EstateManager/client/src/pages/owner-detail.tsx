@@ -250,7 +250,7 @@ export default function OwnerDetailPage() {
         </TabsList>
 
         <TabsContent value="tenants" className="mt-4">
-          <TenantsTab tenants={tenants} formatValue={formatValue} />
+          <TenantsTab tenants={tenants} formatValue={formatValue} ownerName={owner.name} />
         </TabsContent>
 
         <TabsContent value="deposits" className="mt-4">
@@ -278,14 +278,114 @@ export default function OwnerDetailPage() {
   );
 }
 
-function TenantsTab({ tenants, formatValue }: { tenants: TenantInfo[]; formatValue: (val: number) => string }) {
+function TenantsTab({ tenants, formatValue, ownerName }: { tenants: TenantInfo[]; formatValue: (val: number) => string; ownerName: string }) {
+  const formatNumber = (val: number) => {
+    return val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const exportTenantsPDF = () => {
+    const doc = new jsPDF({ orientation: 'landscape' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const currentDate = new Date().toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+
+    doc.setFillColor(37, 99, 235);
+    doc.rect(0, 0, pageWidth, 35, 'F');
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(18);
+    doc.text('Tenant List', pageWidth / 2, 15, { align: 'center' });
+    
+    doc.setFontSize(12);
+    doc.text(`Owner: ${ownerName}`, pageWidth / 2, 24, { align: 'center' });
+    
+    doc.setFontSize(9);
+    doc.text(`Generated: ${currentDate}`, pageWidth / 2, 31, { align: 'center' });
+
+    doc.setTextColor(0, 0, 0);
+
+    const totals = tenants.reduce((acc, t) => ({
+      securityDeposit: acc.securityDeposit + t.securityDeposit,
+      monthlyRent: acc.monthlyRent + t.monthlyRent,
+      currentDues: acc.currentDues + t.currentDues
+    }), { securityDeposit: 0, monthlyRent: 0, currentDues: 0 });
+
+    autoTable(doc, {
+      startY: 42,
+      head: [['Tenant Name', 'Phone', 'Shop', 'Security Deposit', 'Monthly Rent', 'Current Dues', 'Last Payment', 'Status']],
+      body: tenants.map(tenant => [
+        tenant.name,
+        tenant.phone || '-',
+        tenant.shopLocation,
+        formatNumber(tenant.securityDeposit),
+        formatNumber(tenant.monthlyRent),
+        formatNumber(tenant.currentDues),
+        tenant.lastPaymentDate ? new Date(tenant.lastPaymentDate).toLocaleDateString() : '-',
+        tenant.leaseStatus === 'expiring_soon' ? 'Expiring Soon' : tenant.leaseStatus
+      ]),
+      foot: [[
+        'TOTAL',
+        '',
+        `${tenants.length} Tenants`,
+        formatNumber(totals.securityDeposit),
+        formatNumber(totals.monthlyRent),
+        formatNumber(totals.currentDues),
+        '',
+        ''
+      ]],
+      theme: 'striped',
+      headStyles: { 
+        fillColor: [37, 99, 235], 
+        textColor: 255,
+        fontStyle: 'bold',
+        fontSize: 9
+      },
+      bodyStyles: {
+        fontSize: 9
+      },
+      footStyles: {
+        fillColor: [37, 99, 235],
+        textColor: 255,
+        fontStyle: 'bold',
+        fontSize: 9
+      },
+      alternateRowStyles: {
+        fillColor: [245, 247, 250]
+      },
+      columnStyles: {
+        0: { cellWidth: 45 },
+        1: { cellWidth: 30 },
+        2: { cellWidth: 40 },
+        3: { halign: 'right', cellWidth: 35 },
+        4: { halign: 'right', cellWidth: 30 },
+        5: { halign: 'right', cellWidth: 30 },
+        6: { cellWidth: 30 },
+        7: { cellWidth: 30 }
+      },
+      margin: { left: 10, right: 10 }
+    });
+
+    doc.save(`${ownerName.replace(/\s+/g, '_')}_Tenants_${new Date().toISOString().split('T')[0]}.pdf`);
+  };
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base flex items-center gap-2">
-          <Users className="h-5 w-5" />
-          All Tenants
-        </CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Users className="h-5 w-5" />
+            All Tenants
+          </CardTitle>
+          {tenants.length > 0 && (
+            <Button variant="outline" size="sm" onClick={exportTenantsPDF} className="gap-2">
+              <Download className="h-4 w-4" />
+              Export PDF
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         <Table>
