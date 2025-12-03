@@ -43,7 +43,11 @@ import {
   LogOut,
   Building2,
   Pencil,
+  TrendingUp,
+  TrendingDown,
+  History,
 } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -551,6 +555,273 @@ function EditLeaseDialog({
   );
 }
 
+// Rent Adjustment types and component
+interface RentAdjustment {
+  id: number;
+  leaseId: number;
+  previousRent: string;
+  newRent: string;
+  adjustmentAmount: string;
+  effectiveDate: string;
+  agreementTerms: string | null;
+  notes: string | null;
+  createdAt: string;
+}
+
+const rentAdjustmentFormSchema = z.object({
+  newRent: z.string().min(1, "New rent amount is required"),
+  effectiveDate: z.string().min(1, "Effective date is required"),
+  agreementTerms: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+type RentAdjustmentFormData = z.infer<typeof rentAdjustmentFormSchema>;
+
+function RentAdjustmentsHistory({ leaseId, formatValue }: { leaseId: number; formatValue: (val: number | string) => string }) {
+  const { data: adjustments = [], isLoading } = useQuery<RentAdjustment[]>({
+    queryKey: [`/api/leases/${leaseId}/rent-adjustments`],
+  });
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <Skeleton className="h-32" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <History className="h-5 w-5" />
+          Rent Adjustment History
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Date</TableHead>
+              <TableHead>Effective From</TableHead>
+              <TableHead className="text-right">Previous Rent</TableHead>
+              <TableHead className="text-right">New Rent</TableHead>
+              <TableHead className="text-right">Change</TableHead>
+              <TableHead>Agreement Terms</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {adjustments.map((adjustment) => {
+              const change = parseFloat(adjustment.adjustmentAmount);
+              return (
+                <TableRow key={adjustment.id}>
+                  <TableCell>{new Date(adjustment.createdAt).toLocaleDateString()}</TableCell>
+                  <TableCell>{adjustment.effectiveDate}</TableCell>
+                  <TableCell className="text-right">{formatValue(adjustment.previousRent)}</TableCell>
+                  <TableCell className="text-right font-medium">{formatValue(adjustment.newRent)}</TableCell>
+                  <TableCell className={`text-right font-medium ${change > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    <span className="flex items-center justify-end gap-1">
+                      {change > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                      {change > 0 ? '+' : ''}{formatValue(change)}
+                    </span>
+                  </TableCell>
+                  <TableCell className="max-w-[200px] truncate" title={adjustment.agreementTerms || '-'}>
+                    {adjustment.agreementTerms || '-'}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+            {adjustments.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                  No rent adjustments recorded for this lease
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function RentAdjustmentDialog({
+  lease,
+  onSuccess,
+}: {
+  lease: LeaseDetailData;
+  onSuccess: () => void;
+}) {
+  const { toast } = useToast();
+  const [isOpen, setIsOpen] = useState(false);
+
+  const form = useForm<RentAdjustmentFormData>({
+    resolver: zodResolver(rentAdjustmentFormSchema),
+    defaultValues: {
+      newRent: lease.monthlyRent,
+      effectiveDate: new Date().toISOString().split('T')[0],
+      agreementTerms: "",
+      notes: "",
+    },
+  });
+
+  const mutation = useMutation({
+    mutationFn: async (data: RentAdjustmentFormData) => {
+      return apiRequest("POST", `/api/leases/${lease.id}/rent-adjustments`, {
+        newRent: data.newRent,
+        effectiveDate: data.effectiveDate,
+        agreementTerms: data.agreementTerms,
+        notes: data.notes,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/leases/${lease.id}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/leases/${lease.id}/rent-adjustments`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leases"] });
+      toast({ title: "Rent adjusted successfully" });
+      setIsOpen(false);
+      form.reset();
+      onSuccess();
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const onSubmit = (data: RentAdjustmentFormData) => {
+    mutation.mutate(data);
+  };
+
+  const currentRent = parseFloat(lease.monthlyRent);
+  const newRent = parseFloat(form.watch("newRent") || "0");
+  const difference = newRent - currentRent;
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        onClick={() => setIsOpen(true)}
+        disabled={lease.status === 'terminated'}
+      >
+        <TrendingUp className="h-4 w-4 mr-2" />
+        Adjust Rent
+      </Button>
+
+      <Dialog open={isOpen} onOpenChange={setIsOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5" />
+              Adjust Rent
+            </DialogTitle>
+            <DialogDescription>
+              Increase or decrease monthly rent for Shop {lease.shop?.shopNumber}. This will update future invoices.
+            </DialogDescription>
+          </DialogHeader>
+
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <div className="p-3 bg-muted/50 rounded-md">
+                <p className="text-sm text-muted-foreground">Current Monthly Rent</p>
+                <p className="text-xl font-semibold">{formatCurrency(currentRent)}</p>
+              </div>
+
+              <FormField
+                control={form.control}
+                name="newRent"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>New Monthly Rent (BDT) *</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        type="number"
+                        step="0.01"
+                        placeholder="Enter new rent amount"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {difference !== 0 && !isNaN(difference) && (
+                <div className={`p-3 rounded-md flex items-center gap-2 ${difference > 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                  {difference > 0 ? (
+                    <TrendingUp className="h-4 w-4" />
+                  ) : (
+                    <TrendingDown className="h-4 w-4" />
+                  )}
+                  <span className="font-medium">
+                    {difference > 0 ? '+' : ''}{formatCurrency(difference)} ({difference > 0 ? 'Increase' : 'Decrease'})
+                  </span>
+                </div>
+              )}
+
+              <FormField
+                control={form.control}
+                name="effectiveDate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Effective From *</FormLabel>
+                    <FormControl>
+                      <Input {...field} type="date" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="agreementTerms"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Agreement Terms</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        {...field}
+                        placeholder="Enter agreement terms for this rent change..."
+                        rows={3}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="notes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Notes</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="Additional notes" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <DialogFooter className="gap-2 pt-4">
+                <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={mutation.isPending}>
+                  {mutation.isPending ? "Saving..." : "Apply Adjustment"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 export default function LeaseDetailPage() {
   const [, params] = useRoute("/leases/:id");
   const leaseId = params?.id;
@@ -643,6 +914,12 @@ export default function LeaseDetailPage() {
         <div className="flex gap-2">
           {lease.status !== 'terminated' && (
             <>
+              <RentAdjustmentDialog
+                lease={lease}
+                onSuccess={() => {
+                  queryClient.invalidateQueries({ queryKey: [`/api/leases/${leaseId}`] });
+                }}
+              />
               <EditLeaseDialog
                 lease={lease}
                 onSuccess={() => {
@@ -768,6 +1045,7 @@ export default function LeaseDetailPage() {
           <TabsTrigger value="monthly">Monthly Rent Breakdown</TabsTrigger>
           <TabsTrigger value="payments">Payment History ({lease.payments.length})</TabsTrigger>
           <TabsTrigger value="expenses">Tenant Expenses ({lease.expenses.length})</TabsTrigger>
+          <TabsTrigger value="adjustments">Rent Adjustments</TabsTrigger>
         </TabsList>
 
         <TabsContent value="monthly" className="mt-4">
@@ -931,6 +1209,10 @@ export default function LeaseDetailPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="adjustments" className="mt-4">
+          <RentAdjustmentsHistory leaseId={lease.id} formatValue={formatValue} />
         </TabsContent>
       </Tabs>
 

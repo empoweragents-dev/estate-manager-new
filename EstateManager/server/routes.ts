@@ -3,10 +3,10 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { 
-  owners, shops, tenants, leases, rentInvoices, payments, bankDeposits, expenses,
+  owners, shops, tenants, leases, rentInvoices, payments, bankDeposits, expenses, rentAdjustments,
   insertOwnerSchema, insertShopSchema, insertTenantSchema, insertLeaseSchema,
   insertPaymentSchema, insertBankDepositSchema, insertExpenseSchema,
-  insertUserSchema
+  insertUserSchema, insertRentAdjustmentSchema
 } from "@shared/schema";
 import { eq, desc, sql, and, gte, lte } from "drizzle-orm";
 import { setupAuth, isAuthenticated, requireSuperAdmin, requireOwnerOrAdmin } from "./auth";
@@ -485,6 +485,18 @@ export async function registerRoutes(
   app.post("/api/tenants", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const data = insertTenantSchema.parse(req.body);
+      
+      // Check if phone number already exists
+      if (data.phone) {
+        const allTenants = await storage.getTenants();
+        const existingTenant = allTenants.find(t => t.phone === data.phone);
+        if (existingTenant) {
+          return res.status(400).json({ 
+            message: `Tenant with phone number ${data.phone} already exists (${existingTenant.name})` 
+          });
+        }
+      }
+      
       const tenant = await storage.createTenant(data);
       res.status(201).json(tenant);
     } catch (error: any) {
@@ -935,6 +947,80 @@ export async function registerRoutes(
       res.json(updated);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== RENT ADJUSTMENTS =====
+  
+  // Get rent adjustments for a lease
+  app.get("/api/leases/:id/rent-adjustments", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const leaseId = parseInt(req.params.id);
+      const adjustments = await db.select().from(rentAdjustments)
+        .where(eq(rentAdjustments.leaseId, leaseId))
+        .orderBy(desc(rentAdjustments.createdAt));
+      res.json(adjustments);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create rent adjustment (increase or decrease rent)
+  app.post("/api/leases/:id/rent-adjustments", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const leaseId = parseInt(req.params.id);
+      const lease = await storage.getLease(leaseId);
+      if (!lease) return res.status(404).json({ message: "Lease not found" });
+      
+      if (lease.status === 'terminated') {
+        return res.status(400).json({ message: "Cannot adjust rent for a terminated lease" });
+      }
+      
+      const { newRent, effectiveDate, agreementTerms, notes } = req.body;
+      
+      if (!newRent || !effectiveDate) {
+        return res.status(400).json({ message: "New rent amount and effective date are required" });
+      }
+      
+      const previousRent = parseFloat(lease.monthlyRent);
+      const newRentAmount = parseFloat(newRent);
+      const adjustmentAmount = newRentAmount - previousRent;
+      
+      // Create rent adjustment record
+      const [adjustment] = await db.insert(rentAdjustments).values({
+        leaseId,
+        previousRent: previousRent.toString(),
+        newRent: newRentAmount.toString(),
+        adjustmentAmount: adjustmentAmount.toString(),
+        effectiveDate,
+        agreementTerms: agreementTerms || null,
+        notes: notes || null,
+      }).returning();
+      
+      // Update the lease with new monthly rent
+      await storage.updateLease(leaseId, { monthlyRent: newRentAmount.toString() });
+      
+      // Update all future invoices (from effective date onwards) with new rent
+      const effectiveDateObj = new Date(effectiveDate);
+      const effectiveMonth = effectiveDateObj.getMonth() + 1;
+      const effectiveYear = effectiveDateObj.getFullYear();
+      
+      // Get all invoices for this lease and update those from effective date onwards
+      const leaseInvoices = await db.select().from(rentInvoices).where(eq(rentInvoices.leaseId, leaseId));
+      for (const invoice of leaseInvoices) {
+        if (invoice.year > effectiveYear || (invoice.year === effectiveYear && invoice.month >= effectiveMonth)) {
+          await db.update(rentInvoices)
+            .set({ amount: newRentAmount.toString() })
+            .where(eq(rentInvoices.id, invoice.id));
+        }
+      }
+      
+      // Recalculate FIFO status for the tenant
+      await updateInvoicePaidStatus(lease.tenantId);
+      
+      res.status(201).json(adjustment);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
     }
   });
 

@@ -129,6 +129,27 @@ export const leasesRelations = relations(leases, ({ one, many }) => ({
     references: [shops.id],
   }),
   rentInvoices: many(rentInvoices),
+  rentAdjustments: many(rentAdjustments),
+}));
+
+// Rent Adjustments - history of rent changes
+export const rentAdjustments = pgTable("rent_adjustments", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  leaseId: integer("lease_id").notNull().references(() => leases.id),
+  previousRent: decimal("previous_rent", { precision: 12, scale: 2 }).notNull(),
+  newRent: decimal("new_rent", { precision: 12, scale: 2 }).notNull(),
+  adjustmentAmount: decimal("adjustment_amount", { precision: 12, scale: 2 }).notNull(), // positive for increase, negative for decrease
+  effectiveDate: date("effective_date").notNull(),
+  agreementTerms: text("agreement_terms"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const rentAdjustmentsRelations = relations(rentAdjustments, ({ one }) => ({
+  lease: one(leases, {
+    fields: [rentAdjustments.leaseId],
+    references: [leases.id],
+  }),
 }));
 
 // Rent Invoices - monthly rent generation
@@ -236,6 +257,7 @@ export const insertBankDepositSchema = createInsertSchema(bankDeposits).omit({ i
 export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true, createdAt: true });
 export const insertSettingSchema = createInsertSchema(settings).omit({ id: true, updatedAt: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertRentAdjustmentSchema = createInsertSchema(rentAdjustments).omit({ id: true, createdAt: true });
 
 // User types
 export type User = typeof users.$inferSelect;
@@ -269,6 +291,9 @@ export type InsertExpense = z.infer<typeof insertExpenseSchema>;
 
 export type Setting = typeof settings.$inferSelect;
 export type InsertSetting = z.infer<typeof insertSettingSchema>;
+
+export type RentAdjustment = typeof rentAdjustments.$inferSelect;
+export type InsertRentAdjustment = z.infer<typeof insertRentAdjustmentSchema>;
 
 // Extended types for frontend use with relations
 export type ShopWithOwner = Shop & { owner?: Owner };
