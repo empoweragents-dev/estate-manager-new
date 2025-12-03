@@ -15,7 +15,10 @@ import {
   FileText,
   ChevronDown,
   ChevronRight,
+  Download,
 } from "lucide-react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -264,6 +267,7 @@ export default function OwnerDetailPage() {
 
         <TabsContent value="reports" className="mt-4">
           <IncomeReportsTab 
+            ownerName={owner.name}
             monthlyReports={monthlyReports} 
             yearlyReports={yearlyReports}
             formatValue={formatValue} 
@@ -535,16 +539,122 @@ function ExpensesTab({ expenses, formatValue }: { expenses: ExpenseWithAllocatio
 }
 
 function IncomeReportsTab({ 
+  ownerName,
   monthlyReports, 
   yearlyReports,
   formatValue 
 }: { 
+  ownerName: string;
   monthlyReports: MonthlyReport[];
   yearlyReports: YearlyReport[];
   formatValue: (val: number) => string;
 }) {
+  const formatNumberForPdf = (val: number) => {
+    return `৳${val.toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  const exportPDF = () => {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const currentDate = new Date().toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+
+    doc.setFontSize(18);
+    doc.text('Income-Expense Report', pageWidth / 2, 20, { align: 'center' });
+    
+    doc.setFontSize(14);
+    doc.text(ownerName, pageWidth / 2, 30, { align: 'center' });
+    
+    doc.setFontSize(10);
+    doc.text(`Generated: ${currentDate}`, pageWidth / 2, 38, { align: 'center' });
+
+    let yPos = 50;
+
+    if (yearlyReports.length > 0) {
+      doc.setFontSize(12);
+      doc.text('Yearly Summary', 14, yPos);
+      yPos += 5;
+
+      autoTable(doc, {
+        startY: yPos,
+        head: [['Year', 'Rent Collection', 'Bank Deposits', 'Expenses', 'Net Income']],
+        body: yearlyReports.map(report => [
+          report.year.toString(),
+          formatNumberForPdf(report.rentCollection),
+          formatNumberForPdf(report.bankDeposits),
+          formatNumberForPdf(report.expenses),
+          (report.netIncome >= 0 ? '' : '-') + formatNumberForPdf(Math.abs(report.netIncome))
+        ]),
+        theme: 'grid',
+        headStyles: { fillColor: [59, 130, 246], textColor: 255 },
+        columnStyles: {
+          1: { halign: 'right' },
+          2: { halign: 'right' },
+          3: { halign: 'right' },
+          4: { halign: 'right' }
+        },
+        margin: { left: 14, right: 14 }
+      });
+
+      yPos = (doc as any).lastAutoTable.finalY + 15;
+    }
+
+    if (monthlyReports.length > 0) {
+      doc.setFontSize(12);
+      doc.text('Monthly Breakdown (Last 12 Months)', 14, yPos);
+      yPos += 5;
+
+      autoTable(doc, {
+        startY: yPos,
+        head: [['Month', 'Rent Collection', 'Bank Deposits', 'Expenses', 'Net Income']],
+        body: monthlyReports.map(report => [
+          report.month,
+          formatNumberForPdf(report.rentCollection),
+          formatNumberForPdf(report.bankDeposits),
+          formatNumberForPdf(report.expenses),
+          (report.netIncome >= 0 ? '' : '-') + formatNumberForPdf(Math.abs(report.netIncome))
+        ]),
+        theme: 'grid',
+        headStyles: { fillColor: [59, 130, 246], textColor: 255 },
+        columnStyles: {
+          1: { halign: 'right' },
+          2: { halign: 'right' },
+          3: { halign: 'right' },
+          4: { halign: 'right' }
+        },
+        margin: { left: 14, right: 14 }
+      });
+    }
+
+    const totalRentCollection = monthlyReports.reduce((sum, r) => sum + r.rentCollection, 0);
+    const totalBankDeposits = monthlyReports.reduce((sum, r) => sum + r.bankDeposits, 0);
+    const totalExpenses = monthlyReports.reduce((sum, r) => sum + r.expenses, 0);
+    const totalNetIncome = monthlyReports.reduce((sum, r) => sum + r.netIncome, 0);
+
+    yPos = (doc as any).lastAutoTable.finalY + 10;
+    doc.setFontSize(10);
+    doc.text(`Total Rent Collection: ${formatNumberForPdf(totalRentCollection)}`, 14, yPos);
+    doc.text(`Total Bank Deposits: ${formatNumberForPdf(totalBankDeposits)}`, 14, yPos + 6);
+    doc.text(`Total Expenses: ${formatNumberForPdf(totalExpenses)}`, 14, yPos + 12);
+    doc.setFontSize(11);
+    doc.text(`Net Income: ${(totalNetIncome >= 0 ? '' : '-') + formatNumberForPdf(Math.abs(totalNetIncome))}`, 14, yPos + 20);
+
+    const fileName = `${ownerName.replace(/\s+/g, '_')}_Income_Report_${new Date().toISOString().split('T')[0]}.pdf`;
+    doc.save(fileName);
+  };
+
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <Button onClick={exportPDF} variant="outline" className="gap-2">
+          <Download className="h-4 w-4" />
+          Export PDF
+        </Button>
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
