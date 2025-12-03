@@ -650,15 +650,45 @@ export async function registerRoutes(
       });
       
       tenantPayments.forEach(p => {
-        allEntries.push({
-          date: p.paymentDate,
-          type: 'payment',
-          amount: parseFloat(p.amount),
-          description: p.receiptNumber ? `Payment (${p.receiptNumber})` : 'Payment Received',
-        });
+        const rentMonths = p.rentMonths as string[] | null;
+        const paymentAmount = parseFloat(p.amount);
+        const receiptSuffix = p.receiptNumber ? ` (${p.receiptNumber})` : '';
+        
+        if (rentMonths && Array.isArray(rentMonths) && rentMonths.length > 0) {
+          // Sort rent months chronologically
+          const sortedMonths = [...rentMonths].sort();
+          const amountPerMonth = Math.round((paymentAmount / sortedMonths.length) * 100) / 100;
+          
+          // Create separate ledger entry for each rent month
+          sortedMonths.forEach((monthStr, idx) => {
+            const [year, month] = monthStr.split('-');
+            const monthDate = new Date(parseInt(year), parseInt(month) - 1, 1);
+            const formattedMonth = monthDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+            
+            // Handle rounding for last month to ensure total matches
+            const entryAmount = idx === sortedMonths.length - 1 
+              ? Math.round((paymentAmount - amountPerMonth * (sortedMonths.length - 1)) * 100) / 100
+              : amountPerMonth;
+            
+            allEntries.push({
+              date: monthDate.toISOString().split('T')[0], // Use rent month as entry date
+              type: 'payment',
+              amount: entryAmount,
+              description: `Payment for ${formattedMonth}${receiptSuffix}`,
+            });
+          });
+        } else {
+          // Legacy payments without rentMonths - fall back to payment date
+          allEntries.push({
+            date: p.paymentDate,
+            type: 'payment',
+            amount: paymentAmount,
+            description: `Payment Received${receiptSuffix}`,
+          });
+        }
       });
       
-      // Sort by date
+      // Sort by date to ensure proper chronological order
       allEntries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       
       // Build ledger with running balance
@@ -1790,12 +1820,42 @@ export async function registerRoutes(
       });
       
       tenantPayments.forEach(p => {
-        allEntries.push({
-          date: p.paymentDate,
-          type: 'payment',
-          amount: parseFloat(p.amount),
-          description: p.receiptNumber ? `Payment (${p.receiptNumber})` : 'Payment Received',
-        });
+        const rentMonths = p.rentMonths as string[] | null;
+        const paymentAmount = parseFloat(p.amount);
+        const receiptSuffix = p.receiptNumber ? ` (${p.receiptNumber})` : '';
+        
+        if (rentMonths && Array.isArray(rentMonths) && rentMonths.length > 0) {
+          // Sort rent months chronologically
+          const sortedMonths = [...rentMonths].sort();
+          const amountPerMonth = Math.round((paymentAmount / sortedMonths.length) * 100) / 100;
+          
+          // Create separate ledger entry for each rent month
+          sortedMonths.forEach((monthStr, idx) => {
+            const [year, month] = monthStr.split('-');
+            const monthDate = new Date(parseInt(year), parseInt(month) - 1, 1);
+            const formattedMonth = monthDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+            
+            // Handle rounding for last month to ensure total matches
+            const entryAmount = idx === sortedMonths.length - 1 
+              ? Math.round((paymentAmount - amountPerMonth * (sortedMonths.length - 1)) * 100) / 100
+              : amountPerMonth;
+            
+            allEntries.push({
+              date: monthDate.toISOString().split('T')[0], // Use rent month as entry date
+              type: 'payment',
+              amount: entryAmount,
+              description: `Payment for ${formattedMonth}${receiptSuffix}`,
+            });
+          });
+        } else {
+          // Legacy payments without rentMonths - fall back to payment date
+          allEntries.push({
+            date: p.paymentDate,
+            type: 'payment',
+            amount: paymentAmount,
+            description: `Payment Received${receiptSuffix}`,
+          });
+        }
       });
       
       allEntries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
