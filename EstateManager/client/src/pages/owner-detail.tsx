@@ -550,7 +550,7 @@ function IncomeReportsTab({
   formatValue: (val: number) => string;
 }) {
   const formatNumberForPdf = (val: number) => {
-    return `৳${val.toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
   const exportPDF = () => {
@@ -562,21 +562,29 @@ function IncomeReportsTab({
       day: 'numeric'
     });
 
-    doc.setFontSize(18);
-    doc.text('Income-Expense Report', pageWidth / 2, 20, { align: 'center' });
+    doc.setFillColor(37, 99, 235);
+    doc.rect(0, 0, pageWidth, 45, 'F');
+
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(20);
+    doc.text('Income & Expense Report', pageWidth / 2, 18, { align: 'center' });
     
     doc.setFontSize(14);
-    doc.text(ownerName, pageWidth / 2, 30, { align: 'center' });
+    doc.text(ownerName, pageWidth / 2, 28, { align: 'center' });
     
     doc.setFontSize(10);
     doc.text(`Generated: ${currentDate}`, pageWidth / 2, 38, { align: 'center' });
 
-    let yPos = 50;
+    doc.setTextColor(0, 0, 0);
+
+    let yPos = 55;
 
     if (yearlyReports.length > 0) {
-      doc.setFontSize(12);
+      doc.setFontSize(13);
+      doc.setTextColor(37, 99, 235);
       doc.text('Yearly Summary', 14, yPos);
-      yPos += 5;
+      doc.setTextColor(0, 0, 0);
+      yPos += 6;
 
       autoTable(doc, {
         startY: yPos,
@@ -588,24 +596,38 @@ function IncomeReportsTab({
           formatNumberForPdf(report.expenses),
           (report.netIncome >= 0 ? '' : '-') + formatNumberForPdf(Math.abs(report.netIncome))
         ]),
-        theme: 'grid',
-        headStyles: { fillColor: [59, 130, 246], textColor: 255 },
+        theme: 'striped',
+        headStyles: { 
+          fillColor: [37, 99, 235], 
+          textColor: 255,
+          fontStyle: 'bold',
+          fontSize: 10
+        },
+        bodyStyles: {
+          fontSize: 10
+        },
+        alternateRowStyles: {
+          fillColor: [245, 247, 250]
+        },
         columnStyles: {
-          1: { halign: 'right' },
-          2: { halign: 'right' },
-          3: { halign: 'right' },
-          4: { halign: 'right' }
+          0: { cellWidth: 25 },
+          1: { halign: 'right', cellWidth: 40 },
+          2: { halign: 'right', cellWidth: 40 },
+          3: { halign: 'right', cellWidth: 35 },
+          4: { halign: 'right', cellWidth: 40, fontStyle: 'bold' }
         },
         margin: { left: 14, right: 14 }
       });
 
-      yPos = (doc as any).lastAutoTable.finalY + 15;
+      yPos = (doc as any).lastAutoTable.finalY + 18;
     }
 
     if (monthlyReports.length > 0) {
-      doc.setFontSize(12);
+      doc.setFontSize(13);
+      doc.setTextColor(37, 99, 235);
       doc.text('Monthly Breakdown (Last 12 Months)', 14, yPos);
-      yPos += 5;
+      doc.setTextColor(0, 0, 0);
+      yPos += 6;
 
       autoTable(doc, {
         startY: yPos,
@@ -617,13 +639,25 @@ function IncomeReportsTab({
           formatNumberForPdf(report.expenses),
           (report.netIncome >= 0 ? '' : '-') + formatNumberForPdf(Math.abs(report.netIncome))
         ]),
-        theme: 'grid',
-        headStyles: { fillColor: [59, 130, 246], textColor: 255 },
+        theme: 'striped',
+        headStyles: { 
+          fillColor: [37, 99, 235], 
+          textColor: 255,
+          fontStyle: 'bold',
+          fontSize: 10
+        },
+        bodyStyles: {
+          fontSize: 10
+        },
+        alternateRowStyles: {
+          fillColor: [245, 247, 250]
+        },
         columnStyles: {
-          1: { halign: 'right' },
-          2: { halign: 'right' },
-          3: { halign: 'right' },
-          4: { halign: 'right' }
+          0: { cellWidth: 45 },
+          1: { halign: 'right', cellWidth: 38 },
+          2: { halign: 'right', cellWidth: 38 },
+          3: { halign: 'right', cellWidth: 30 },
+          4: { halign: 'right', cellWidth: 35, fontStyle: 'bold' }
         },
         margin: { left: 14, right: 14 }
       });
@@ -634,13 +668,35 @@ function IncomeReportsTab({
     const totalExpenses = monthlyReports.reduce((sum, r) => sum + r.expenses, 0);
     const totalNetIncome = monthlyReports.reduce((sum, r) => sum + r.netIncome, 0);
 
-    yPos = (doc as any).lastAutoTable.finalY + 10;
-    doc.setFontSize(10);
-    doc.text(`Total Rent Collection: ${formatNumberForPdf(totalRentCollection)}`, 14, yPos);
-    doc.text(`Total Bank Deposits: ${formatNumberForPdf(totalBankDeposits)}`, 14, yPos + 6);
-    doc.text(`Total Expenses: ${formatNumberForPdf(totalExpenses)}`, 14, yPos + 12);
+    yPos = (doc as any).lastAutoTable.finalY + 12;
+    
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(14, yPos - 4, pageWidth - 28, 38, 3, 3, 'F');
+    
     doc.setFontSize(11);
-    doc.text(`Net Income: ${(totalNetIncome >= 0 ? '' : '-') + formatNumberForPdf(Math.abs(totalNetIncome))}`, 14, yPos + 20);
+    doc.setTextColor(71, 85, 105);
+    doc.text('Summary Totals', 20, yPos + 4);
+    
+    doc.setFontSize(10);
+    doc.setTextColor(0, 0, 0);
+    doc.text(`Rent Collection:`, 20, yPos + 14);
+    doc.text(formatNumberForPdf(totalRentCollection), pageWidth - 20, yPos + 14, { align: 'right' });
+    
+    doc.text(`Bank Deposits:`, 20, yPos + 21);
+    doc.text(formatNumberForPdf(totalBankDeposits), pageWidth - 20, yPos + 21, { align: 'right' });
+    
+    doc.text(`Expenses:`, 20, yPos + 28);
+    doc.text(formatNumberForPdf(totalExpenses), pageWidth - 20, yPos + 28, { align: 'right' });
+    
+    yPos += 42;
+    doc.setFillColor(37, 99, 235);
+    doc.roundedRect(14, yPos - 4, pageWidth - 28, 14, 3, 3, 'F');
+    
+    doc.setFontSize(11);
+    doc.setTextColor(255, 255, 255);
+    doc.text('Net Income:', 20, yPos + 5);
+    doc.setFontSize(12);
+    doc.text((totalNetIncome >= 0 ? '' : '-') + formatNumberForPdf(Math.abs(totalNetIncome)), pageWidth - 20, yPos + 5, { align: 'right' });
 
     const fileName = `${ownerName.replace(/\s+/g, '_')}_Income_Report_${new Date().toISOString().split('T')[0]}.pdf`;
     doc.save(fileName);
