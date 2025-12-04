@@ -302,6 +302,15 @@ export class DatabaseStorage implements IStorage {
     // Floor order for consistent sorting
     const FLOOR_ORDER: Record<string, number> = { ground: 1, first: 2, second: 3, subedari: 4 };
     
+    // Prefix order for shop numbers: E (East) -> M (Middle) -> W (West)
+    const PREFIX_ORDER: Record<string, number> = { E: 1, M: 2, W: 3 };
+    
+    // Extract prefix letter from shop number (e.g., "E-12" -> "E", "M-6" -> "M")
+    const extractShopPrefix = (shopNumber: string): string => {
+      const match = shopNumber.match(/^([EMW])/i);
+      return match ? match[1].toUpperCase() : 'Z';
+    };
+    
     // Extract numerical part from shop number for sorting
     const extractShopNumber = (shopNumber: string): number => {
       const match = shopNumber.match(/(\d+)/);
@@ -335,14 +344,23 @@ export class DatabaseStorage implements IStorage {
       });
     }
     
-    // Sort tenants by floor order, then by numerical shop number
+    // Sort tenants by floor order, then by prefix (E->M->W), then by numerical shop number
     tenantResultsWithFloor.sort((a, b) => {
-      const orderA = FLOOR_ORDER[a.floor] || 999;
-      const orderB = FLOOR_ORDER[b.floor] || 999;
-      if (orderA !== orderB) {
-        return orderA - orderB;
+      // First: sort by floor
+      const floorOrderA = FLOOR_ORDER[a.floor] || 999;
+      const floorOrderB = FLOOR_ORDER[b.floor] || 999;
+      if (floorOrderA !== floorOrderB) {
+        return floorOrderA - floorOrderB;
       }
-      // Within same floor, sort by numerical shop number
+      // Second: sort by prefix (E -> M -> W)
+      const prefixA = extractShopPrefix(a.shopNumber || '');
+      const prefixB = extractShopPrefix(b.shopNumber || '');
+      const prefixOrderA = PREFIX_ORDER[prefixA] || 999;
+      const prefixOrderB = PREFIX_ORDER[prefixB] || 999;
+      if (prefixOrderA !== prefixOrderB) {
+        return prefixOrderA - prefixOrderB;
+      }
+      // Third: sort by numerical shop number
       const numA = extractShopNumber(a.shopNumber || '');
       const numB = extractShopNumber(b.shopNumber || '');
       return numA - numB;

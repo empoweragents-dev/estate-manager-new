@@ -139,19 +139,33 @@ export function PaymentForm({
         });
       });
     });
-    // Sort by floor order, then by numerical shop number
+    // Sort by floor order, then by prefix (E->M->W), then by numerical shop number
     const floorOrder: Record<string, number> = { ground: 1, first: 2, second: 3, subedari: 4 };
+    const prefixOrder: Record<string, number> = { E: 1, M: 2, W: 3 };
+    const extractShopPrefix = (shopNumber: string): string => {
+      const match = shopNumber.match(/^([EMW])/i);
+      return match ? match[1].toUpperCase() : 'Z';
+    };
     const extractShopNumber = (shopNumber: string): number => {
       const match = shopNumber.match(/(\d+)/);
       return match ? parseInt(match[1], 10) : 999;
     };
     items.sort((a, b) => {
-      const orderA = floorOrder[a.floor] || 999;
-      const orderB = floorOrder[b.floor] || 999;
-      if (orderA !== orderB) {
-        return orderA - orderB;
+      // First: sort by floor
+      const floorOrderA = floorOrder[a.floor] || 999;
+      const floorOrderB = floorOrder[b.floor] || 999;
+      if (floorOrderA !== floorOrderB) {
+        return floorOrderA - floorOrderB;
       }
-      // Within same floor, sort by numerical shop number
+      // Second: sort by prefix (E -> M -> W)
+      const prefixA = extractShopPrefix(a.shopNumber || '');
+      const prefixB = extractShopPrefix(b.shopNumber || '');
+      const prefixOrderA = prefixOrder[prefixA] || 999;
+      const prefixOrderB = prefixOrder[prefixB] || 999;
+      if (prefixOrderA !== prefixOrderB) {
+        return prefixOrderA - prefixOrderB;
+      }
+      // Third: sort by numerical shop number
       const numA = extractShopNumber(a.shopNumber || '');
       const numB = extractShopNumber(b.shopNumber || '');
       return numA - numB;

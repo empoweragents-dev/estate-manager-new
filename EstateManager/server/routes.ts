@@ -18,21 +18,39 @@ const upload = multer({ storage: multer.memoryStorage() });
 // Floor order for consistent sorting: ground -> first -> second -> subedari
 const FLOOR_ORDER: Record<string, number> = { ground: 1, first: 2, second: 3, subedari: 4 };
 
+// Prefix order for shop numbers: E (East) -> M (Middle) -> W (West)
+const PREFIX_ORDER: Record<string, number> = { E: 1, M: 2, W: 3 };
+
+// Extract prefix letter from shop number (e.g., "E-12" -> "E", "M-6" -> "M")
+function extractShopPrefix(shopNumber: string): string {
+  const match = shopNumber.match(/^([EMW])/i);
+  return match ? match[1].toUpperCase() : 'Z'; // 'Z' for unknown prefixes to sort last
+}
+
 // Extract numerical part from shop number for sorting (e.g., "E-12" -> 12, "M-6" -> 6)
 function extractShopNumber(shopNumber: string): number {
   const match = shopNumber.match(/(\d+)/);
   return match ? parseInt(match[1], 10) : 999;
 }
 
-// Sort by floor order, then by numerical shop number
+// Sort by floor order, then by prefix (E->M->W), then by numerical shop number
 function sortByFloorAndShopNumber<T extends { floor: string; shopNumber?: string }>(items: T[]): T[] {
   return items.sort((a, b) => {
-    const orderA = FLOOR_ORDER[a.floor] || 999;
-    const orderB = FLOOR_ORDER[b.floor] || 999;
-    if (orderA !== orderB) {
-      return orderA - orderB;
+    // First: sort by floor
+    const floorOrderA = FLOOR_ORDER[a.floor] || 999;
+    const floorOrderB = FLOOR_ORDER[b.floor] || 999;
+    if (floorOrderA !== floorOrderB) {
+      return floorOrderA - floorOrderB;
     }
-    // Within same floor, sort by numerical shop number
+    // Second: sort by prefix (E -> M -> W)
+    const prefixA = extractShopPrefix(a.shopNumber || '');
+    const prefixB = extractShopPrefix(b.shopNumber || '');
+    const prefixOrderA = PREFIX_ORDER[prefixA] || 999;
+    const prefixOrderB = PREFIX_ORDER[prefixB] || 999;
+    if (prefixOrderA !== prefixOrderB) {
+      return prefixOrderA - prefixOrderB;
+    }
+    // Third: sort by numerical shop number
     const numA = extractShopNumber(a.shopNumber || '');
     const numB = extractShopNumber(b.shopNumber || '');
     return numA - numB;
