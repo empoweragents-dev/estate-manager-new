@@ -1,4 +1,4 @@
-import { eq, and, desc, sql, gte, lte, or, like, ilike } from "drizzle-orm";
+import { eq, and, desc, sql, gte, lte, or, like, ilike, ne } from "drizzle-orm";
 import { db } from "./db";
 import bcrypt from "bcryptjs";
 import {
@@ -286,27 +286,52 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Search
-  async search(query: string): Promise<{ type: string; id: number; title: string; subtitle: string; extra?: string }[]> {
-    const results: { type: string; id: number; title: string; subtitle: string; extra?: string }[] = [];
+  async search(query: string): Promise<{ type: string; id: number; title: string; subtitle: string; extra?: string; floor?: string }[]> {
+    const results: { type: string; id: number; title: string; subtitle: string; extra?: string; floor?: string }[] = [];
     const searchTerm = `%${query}%`;
 
-    // Search tenants
+    // Search tenants with floor info from their active lease
     const tenantResults = await db.select().from(tenants).where(
       or(
         ilike(tenants.name, searchTerm),
         ilike(tenants.phone, searchTerm),
         ilike(tenants.nidPassport, searchTerm)
       )
-    ).limit(5);
+    ).limit(10);
     
+    // Get floor info for each tenant from their active lease
+    const tenantResultsWithFloor: { type: string; id: number; title: string; subtitle: string; floor: string }[] = [];
     for (const t of tenantResults) {
-      results.push({
+      const tenantLeases = await db.select().from(leases)
+        .where(and(eq(leases.tenantId, t.id), ne(leases.status, 'terminated')))
+        .limit(1);
+      
+      let floor = 'subedari'; // default to last in sort order
+      if (tenantLeases.length > 0) {
+        const shop = await db.select().from(shops).where(eq(shops.id, tenantLeases[0].shopId)).limit(1);
+        if (shop.length > 0) {
+          floor = shop[0].floor;
+        }
+      }
+      
+      tenantResultsWithFloor.push({
         type: 'tenant',
         id: t.id,
         title: t.name,
         subtitle: t.phone,
+        floor,
       });
     }
+    
+    // Sort tenants by floor order: ground -> first -> second -> subedari
+    const floorOrder: Record<string, number> = { ground: 1, first: 2, second: 3, subedari: 4 };
+    tenantResultsWithFloor.sort((a, b) => {
+      const orderA = floorOrder[a.floor] || 999;
+      const orderB = floorOrder[b.floor] || 999;
+      return orderA - orderB;
+    });
+    
+    results.push(...tenantResultsWithFloor.slice(0, 5));
 
     // Search shops
     const shopResults = await db.select().from(shops).where(
