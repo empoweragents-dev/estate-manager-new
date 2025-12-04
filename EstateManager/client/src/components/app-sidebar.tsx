@@ -29,6 +29,7 @@ import { useAuth } from "@/hooks/useAuth";
 export function AppSidebar() {
   const [location] = useLocation();
   const { isSuperAdmin, user } = useAuth();
+  const isOwnerUser = user?.role === 'owner' && user?.ownerId;
 
   const isActive = (url: string) => {
     if (url === '/') return location === '/';
@@ -38,7 +39,7 @@ export function AppSidebar() {
   const mainNavItems = [
     {
       title: "Dashboard",
-      url: "/",
+      url: isOwnerUser ? `/owners/${user.ownerId}` : "/",
       icon: LayoutDashboard,
     },
   ];
@@ -85,14 +86,14 @@ export function AppSidebar() {
       url: "/expenses",
       icon: Receipt,
     },
-    {
+    ...(isSuperAdmin ? [{
       title: "Bank Deposits",
       url: "/bank-deposits",
       icon: Wallet,
-    },
+    }] : []),
   ];
 
-  const reportItems = [
+  const reportItems = isSuperAdmin ? [
     {
       title: "Reports",
       url: "/reports",
@@ -103,7 +104,7 @@ export function AppSidebar() {
       url: "/reports/owner-tenant",
       icon: FileText,
     },
-  ];
+  ] : [];
 
   return (
     <Sidebar>
@@ -196,23 +197,25 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup>
-          <SidebarGroupLabel>Analytics</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {reportItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)}>
-                    <Link href={item.url} data-testid={`nav-${item.title.toLowerCase()}`}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {reportItems.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Analytics</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {reportItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild isActive={isActive(item.url)}>
+                      <Link href={item.url} data-testid={`nav-${item.title.toLowerCase()}`}>
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border p-4">
