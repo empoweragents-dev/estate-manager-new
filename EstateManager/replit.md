@@ -123,7 +123,11 @@ Preferred communication style: Simple, everyday language.
 7. **Financial Reporting**: Owner-specific statements showing rent collected, common shop shares, allocated expenses, and net payouts. Owner-Tenant Details Report with PDF export showing all tenants with current/previous dues, payment history, and summary totals
 8. **Separation of Concerns**: Storage layer abstracts database operations from route handlers for testability and maintainability
 9. **Aggressive Client Caching**: React Query configured with infinite stale time to minimize unnecessary refetches during active sessions
-10. **User Roles & Authentication**: Traditional username/password authentication with two roles - Super Admin (full access) and Owner (filtered access to their data + common spaces)
+10. **Shop Sorting Order**: All shop/tenant listings are sorted by:
+    - Floor order: Ground Floor → 1st Floor → 2nd Floor → Subedari
+    - Within each floor, by prefix: E (East) → M (Middle) → W (West)
+    - Within each prefix, numerically: E-1, E-6, E-7, then M-3, M-6, then W-1, W-4, etc.
+11. **User Roles & Authentication**: Traditional username/password authentication with two roles - Super Admin (full access) and Owner (filtered access to their data + common spaces)
 
 ### Authentication & Authorization
 
