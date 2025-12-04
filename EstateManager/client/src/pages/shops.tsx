@@ -37,6 +37,7 @@ import { z } from "zod";
 import { Plus, Store, Edit2, Trash2, Users, Building2, Layers } from "lucide-react";
 import type { Owner, ShopWithOwner } from "@shared/schema";
 import { formatFloor, getShopStatusColor } from "@/lib/currency";
+import { sortByFloorAndShopNumber } from "@/lib/utils";
 
 const shopFormSchema = z.object({
   shopNumber: z.string().min(1, "Shop number is required"),
@@ -382,13 +383,17 @@ export default function ShopsPage() {
     setEditingShop(null);
   };
 
-  const filteredShops = shops.filter(shop => {
-    const floorMatch = selectedFloor === "all" || shop.floor === selectedFloor;
-    const ownerMatch = selectedOwner === "all" || 
-      (selectedOwner === "common" && shop.ownershipType === "common") ||
-      (shop.ownerId?.toString() === selectedOwner);
-    return floorMatch && ownerMatch;
-  });
+  const filteredShops = sortByFloorAndShopNumber(
+    shops.filter(shop => {
+      const floorMatch = selectedFloor === "all" || shop.floor === selectedFloor;
+      const ownerMatch = selectedOwner === "all" || 
+        (selectedOwner === "common" && shop.ownershipType === "common") ||
+        (shop.ownerId?.toString() === selectedOwner);
+      return floorMatch && ownerMatch;
+    }),
+    (shop) => shop.floor,
+    (shop) => shop.shopNumber
+  );
 
   const floorStats = {
     ground: shops.filter(s => s.floor === "ground"),

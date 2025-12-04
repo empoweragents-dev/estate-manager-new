@@ -299,18 +299,29 @@ export class DatabaseStorage implements IStorage {
       )
     ).limit(10);
     
-    // Get floor info for each tenant from their active lease
-    const tenantResultsWithFloor: { type: string; id: number; title: string; subtitle: string; floor: string }[] = [];
+    // Floor order for consistent sorting
+    const FLOOR_ORDER: Record<string, number> = { ground: 1, first: 2, second: 3, subedari: 4 };
+    
+    // Extract numerical part from shop number for sorting
+    const extractShopNumber = (shopNumber: string): number => {
+      const match = shopNumber.match(/(\d+)/);
+      return match ? parseInt(match[1], 10) : 999;
+    };
+    
+    // Get floor and shop number info for each tenant from their active lease
+    const tenantResultsWithFloor: { type: string; id: number; title: string; subtitle: string; floor: string; shopNumber: string }[] = [];
     for (const t of tenantResults) {
       const tenantLeases = await db.select().from(leases)
         .where(and(eq(leases.tenantId, t.id), ne(leases.status, 'terminated')))
         .limit(1);
       
       let floor = 'subedari'; // default to last in sort order
+      let shopNumber = '';
       if (tenantLeases.length > 0) {
         const shop = await db.select().from(shops).where(eq(shops.id, tenantLeases[0].shopId)).limit(1);
         if (shop.length > 0) {
           floor = shop[0].floor;
+          shopNumber = shop[0].shopNumber;
         }
       }
       
@@ -320,15 +331,21 @@ export class DatabaseStorage implements IStorage {
         title: t.name,
         subtitle: t.phone,
         floor,
+        shopNumber,
       });
     }
     
-    // Sort tenants by floor order: ground -> first -> second -> subedari
-    const floorOrder: Record<string, number> = { ground: 1, first: 2, second: 3, subedari: 4 };
+    // Sort tenants by floor order, then by numerical shop number
     tenantResultsWithFloor.sort((a, b) => {
-      const orderA = floorOrder[a.floor] || 999;
-      const orderB = floorOrder[b.floor] || 999;
-      return orderA - orderB;
+      const orderA = FLOOR_ORDER[a.floor] || 999;
+      const orderB = FLOOR_ORDER[b.floor] || 999;
+      if (orderA !== orderB) {
+        return orderA - orderB;
+      }
+      // Within same floor, sort by numerical shop number
+      const numA = extractShopNumber(a.shopNumber || '');
+      const numB = extractShopNumber(b.shopNumber || '');
+      return numA - numB;
     });
     
     results.push(...tenantResultsWithFloor.slice(0, 5));

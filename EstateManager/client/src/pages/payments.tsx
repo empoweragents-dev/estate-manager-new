@@ -139,12 +139,22 @@ export function PaymentForm({
         });
       });
     });
-    // Sort by floor order: ground -> first -> second -> subedari
+    // Sort by floor order, then by numerical shop number
     const floorOrder: Record<string, number> = { ground: 1, first: 2, second: 3, subedari: 4 };
+    const extractShopNumber = (shopNumber: string): number => {
+      const match = shopNumber.match(/(\d+)/);
+      return match ? parseInt(match[1], 10) : 999;
+    };
     items.sort((a, b) => {
       const orderA = floorOrder[a.floor] || 999;
       const orderB = floorOrder[b.floor] || 999;
-      return orderA - orderB;
+      if (orderA !== orderB) {
+        return orderA - orderB;
+      }
+      // Within same floor, sort by numerical shop number
+      const numA = extractShopNumber(a.shopNumber || '');
+      const numB = extractShopNumber(b.shopNumber || '');
+      return numA - numB;
     });
     return items;
   }, [tenants]);

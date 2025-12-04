@@ -15,6 +15,30 @@ import * as XLSX from "xlsx";
 
 const upload = multer({ storage: multer.memoryStorage() });
 
+// Floor order for consistent sorting: ground -> first -> second -> subedari
+const FLOOR_ORDER: Record<string, number> = { ground: 1, first: 2, second: 3, subedari: 4 };
+
+// Extract numerical part from shop number for sorting (e.g., "E-12" -> 12, "M-6" -> 6)
+function extractShopNumber(shopNumber: string): number {
+  const match = shopNumber.match(/(\d+)/);
+  return match ? parseInt(match[1], 10) : 999;
+}
+
+// Sort by floor order, then by numerical shop number
+function sortByFloorAndShopNumber<T extends { floor: string; shopNumber?: string }>(items: T[]): T[] {
+  return items.sort((a, b) => {
+    const orderA = FLOOR_ORDER[a.floor] || 999;
+    const orderB = FLOOR_ORDER[b.floor] || 999;
+    if (orderA !== orderB) {
+      return orderA - orderB;
+    }
+    // Within same floor, sort by numerical shop number
+    const numA = extractShopNumber(a.shopNumber || '');
+    const numB = extractShopNumber(b.shopNumber || '');
+    return numA - numB;
+  });
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -256,13 +280,8 @@ export async function registerRoutes(
         });
       }
 
-      // Sort tenants by floor order: ground -> first -> second -> subedari
-      const floorOrder: Record<string, number> = { ground: 1, first: 2, second: 3, subedari: 4 };
-      tenantList.sort((a, b) => {
-        const orderA = floorOrder[a.floor] || 999;
-        const orderB = floorOrder[b.floor] || 999;
-        return orderA - orderB;
-      });
+      // Sort tenants by floor order, then by numerical shop number
+      sortByFloorAndShopNumber(tenantList);
 
       // Get bank deposits for this owner
       const bankDeposits = await storage.getBankDepositsByOwner(ownerId);
@@ -564,13 +583,15 @@ export async function registerRoutes(
         const tenantInvoices = allInvoices.filter(inv => inv.tenantId === tenant.id);
         const tenantPayments = allPayments.filter(p => p.tenantId === tenant.id);
         
-        // Get floor from first active lease's shop
+        // Get floor and shop number from first active lease's shop
         const tenantLeases = allLeases.filter(l => l.tenantId === tenant.id && l.status !== 'terminated');
         let floor: string | null = null;
+        let shopNumber: string | null = null;
         if (tenantLeases.length > 0) {
           const firstLease = tenantLeases[0];
           const shop = allShops.find(s => s.id === firstLease.shopId);
           floor = shop?.floor || null;
+          shopNumber = shop?.shopNumber || null;
         }
         
         // Only count invoices for elapsed months (up to current month)
@@ -600,15 +621,20 @@ export async function registerRoutes(
           }
         }
         
-        return { ...tenant, totalDue, totalPaid, currentDue, monthlyDues, floor };
+        return { ...tenant, totalDue, totalPaid, currentDue, monthlyDues, floor, shopNumber };
       }));
       
-      // Sort tenants by floor order: ground -> first -> second -> subedari
-      const floorOrder: Record<string, number> = { ground: 1, first: 2, second: 3, subedari: 4 };
+      // Sort tenants by floor order, then by numerical shop number
       tenantsWithDues.sort((a, b) => {
-        const orderA = a.floor ? (floorOrder[a.floor] || 999) : 999;
-        const orderB = b.floor ? (floorOrder[b.floor] || 999) : 999;
-        return orderA - orderB;
+        const orderA = a.floor ? (FLOOR_ORDER[a.floor] || 999) : 999;
+        const orderB = b.floor ? (FLOOR_ORDER[b.floor] || 999) : 999;
+        if (orderA !== orderB) {
+          return orderA - orderB;
+        }
+        // Within same floor, sort by numerical shop number
+        const numA = extractShopNumber(a.shopNumber || '');
+        const numB = extractShopNumber(b.shopNumber || '');
+        return numA - numB;
       });
       
       res.json(tenantsWithDues);
@@ -2412,6 +2438,7 @@ export async function registerRoutes(
           ownerId: owner?.id,
           ownerName: owner?.name || 'Common',
           shopId: shop.id,
+          shopNumber: shop.shopNumber,
           shopLocation: `${shop.floor === 'ground' ? 'Ground Floor' : shop.floor === 'first' ? '1st Floor' : shop.floor === 'second' ? '2nd Floor' : 'Subedari'} - ${shop.shopNumber}`,
           floor: shop.floor,
           tenantId: tenant.id,
@@ -2426,18 +2453,20 @@ export async function registerRoutes(
         });
       }
       
-      // Sort by owner name, then floor order (ground -> first -> second -> subedari), then shop number
-      const floorOrder: Record<string, number> = { ground: 1, first: 2, second: 3, subedari: 4 };
+      // Sort by owner name, then floor order, then numerical shop number
       reportData.sort((a, b) => {
         if (a.ownerName !== b.ownerName) {
           return a.ownerName.localeCompare(b.ownerName);
         }
-        const orderA = floorOrder[a.floor] || 999;
-        const orderB = floorOrder[b.floor] || 999;
+        const orderA = FLOOR_ORDER[a.floor] || 999;
+        const orderB = FLOOR_ORDER[b.floor] || 999;
         if (orderA !== orderB) {
           return orderA - orderB;
         }
-        return a.shopLocation.localeCompare(b.shopLocation);
+        // Within same floor, sort by numerical shop number
+        const numA = extractShopNumber(a.shopNumber || '');
+        const numB = extractShopNumber(b.shopNumber || '');
+        return numA - numB;
       });
       
       // Calculate totals
