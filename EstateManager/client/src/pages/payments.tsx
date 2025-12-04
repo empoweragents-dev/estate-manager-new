@@ -51,7 +51,7 @@ interface PaymentWithDetails extends Payment {
   lease: Lease & { shop: { shopNumber: string; floor: string; subedariCategory?: string | null } };
 }
 
-interface TenantWithLeases extends Tenant {
+export interface TenantWithLeases extends Tenant {
   leases: (Lease & { shop: { shopNumber: string; floor: string; subedariCategory?: string | null } })[];
   currentDue?: number;
 }
@@ -107,7 +107,7 @@ interface SearchableItem {
   tenantId: number;
 }
 
-function PaymentForm({
+export function PaymentForm({
   tenants,
   onSuccess,
 }: {

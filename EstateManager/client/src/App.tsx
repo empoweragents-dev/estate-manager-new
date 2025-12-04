@@ -19,7 +19,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LogOut, User, Shield, Loader2 } from "lucide-react";
+import { LogOut, User, Shield, Loader2, Banknote } from "lucide-react";
+import { useState } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { useQuery } from "@tanstack/react-query";
+import { PaymentForm, TenantWithLeases } from "@/pages/payments";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
 import OwnersPage from "@/pages/owners";
@@ -94,6 +104,40 @@ function UserMenu() {
   );
 }
 
+function ReceivePaymentButton() {
+  const [isOpen, setIsOpen] = useState(false);
+  
+  const { data: tenants = [] } = useQuery<TenantWithLeases[]>({
+    queryKey: ["/api/tenants/with-leases"],
+    enabled: isOpen,
+  });
+
+  return (
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <Button 
+        onClick={() => setIsOpen(true)}
+        className="hidden sm:flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full px-4 py-2 shadow-md hover:shadow-lg transition-all duration-200 hover:scale-105"
+        size="sm"
+      >
+        <Banknote className="h-4 w-4" />
+        <span className="font-medium">Receive Payment</span>
+      </Button>
+      <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Banknote className="h-5 w-5 text-emerald-600" />
+            Receive Payment
+          </DialogTitle>
+          <DialogDescription>
+            Search for a tenant or shop to record a rent payment
+          </DialogDescription>
+        </DialogHeader>
+        <PaymentForm tenants={tenants} onSuccess={() => setIsOpen(false)} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function Router() {
   return (
     <Switch>
@@ -134,7 +178,8 @@ function AuthenticatedApp() {
                 <GlobalSearch />
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              <ReceivePaymentButton />
               <ThemeToggle />
               <UserMenu />
             </div>

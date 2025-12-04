@@ -856,30 +856,30 @@ export default function TenantDetailPage() {
               {tenant.leases && tenant.leases.length > 0 ? (
                 <div className="space-y-3">
                   {tenant.leases.map((lease) => (
-                    <div key={lease.id} className="p-3 rounded-md bg-muted/50 hover-elevate" data-testid={`lease-card-${lease.id}`}>
-                      <div className="flex items-center justify-between mb-2">
-                        <Link href={`/leases/${lease.id}`}>
-                          <span className="font-medium cursor-pointer hover:underline">Shop {lease.shop.shopNumber}</span>
-                        </Link>
-                        <Badge className={getLeaseStatusColor(lease.status)} variant="secondary">
-                          {lease.status.replace("_", " ")}
-                        </Badge>
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        <span>{formatFloor(lease.shop.floor)}</span>
-                        <span className="mx-2">|</span>
-                        <span>{formatValue(parseFloat(lease.monthlyRent))}/month</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
-                        {new Date(lease.startDate).toLocaleDateString()} - {new Date(lease.endDate).toLocaleDateString()}
-                      </div>
-                      {(lease.status === 'active' || lease.status === 'expiring_soon' || lease.status === 'expired') && (
-                        <div className="mt-3 pt-3 border-t flex justify-end">
-                          <TerminateLeaseDialog lease={lease} tenant={tenant} onSuccess={() => {}} />
+                    <Link key={lease.id} href={`/leases/${lease.id}`}>
+                      <div className="p-3 rounded-md bg-muted/50 hover-elevate cursor-pointer transition-all duration-200 hover:bg-muted/80 hover:shadow-md" data-testid={`lease-card-${lease.id}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-medium text-primary hover:underline">Shop {lease.shop.shopNumber}</span>
+                          <Badge className={getLeaseStatusColor(lease.status)} variant="secondary">
+                            {lease.status.replace("_", " ")}
+                          </Badge>
                         </div>
-                      )}
-                    </div>
+                        <div className="text-sm text-muted-foreground">
+                          <span>{formatFloor(lease.shop.floor)}</span>
+                          <span className="mx-2">|</span>
+                          <span>{formatValue(parseFloat(lease.monthlyRent))}/month</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          {new Date(lease.startDate).toLocaleDateString()} - {new Date(lease.endDate).toLocaleDateString()}
+                        </div>
+                        {(lease.status === 'active' || lease.status === 'expiring_soon' || lease.status === 'expired') && (
+                          <div className="mt-3 pt-3 border-t flex justify-end" onClick={(e) => e.preventDefault()}>
+                            <TerminateLeaseDialog lease={lease} tenant={tenant} onSuccess={() => {}} />
+                          </div>
+                        )}
+                      </div>
+                    </Link>
                   ))}
                 </div>
               ) : (
