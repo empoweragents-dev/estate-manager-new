@@ -1,6 +1,6 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar";
@@ -19,8 +19,24 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LogOut, User, Shield, Loader2, Banknote } from "lucide-react";
-import { useState } from "react";
+import { LogOut, User, Shield, Loader2, Banknote, Users, ChevronDown, Eye } from "lucide-react";
+import { useState, createContext, useContext } from "react";
+import type { Owner } from "@shared/schema";
+
+interface OwnerViewContextType {
+  selectedOwnerId: number | null;
+  setSelectedOwnerId: (id: number | null) => void;
+}
+
+const OwnerViewContext = createContext<OwnerViewContextType>({
+  selectedOwnerId: null,
+  setSelectedOwnerId: () => {},
+});
+
+export function useOwnerView() {
+  return useContext(OwnerViewContext);
+}
+
 import {
   Dialog,
   DialogContent,
@@ -28,7 +44,6 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { useQuery } from "@tanstack/react-query";
 import { PaymentForm, TenantWithLeases } from "@/pages/payments";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
@@ -104,6 +119,53 @@ function UserMenu() {
   );
 }
 
+function OwnerViewSelector() {
+  const { isSuperAdmin } = useAuth();
+  const { selectedOwnerId, setSelectedOwnerId } = useOwnerView();
+  
+  const { data: owners = [] } = useQuery<Owner[]>({
+    queryKey: ["/api/owners"],
+    enabled: isSuperAdmin,
+  });
+
+  if (!isSuperAdmin) return null;
+
+  const selectedOwner = owners.find(o => o.id === selectedOwnerId);
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" className="h-9 gap-2">
+          <Eye className="h-4 w-4" />
+          <span className="hidden sm:inline">
+            {selectedOwnerId ? `Viewing: ${selectedOwner?.name || 'Owner'}` : 'View All'}
+          </span>
+          <ChevronDown className="h-3 w-3" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuLabel>Select Owner View</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => setSelectedOwnerId(null)}>
+          <Users className="mr-2 h-4 w-4" />
+          View All Owners
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {owners.map(owner => (
+          <DropdownMenuItem 
+            key={owner.id} 
+            onClick={() => setSelectedOwnerId(owner.id)}
+            className={selectedOwnerId === owner.id ? "bg-accent" : ""}
+          >
+            <User className="mr-2 h-4 w-4" />
+            {owner.name}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function ReceivePaymentButton() {
   const [isOpen, setIsOpen] = useState(false);
   
@@ -138,12 +200,25 @@ function ReceivePaymentButton() {
   );
 }
 
+function OwnerDashboardRedirect() {
+  const { user, isOwner } = useAuth();
+  const [location] = useLocation();
+  
+  if (isOwner && user?.ownerId && location === '/') {
+    return <Redirect to={`/owners/${user.ownerId}`} />;
+  }
+  
+  return <Dashboard />;
+}
+
 function Router() {
+  const { isSuperAdmin } = useAuth();
+  
   return (
     <Switch>
-      <Route path="/" component={Dashboard} />
-      <Route path="/admin/users" component={UserManagementPage} />
-      <Route path="/owners" component={OwnersPage} />
+      <Route path="/" component={OwnerDashboardRedirect} />
+      {isSuperAdmin && <Route path="/admin/users" component={UserManagementPage} />}
+      {isSuperAdmin && <Route path="/owners" component={OwnersPage} />}
       <Route path="/owners/:id" component={OwnerDetailPage} />
       <Route path="/shops" component={ShopsPage} />
       <Route path="/tenants" component={TenantsPage} />
@@ -161,35 +236,39 @@ function Router() {
 }
 
 function AuthenticatedApp() {
+  const [selectedOwnerId, setSelectedOwnerId] = useState<number | null>(null);
   const sidebarStyle = {
     "--sidebar-width": "16rem",
     "--sidebar-width-icon": "3rem",
   };
 
   return (
-    <SidebarProvider style={sidebarStyle as React.CSSProperties}>
-      <div className="flex h-screen w-full">
-        <AppSidebar />
-        <SidebarInset className="flex flex-col flex-1 overflow-hidden">
-          <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b px-4 bg-background sticky top-0 z-50">
-            <div className="flex items-center gap-2">
-              <SidebarTrigger data-testid="button-sidebar-toggle" />
-              <div className="hidden md:block">
-                <GlobalSearch />
+    <OwnerViewContext.Provider value={{ selectedOwnerId, setSelectedOwnerId }}>
+      <SidebarProvider style={sidebarStyle as React.CSSProperties}>
+        <div className="flex h-screen w-full">
+          <AppSidebar />
+          <SidebarInset className="flex flex-col flex-1 overflow-hidden">
+            <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b px-4 bg-background sticky top-0 z-50">
+              <div className="flex items-center gap-2">
+                <SidebarTrigger data-testid="button-sidebar-toggle" />
+                <div className="hidden md:block">
+                  <GlobalSearch />
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <ReceivePaymentButton />
-              <ThemeToggle />
-              <UserMenu />
-            </div>
-          </header>
-          <main className="flex-1 overflow-auto bg-muted/30">
-            <Router />
-          </main>
-        </SidebarInset>
-      </div>
-    </SidebarProvider>
+              <div className="flex items-center gap-3">
+                <OwnerViewSelector />
+                <ReceivePaymentButton />
+                <ThemeToggle />
+                <UserMenu />
+              </div>
+            </header>
+            <main className="flex-1 overflow-auto bg-muted/30">
+              <Router />
+            </main>
+          </SidebarInset>
+        </div>
+      </SidebarProvider>
+    </OwnerViewContext.Provider>
   );
 }
 
