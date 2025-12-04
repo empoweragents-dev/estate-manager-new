@@ -57,6 +57,20 @@ function sortByFloorAndShopNumber<T extends { floor: string; shopNumber?: string
   });
 }
 
+// Helper to check if user is an owner (not super_admin)
+function isOwnerUser(req: Request): boolean {
+  return req.session.role === 'owner';
+}
+
+// Helper to get the owner's shops (their own + common shops)
+async function getOwnerAccessibleShops(ownerId: number | undefined): Promise<number[]> {
+  if (!ownerId) return [];
+  const allShops = await storage.getShops();
+  return allShops
+    .filter(s => s.ownerId === ownerId || s.ownershipType === 'common')
+    .map(s => s.id);
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -435,7 +449,14 @@ export async function registerRoutes(
   // ===== SHOPS =====
   app.get("/api/shops", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      const allShops = await storage.getShops();
+      let allShops = await storage.getShops();
+      
+      // Filter shops for owner users (only their own shops + common shops)
+      if (isOwnerUser(req) && req.session.ownerId) {
+        allShops = allShops.filter(s => 
+          s.ownerId === req.session.ownerId || s.ownershipType === 'common'
+        );
+      }
       
       // Get owner details for each shop
       const shopsWithOwners = await Promise.all(allShops.map(async (shop) => {
@@ -511,7 +532,19 @@ export async function registerRoutes(
   // ===== TENANTS =====
   app.get("/api/tenants", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      const allTenants = await storage.getTenants();
+      let allTenants = await storage.getTenants();
+      
+      // Filter tenants for owner users (only tenants in their shops + common shops)
+      if (isOwnerUser(req) && req.session.ownerId) {
+        const accessibleShopIds = await getOwnerAccessibleShops(req.session.ownerId);
+        const allLeases = await storage.getLeases();
+        const tenantIdsInAccessibleShops = new Set(
+          allLeases
+            .filter(l => accessibleShopIds.includes(l.shopId))
+            .map(l => l.tenantId)
+        );
+        allTenants = allTenants.filter(t => tenantIdsInAccessibleShops.has(t.id));
+      }
       
       // Calculate dues for each tenant
       const tenantsWithDues = await Promise.all(allTenants.map(async (tenant) => {
@@ -552,18 +585,35 @@ export async function registerRoutes(
 
   app.get("/api/tenants/with-leases", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      const allTenants = await storage.getTenants();
+      let allTenants = await storage.getTenants();
+      
+      // Get accessible shop IDs for owner users
+      let accessibleShopIds: number[] | null = null;
+      if (isOwnerUser(req) && req.session.ownerId) {
+        accessibleShopIds = await getOwnerAccessibleShops(req.session.ownerId);
+      }
       
       const tenantsWithLeases = await Promise.all(allTenants.map(async (tenant) => {
-        const tenantLeases = await storage.getLeasesByTenant(tenant.id);
+        let tenantLeases = await storage.getLeasesByTenant(tenant.id);
+        
+        // Filter leases to only accessible shops for owner users
+        if (accessibleShopIds) {
+          tenantLeases = tenantLeases.filter(l => accessibleShopIds!.includes(l.shopId));
+        }
+        
         const leasesWithShops = await Promise.all(tenantLeases.map(async (lease) => {
           const shop = await storage.getShop(lease.shopId);
-          return { ...lease, shop: shop ? { shopNumber: shop.shopNumber, floor: shop.floor } : null };
+          return { ...lease, shop: shop ? { shopNumber: shop.shopNumber, floor: shop.floor, subedariCategory: shop.subedariCategory } : null };
         }));
         return { ...tenant, leases: leasesWithShops };
       }));
       
-      res.json(tenantsWithLeases);
+      // Filter out tenants with no accessible leases for owner users
+      const filteredTenants = accessibleShopIds 
+        ? tenantsWithLeases.filter(t => t.leases.length > 0)
+        : tenantsWithLeases;
+      
+      res.json(filteredTenants);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -987,7 +1037,13 @@ export async function registerRoutes(
   // ===== LEASES =====
   app.get("/api/leases", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      const allLeases = await storage.getLeases();
+      let allLeases = await storage.getLeases();
+      
+      // Filter leases for owner users (only leases in their shops + common shops)
+      if (isOwnerUser(req) && req.session.ownerId) {
+        const accessibleShopIds = await getOwnerAccessibleShops(req.session.ownerId);
+        allLeases = allLeases.filter(l => accessibleShopIds.includes(l.shopId));
+      }
       
       // Update lease statuses and get details
       const leasesWithDetails = await Promise.all(allLeases.map(async (lease) => {
@@ -1357,7 +1413,17 @@ export async function registerRoutes(
   // ===== PAYMENTS =====
   app.get("/api/payments", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      const allPayments = await storage.getPayments();
+      let allPayments = await storage.getPayments();
+      
+      // Filter payments for owner users (only payments for leases in their shops + common shops)
+      if (isOwnerUser(req) && req.session.ownerId) {
+        const accessibleShopIds = await getOwnerAccessibleShops(req.session.ownerId);
+        const allLeases = await storage.getLeases();
+        const accessibleLeaseIds = new Set(
+          allLeases.filter(l => accessibleShopIds.includes(l.shopId)).map(l => l.id)
+        );
+        allPayments = allPayments.filter(p => accessibleLeaseIds.has(p.leaseId));
+      }
       
       const paymentsWithDetails = await Promise.all(allPayments.map(async (payment) => {
         const tenant = await storage.getTenant(payment.tenantId);
@@ -1539,7 +1605,14 @@ export async function registerRoutes(
   // ===== EXPENSES =====
   app.get("/api/expenses", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      const allExpenses = await storage.getExpenses();
+      let allExpenses = await storage.getExpenses();
+      
+      // Filter expenses for owner users (their own expenses + common expenses)
+      if (isOwnerUser(req) && req.session.ownerId) {
+        allExpenses = allExpenses.filter(e => 
+          e.ownerId === req.session.ownerId || e.allocation === 'common'
+        );
+      }
       
       const expensesWithOwners = await Promise.all(allExpenses.map(async (expense) => {
         let owner = null;
