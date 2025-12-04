@@ -63,6 +63,10 @@ interface TenantInfo {
   currentDues: number;
   lastPaymentDate: string | null;
   leaseStatus: string;
+  isCommon?: boolean;
+  fullSecurityDeposit?: number;
+  fullMonthlyRent?: number;
+  fullCurrentDues?: number;
 }
 
 interface DepositWithMonth extends BankDeposit {
@@ -99,8 +103,16 @@ interface OwnerDetailData {
     totalOutstandingDues: number;
     totalTenants: number;
     totalShops: number;
+    commonSecurityDeposit: number;
+    commonOutstandingDues: number;
+    commonTenants: number;
+    commonShops: number;
+    totalCommonExpenseShare: number;
+    totalPrivateExpense: number;
+    totalOwners: number;
   };
   tenants: TenantInfo[];
+  commonTenants: TenantInfo[];
   bankDeposits: DepositWithMonth[];
   depositsByMonth: Record<string, DepositWithMonth[]>;
   expenses: ExpenseWithAllocation[];
@@ -157,7 +169,11 @@ export default function OwnerDetailPage() {
     );
   }
 
-  const { owner, summary, tenants, bankDeposits, depositsByMonth, expenses, monthlyReports, yearlyReports } = ownerData;
+  const { owner, summary, tenants, commonTenants, bankDeposits, depositsByMonth, expenses, monthlyReports, yearlyReports } = ownerData;
+  
+  const hasCommonData = summary.commonShops > 0 || summary.commonTenants > 0;
+  const combinedSecurityDeposit = summary.totalSecurityDeposit + summary.commonSecurityDeposit;
+  const combinedOutstandingDues = summary.totalOutstandingDues + summary.commonOutstandingDues;
 
   return (
     <div className="p-6 space-y-6">
@@ -181,87 +197,203 @@ export default function OwnerDetailPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <DollarSign className="h-4 w-4" />
-              Total Security Deposit
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">
-              {formatValue(summary.totalSecurityDeposit)}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Held from {summary.totalTenants} tenant(s)
-            </p>
-          </CardContent>
-        </Card>
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <Badge variant="default" className="bg-blue-600">My Private Properties</Badge>
+          <span className="text-sm text-muted-foreground">Sole ownership</span>
+        </div>
+        <div className="grid gap-4 md:grid-cols-4">
+          <Card className="border-l-4 border-l-blue-600">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                <DollarSign className="h-4 w-4" />
+                Security Deposit
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-blue-600">
+                {formatValue(summary.totalSecurityDeposit)}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                From {summary.totalTenants} tenant(s)
+              </p>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <AlertCircle className="h-4 w-4" />
-              Total Outstanding Dues
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className={`text-2xl font-bold ${summary.totalOutstandingDues > 0 ? 'text-red-600' : 'text-green-600'}`}>
-              {formatValue(summary.totalOutstandingDues)}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Pending rent collection
-            </p>
-          </CardContent>
-        </Card>
+          <Card className="border-l-4 border-l-blue-600">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                <AlertCircle className="h-4 w-4" />
+                Outstanding Dues
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-bold ${summary.totalOutstandingDues > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                {formatValue(summary.totalOutstandingDues)}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Pending collection
+              </p>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Users className="h-4 w-4" />
-              Active Tenants
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {summary.totalTenants}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Across {summary.totalShops} shop(s)
-            </p>
-          </CardContent>
-        </Card>
+          <Card className="border-l-4 border-l-blue-600">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                <Users className="h-4 w-4" />
+                Tenants
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {summary.totalTenants}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                In {summary.totalShops} shop(s)
+              </p>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Building2 className="h-4 w-4" />
-              Total Shops
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {summary.totalShops}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Sole ownership
-            </p>
-          </CardContent>
-        </Card>
+          <Card className="border-l-4 border-l-blue-600">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                <Building2 className="h-4 w-4" />
+                Shops
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {summary.totalShops}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Sole ownership
+              </p>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
+      {hasCommonData && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="bg-purple-100 text-purple-700 border-purple-200">Common/Shared Properties</Badge>
+            <span className="text-sm text-muted-foreground">Shared among {summary.totalOwners} owner(s)</span>
+          </div>
+          <div className="grid gap-4 md:grid-cols-4">
+            <Card className="border-l-4 border-l-purple-500">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                  <DollarSign className="h-4 w-4" />
+                  Your Share of Deposit
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-purple-600">
+                  {formatValue(summary.commonSecurityDeposit)}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  From {summary.commonTenants} common tenant(s)
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-purple-500">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4" />
+                  Your Share of Dues
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className={`text-2xl font-bold ${summary.commonOutstandingDues > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                  {formatValue(summary.commonOutstandingDues)}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Pending collection
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-purple-500">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                  <Users className="h-4 w-4" />
+                  Common Tenants
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {summary.commonTenants}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  In {summary.commonShops} common shop(s)
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-purple-500">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                  <Building2 className="h-4 w-4" />
+                  Common Shops
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {summary.commonShops}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Shared ownership
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
+
+      <Card className="bg-muted/30">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <TrendingUp className="h-5 w-5" />
+            Combined Summary
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="text-center">
+              <p className="text-sm text-muted-foreground">Total Security Deposit</p>
+              <p className="text-xl font-bold text-blue-600">{formatValue(combinedSecurityDeposit)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-sm text-muted-foreground">Total Outstanding Dues</p>
+              <p className={`text-xl font-bold ${combinedOutstandingDues > 0 ? 'text-red-600' : 'text-green-600'}`}>{formatValue(combinedOutstandingDues)}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-sm text-muted-foreground">Total Tenants</p>
+              <p className="text-xl font-bold">{summary.totalTenants + summary.commonTenants}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <Tabs defaultValue="tenants" className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="tenants">Tenants ({tenants.length})</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-5">
+          <TabsTrigger value="tenants">My Tenants ({tenants.length})</TabsTrigger>
+          {hasCommonData && <TabsTrigger value="common-tenants">Common Tenants ({commonTenants.length})</TabsTrigger>}
           <TabsTrigger value="deposits">Bank Deposits ({bankDeposits.length})</TabsTrigger>
           <TabsTrigger value="expenses">Expenses ({expenses.length})</TabsTrigger>
           <TabsTrigger value="reports">Income Reports</TabsTrigger>
         </TabsList>
 
         <TabsContent value="tenants" className="mt-4">
-          <TenantsTab tenants={tenants} formatValue={formatValue} ownerName={owner.name} />
+          <TenantsTab tenants={tenants} formatValue={formatValue} ownerName={owner.name} isCommon={false} />
         </TabsContent>
+        
+        {hasCommonData && (
+          <TabsContent value="common-tenants" className="mt-4">
+            <TenantsTab tenants={commonTenants} formatValue={formatValue} ownerName={owner.name} isCommon={true} totalOwners={summary.totalOwners} />
+          </TabsContent>
+        )}
 
         <TabsContent value="deposits" className="mt-4">
           <BankDepositsTab 
@@ -288,7 +420,7 @@ export default function OwnerDetailPage() {
   );
 }
 
-function TenantsTab({ tenants, formatValue, ownerName }: { tenants: TenantInfo[]; formatValue: (val: number) => string; ownerName: string }) {
+function TenantsTab({ tenants, formatValue, ownerName, isCommon = false, totalOwners = 1 }: { tenants: TenantInfo[]; formatValue: (val: number) => string; ownerName: string; isCommon?: boolean; totalOwners?: number }) {
   const formatNumber = (val: number) => {
     return val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
@@ -382,12 +514,17 @@ function TenantsTab({ tenants, formatValue, ownerName }: { tenants: TenantInfo[]
   };
 
   return (
-    <Card>
+    <Card className={isCommon ? 'border-purple-200' : ''}>
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="text-base flex items-center gap-2">
             <Users className="h-5 w-5" />
-            All Tenants
+            {isCommon ? 'Common/Shared Tenants' : 'My Tenants'}
+            {isCommon && (
+              <Badge variant="secondary" className="bg-purple-100 text-purple-700 border-purple-200">
+                1/{totalOwners} share
+              </Badge>
+            )}
           </CardTitle>
           {tenants.length > 0 && (
             <Button variant="outline" size="sm" onClick={exportTenantsPDF} className="gap-2">
@@ -396,6 +533,11 @@ function TenantsTab({ tenants, formatValue, ownerName }: { tenants: TenantInfo[]
             </Button>
           )}
         </div>
+        {isCommon && (
+          <p className="text-sm text-muted-foreground mt-1">
+            Showing your share of values. Full amounts are shown in parentheses.
+          </p>
+        )}
       </CardHeader>
       <CardContent>
         <Table>
@@ -403,16 +545,16 @@ function TenantsTab({ tenants, formatValue, ownerName }: { tenants: TenantInfo[]
             <TableRow>
               <TableHead>Tenant Name</TableHead>
               <TableHead>Shop Location</TableHead>
-              <TableHead className="text-right">Security Deposit</TableHead>
-              <TableHead className="text-right">Monthly Rent</TableHead>
-              <TableHead className="text-right">Current Dues</TableHead>
+              <TableHead className="text-right">{isCommon ? 'Your Share of Deposit' : 'Security Deposit'}</TableHead>
+              <TableHead className="text-right">{isCommon ? 'Your Share of Rent' : 'Monthly Rent'}</TableHead>
+              <TableHead className="text-right">{isCommon ? 'Your Share of Dues' : 'Current Dues'}</TableHead>
               <TableHead>Last Payment</TableHead>
               <TableHead>Status</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {tenants.map((tenant) => (
-              <TableRow key={tenant.leaseId}>
+              <TableRow key={tenant.leaseId} className={isCommon ? 'bg-purple-50/30' : ''}>
                 <TableCell>
                   <Link href={`/tenants/${tenant.id}`}>
                     <span className="font-medium text-primary hover:underline cursor-pointer">
@@ -425,16 +567,27 @@ function TenantsTab({ tenants, formatValue, ownerName }: { tenants: TenantInfo[]
                   </div>
                 </TableCell>
                 <TableCell>
-                  <Badge variant="outline">{tenant.shopLocation}</Badge>
+                  <Badge variant={isCommon ? 'secondary' : 'outline'} className={isCommon ? 'bg-purple-100 text-purple-700' : ''}>
+                    {tenant.shopLocation}
+                  </Badge>
                 </TableCell>
-                <TableCell className="text-right font-medium text-blue-600">
+                <TableCell className={`text-right font-medium ${isCommon ? 'text-purple-600' : 'text-blue-600'}`}>
                   {formatValue(tenant.securityDeposit)}
+                  {isCommon && tenant.fullSecurityDeposit !== undefined && (
+                    <div className="text-xs text-muted-foreground">({formatValue(tenant.fullSecurityDeposit)})</div>
+                  )}
                 </TableCell>
                 <TableCell className="text-right">
                   {formatValue(tenant.monthlyRent)}
+                  {isCommon && tenant.fullMonthlyRent !== undefined && (
+                    <div className="text-xs text-muted-foreground">({formatValue(tenant.fullMonthlyRent)})</div>
+                  )}
                 </TableCell>
-                <TableCell className={`text-right font-medium ${tenant.currentDues > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                <TableCell className={`text-right font-medium ${tenant.currentDues > 0 ? (isCommon ? 'text-orange-600' : 'text-red-600') : 'text-green-600'}`}>
                   {formatValue(tenant.currentDues)}
+                  {isCommon && tenant.fullCurrentDues !== undefined && (
+                    <div className="text-xs text-muted-foreground">({formatValue(tenant.fullCurrentDues)})</div>
+                  )}
                 </TableCell>
                 <TableCell>
                   {tenant.lastPaymentDate ? (
@@ -459,7 +612,7 @@ function TenantsTab({ tenants, formatValue, ownerName }: { tenants: TenantInfo[]
             {tenants.length === 0 && (
               <TableRow>
                 <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                  No tenants found for this owner
+                  {isCommon ? 'No common/shared tenants found' : 'No tenants found for this owner'}
                 </TableCell>
               </TableRow>
             )}

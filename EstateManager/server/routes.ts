@@ -162,8 +162,9 @@ export async function registerRoutes(
     }
   });
 
-  // ===== OWNERS (Super Admin only for write operations) =====
-  app.get("/api/owners", isAuthenticated, async (req: Request, res: Response) => {
+  // ===== OWNERS (Super Admin only for list and write operations) =====
+  // Only super admin can list all owners
+  app.get("/api/owners", isAuthenticated, requireSuperAdmin, async (req: Request, res: Response) => {
     try {
       const allOwners = await storage.getOwners();
       
@@ -183,9 +184,17 @@ export async function registerRoutes(
     }
   });
 
+  // Owner can only access their own record, super admin can access any
   app.get("/api/owners/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      const owner = await storage.getOwner(parseInt(req.params.id));
+      const requestedOwnerId = parseInt(req.params.id);
+      
+      // Authorization: Owner users can only access their own data
+      if (isOwnerUser(req) && req.session.ownerId !== requestedOwnerId) {
+        return res.status(403).json({ message: "Access denied: You can only view your own owner data" });
+      }
+      
+      const owner = await storage.getOwner(requestedOwnerId);
       if (!owner) return res.status(404).json({ message: "Owner not found" });
       res.json(owner);
     } catch (error: any) {
@@ -223,9 +232,16 @@ export async function registerRoutes(
   });
 
   // Owner Details - comprehensive view with tenants, deposits, expenses, reports
+  // Owner can only access their own details, super admin can access any
   app.get("/api/owners/:id/details", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const ownerId = parseInt(req.params.id);
+      
+      // Authorization: Owner users can only access their own details
+      if (isOwnerUser(req) && req.session.ownerId !== ownerId) {
+        return res.status(403).json({ message: "Access denied: You can only view your own owner dashboard" });
+      }
+      
       const owner = await storage.getOwner(ownerId);
       if (!owner) return res.status(404).json({ message: "Owner not found" });
 
@@ -426,6 +442,77 @@ export async function registerRoutes(
 
       const yearlyReportArray = Object.values(yearlyReports).sort((a, b) => b.year - a.year);
 
+      // Build common shops tenant list (shops with common ownership)
+      const commonTenantList: any[] = [];
+      let commonSecurityDeposit = 0;
+      let commonOutstandingDues = 0;
+      
+      const commonShopIds = commonShops.map(s => s.id);
+      const commonLeases = allLeases.filter(l => commonShopIds.includes(l.shopId));
+      
+      for (const lease of commonLeases) {
+        if (lease.status === 'terminated') continue;
+        
+        const tenant = allTenants.find(t => t.id === lease.tenantId);
+        const shop = commonShops.find(s => s.id === lease.shopId);
+        if (!tenant || !shop) continue;
+        
+        const securityDeposit = parseFloat(lease.securityDeposit) - parseFloat(lease.securityDepositUsed || '0');
+        const shareDeposit = securityDeposit / totalOwners;
+        commonSecurityDeposit += shareDeposit;
+        
+        const leaseInvoices = allInvoices.filter(inv => 
+          inv.leaseId === lease.id &&
+          (inv.year < currentYear || (inv.year === currentYear && inv.month <= currentMonth))
+        );
+        
+        const leasePayments = allPayments.filter(p => p.leaseId === lease.id);
+        const totalPaid = leasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        
+        const openingDue = parseFloat(tenant.openingDueBalance || '0');
+        const totalInvoiced = leaseInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+        const totalDues = openingDue + totalInvoiced - totalPaid;
+        const shareDues = Math.max(0, totalDues) / totalOwners;
+        commonOutstandingDues += shareDues;
+        
+        const sortedPayments = leasePayments.sort((a, b) => 
+          new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime()
+        );
+        const lastPaymentDate = sortedPayments.length > 0 ? sortedPayments[0].paymentDate : null;
+        
+        const floorName = shop.floor === 'ground' ? 'Ground Floor' :
+                         shop.floor === 'first' ? '1st Floor' :
+                         shop.floor === 'second' ? '2nd Floor' : 
+                         shop.floor === 'subedari' ? 'Subedari' : shop.floor;
+        
+        commonTenantList.push({
+          id: tenant.id,
+          leaseId: lease.id,
+          name: tenant.name,
+          phone: tenant.phone,
+          shopNumber: shop.shopNumber,
+          shopLocation: `${floorName} - ${shop.shopNumber}`,
+          floor: shop.floor,
+          securityDeposit: shareDeposit,
+          fullSecurityDeposit: securityDeposit,
+          monthlyRent: parseFloat(lease.monthlyRent) / totalOwners,
+          fullMonthlyRent: parseFloat(lease.monthlyRent),
+          currentDues: shareDues,
+          fullCurrentDues: Math.max(0, totalDues),
+          lastPaymentDate,
+          leaseStatus: lease.status,
+          isCommon: true,
+        });
+      }
+      
+      sortByFloorAndShopNumber(commonTenantList);
+      
+      // Calculate common expenses separately
+      const commonExpenses = ownerExpenses.filter(e => e.isCommon);
+      const privateExpenses = ownerExpenses.filter(e => !e.isCommon);
+      const totalCommonExpenseShare = commonExpenses.reduce((sum, e) => sum + e.allocatedAmount, 0);
+      const totalPrivateExpense = privateExpenses.reduce((sum, e) => sum + e.allocatedAmount, 0);
+
       res.json({
         owner,
         summary: {
@@ -433,8 +520,16 @@ export async function registerRoutes(
           totalOutstandingDues,
           totalTenants: tenantList.length,
           totalShops: ownerShops.length,
+          commonSecurityDeposit,
+          commonOutstandingDues,
+          commonTenants: commonTenantList.length,
+          commonShops: commonShops.length,
+          totalCommonExpenseShare,
+          totalPrivateExpense,
+          totalOwners,
         },
         tenants: tenantList,
+        commonTenants: commonTenantList,
         bankDeposits: depositsWithMonth,
         depositsByMonth,
         expenses: ownerExpenses,
