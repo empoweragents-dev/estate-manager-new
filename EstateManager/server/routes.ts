@@ -2426,10 +2426,16 @@ export async function registerRoutes(
         });
       }
       
-      // Sort by owner name, then shop number
+      // Sort by owner name, then floor order (ground -> first -> second -> subedari), then shop number
+      const floorOrder: Record<string, number> = { ground: 1, first: 2, second: 3, subedari: 4 };
       reportData.sort((a, b) => {
         if (a.ownerName !== b.ownerName) {
           return a.ownerName.localeCompare(b.ownerName);
+        }
+        const orderA = floorOrder[a.floor] || 999;
+        const orderB = floorOrder[b.floor] || 999;
+        if (orderA !== orderB) {
+          return orderA - orderB;
         }
         return a.shopLocation.localeCompare(b.shopLocation);
       });
