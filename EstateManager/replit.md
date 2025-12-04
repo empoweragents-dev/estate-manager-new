@@ -179,3 +179,30 @@ Preferred communication style: Simple, everyday language.
 - `SESSION_SECRET` - Secret key for session encryption
 - `SUPER_ADMIN_PASSWORD` - Password for Super Admin account (required)
 - `SUPER_ADMIN_USERNAME` - Username for Super Admin account (optional, defaults to "super_admin")
+
+### Role-Based Access Control (December 2025)
+
+**Owner Data Filtering**:
+Owners see only their data plus common/shared resources across all endpoints:
+- **Shops**: Owner's shops + common ownership shops
+- **Tenants**: Tenants in owner's accessible shops
+- **Leases**: Leases in accessible shops
+- **Payments**: Payments for accessible leases
+- **Expenses**: Owner's expenses + common allocation expenses
+
+**Owner Dashboard**:
+- Redirects owner users directly to their personal dashboard (/owners/:id) on login
+- Two-section layout separating "My Private Properties" (blue) from "Common/Shared Properties" (purple)
+- Common data shows owner's share with full amounts in parentheses
+- Combined summary section with total security deposit, outstanding dues, and tenant count
+
+**Sidebar Navigation for Owners**:
+- Dashboard links to owner's personal page
+- Hides: Owners list, Bank Deposits, Analytics/Reports sections
+- Shows: Shops, Tenants, Leases, Payments, Expenses (all filtered to accessible data)
+
+**API Endpoint Security**:
+- `GET /api/owners` - Super Admin only
+- `GET /api/owners/:id` - Super Admin or same owner only
+- `GET /api/owners/:id/details` - Super Admin or same owner only
+- All other filtered endpoints use helper functions `isOwnerUser()` and `getOwnerAccessibleShops()` for consistent filtering
