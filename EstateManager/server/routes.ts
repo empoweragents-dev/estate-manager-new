@@ -247,6 +247,7 @@ export async function registerRoutes(
           phone: tenant.phone,
           shopNumber: shop.shopNumber,
           shopLocation: `${floorName} - ${shop.shopNumber}`,
+          floor: shop.floor,
           securityDeposit: securityDeposit,
           monthlyRent: parseFloat(lease.monthlyRent),
           currentDues: Math.max(0, totalDues),
@@ -254,6 +255,14 @@ export async function registerRoutes(
           leaseStatus: lease.status,
         });
       }
+
+      // Sort tenants by floor order: ground -> first -> second -> subedari
+      const floorOrder: Record<string, number> = { ground: 1, first: 2, second: 3, subedari: 4 };
+      tenantList.sort((a, b) => {
+        const orderA = floorOrder[a.floor] || 999;
+        const orderB = floorOrder[b.floor] || 999;
+        return orderA - orderB;
+      });
 
       // Get bank deposits for this owner
       const bankDeposits = await storage.getBankDepositsByOwner(ownerId);
