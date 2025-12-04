@@ -564,6 +564,15 @@ export async function registerRoutes(
         const tenantInvoices = allInvoices.filter(inv => inv.tenantId === tenant.id);
         const tenantPayments = allPayments.filter(p => p.tenantId === tenant.id);
         
+        // Get floor from first active lease's shop
+        const tenantLeases = allLeases.filter(l => l.tenantId === tenant.id && l.status !== 'terminated');
+        let floor: string | null = null;
+        if (tenantLeases.length > 0) {
+          const firstLease = tenantLeases[0];
+          const shop = allShops.find(s => s.id === firstLease.shopId);
+          floor = shop?.floor || null;
+        }
+        
         // Only count invoices for elapsed months (up to current month)
         const elapsedInvoices = getElapsedInvoices(tenantInvoices);
         
@@ -591,8 +600,16 @@ export async function registerRoutes(
           }
         }
         
-        return { ...tenant, totalDue, totalPaid, currentDue, monthlyDues };
+        return { ...tenant, totalDue, totalPaid, currentDue, monthlyDues, floor };
       }));
+      
+      // Sort tenants by floor order: ground -> first -> second -> subedari
+      const floorOrder: Record<string, number> = { ground: 1, first: 2, second: 3, subedari: 4 };
+      tenantsWithDues.sort((a, b) => {
+        const orderA = a.floor ? (floorOrder[a.floor] || 999) : 999;
+        const orderB = b.floor ? (floorOrder[b.floor] || 999) : 999;
+        return orderA - orderB;
+      });
       
       res.json(tenantsWithDues);
     } catch (error: any) {
