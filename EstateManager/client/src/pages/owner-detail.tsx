@@ -16,6 +16,8 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
+  Filter,
+  X,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -24,6 +26,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -38,7 +48,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { formatCurrency } from "@/lib/currency";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import type { Owner, BankDeposit, Expense } from "@shared/schema";
 
 interface TenantInfo {
@@ -573,68 +583,180 @@ function BankDepositsTab({
   );
 }
 
+const EXPENSE_TYPES = ["guard", "cleaner", "electricity", "maintenance", "other"] as const;
+
+function generateMonthOptions() {
+  const months = [];
+  const now = new Date();
+  for (let i = 0; i < 24; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = d.toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
+    months.push({ value, label });
+  }
+  return months;
+}
+
 function ExpensesTab({ expenses, formatValue }: { expenses: ExpenseWithAllocation[]; formatValue: (val: number | string) => string }) {
-  const totalExpenses = expenses.reduce((sum, e) => sum + e.allocatedAmount, 0);
+  const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [filterMonth, setFilterMonth] = useState<string>("all");
+  const [filterDateFrom, setFilterDateFrom] = useState<string>("");
+  const [filterDateTo, setFilterDateTo] = useState<string>("");
+
+  const monthOptions = useMemo(() => generateMonthOptions(), []);
+
+  const filteredExpenses = useMemo(() => {
+    return expenses.filter((expense) => {
+      if (filterCategory !== "all" && expense.expenseType !== filterCategory) return false;
+      if (filterMonth !== "all") {
+        const expenseMonth = expense.expenseDate.substring(0, 7);
+        if (expenseMonth !== filterMonth) return false;
+      }
+      if (filterDateFrom && expense.expenseDate < filterDateFrom) return false;
+      if (filterDateTo && expense.expenseDate > filterDateTo) return false;
+      return true;
+    });
+  }, [expenses, filterCategory, filterMonth, filterDateFrom, filterDateTo]);
+
+  const hasActiveFilters = filterCategory !== "all" || filterMonth !== "all" || filterDateFrom || filterDateTo;
+
+  const clearAllFilters = () => {
+    setFilterCategory("all");
+    setFilterMonth("all");
+    setFilterDateFrom("");
+    setFilterDateTo("");
+  };
+
+  const totalExpenses = filteredExpenses.reduce((sum, e) => sum + e.allocatedAmount, 0);
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base flex items-center gap-2">
-            <FileText className="h-5 w-5" />
-            Expenses
-          </CardTitle>
-          <div className="text-right">
-            <p className="text-sm text-muted-foreground">Total (Allocated)</p>
-            <p className="text-lg font-semibold text-red-600">{formatValue(totalExpenses)}</p>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Date</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead>Allocation</TableHead>
-              <TableHead className="text-right">Amount</TableHead>
-              <TableHead className="text-right">Your Share</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {expenses.map((expense) => (
-              <TableRow key={expense.id}>
-                <TableCell>{new Date(expense.expenseDate).toLocaleDateString()}</TableCell>
-                <TableCell>
-                  <Badge variant="outline" className="capitalize">{expense.expenseType}</Badge>
-                </TableCell>
-                <TableCell className="max-w-[200px] truncate">{expense.description}</TableCell>
-                <TableCell>
-                  <Badge variant={expense.isCommon ? 'secondary' : 'default'}>
-                    {expense.isCommon ? 'Common' : 'Direct'}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  {formatValue(expense.amount)}
-                </TableCell>
-                <TableCell className="text-right font-medium text-red-600">
-                  {formatValue(expense.allocatedAmount)}
-                  {expense.isCommon && <span className="text-xs text-muted-foreground ml-1">(shared)</span>}
-                </TableCell>
-              </TableRow>
-            ))}
-            {expenses.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                  No expenses recorded
-                </TableCell>
-              </TableRow>
+    <div className="space-y-4">
+      <Card className="overflow-visible">
+        <CardContent className="p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">Filters</span>
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" onClick={clearAllFilters} className="h-7 px-2 text-xs ml-auto">
+                <X className="h-3 w-3 mr-1" />
+                Clear All
+              </Button>
             )}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Category</label>
+              <Select value={filterCategory} onValueChange={setFilterCategory}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="All Categories" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  {EXPENSE_TYPES.map((type) => (
+                    <SelectItem key={type} value={type} className="capitalize">
+                      {type.charAt(0).toUpperCase() + type.slice(1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Month</label>
+              <Select value={filterMonth} onValueChange={setFilterMonth}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="All Months" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Months</SelectItem>
+                  {monthOptions.map((month) => (
+                    <SelectItem key={month.value} value={month.value}>
+                      {month.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">From Date</label>
+              <Input
+                type="date"
+                value={filterDateFrom}
+                onChange={(e) => setFilterDateFrom(e.target.value)}
+                className="h-9"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">To Date</label>
+              <Input
+                type="date"
+                value={filterDateTo}
+                onChange={(e) => setFilterDateTo(e.target.value)}
+                className="h-9"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Expenses {hasActiveFilters && "(Filtered)"}
+            </CardTitle>
+            <div className="text-right">
+              <p className="text-sm text-muted-foreground">Total (Allocated){hasActiveFilters && " - Filtered"}</p>
+              <p className="text-lg font-semibold text-red-600">{formatValue(totalExpenses)}</p>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Date</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Description</TableHead>
+                <TableHead>Allocation</TableHead>
+                <TableHead className="text-right">Amount</TableHead>
+                <TableHead className="text-right">Your Share</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredExpenses.map((expense) => (
+                <TableRow key={expense.id}>
+                  <TableCell>{new Date(expense.expenseDate).toLocaleDateString()}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className="capitalize">{expense.expenseType}</Badge>
+                  </TableCell>
+                  <TableCell className="max-w-[200px] truncate">{expense.description}</TableCell>
+                  <TableCell>
+                    <Badge variant={expense.isCommon ? 'secondary' : 'default'}>
+                      {expense.isCommon ? 'Common' : 'Direct'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {formatValue(expense.amount)}
+                  </TableCell>
+                  <TableCell className="text-right font-medium text-red-600">
+                    {formatValue(expense.allocatedAmount)}
+                    {expense.isCommon && <span className="text-xs text-muted-foreground ml-1">(shared)</span>}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {filteredExpenses.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                    {hasActiveFilters ? "No expenses match the current filters" : "No expenses recorded"}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 

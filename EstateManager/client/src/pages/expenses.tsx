@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,6 +52,8 @@ import {
   Zap,
   Sparkles,
   Wrench,
+  Filter,
+  X,
 } from "lucide-react";
 import type { Expense, Owner } from "@shared/schema";
 import { formatCurrency, useCurrencyStore } from "@/lib/currency";
@@ -289,8 +291,28 @@ function ExpenseForm({
   );
 }
 
+const EXPENSE_TYPES = ["guard", "cleaner", "electricity", "maintenance", "other"] as const;
+
+function generateMonthOptions() {
+  const months = [];
+  const now = new Date();
+  for (let i = 0; i < 24; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = d.toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
+    months.push({ value, label });
+  }
+  return months;
+}
+
 export default function ExpensesPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [filterOwner, setFilterOwner] = useState<string>("all");
+  const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [filterMonth, setFilterMonth] = useState<string>("all");
+  const [filterDateFrom, setFilterDateFrom] = useState<string>("");
+  const [filterDateTo, setFilterDateTo] = useState<string>("");
+  
   const { toast } = useToast();
   const { currency, exchangeRate } = useCurrencyStore();
 
@@ -301,6 +323,35 @@ export default function ExpensesPage() {
   const { data: owners = [] } = useQuery<Owner[]>({
     queryKey: ["/api/owners"],
   });
+
+  const monthOptions = useMemo(() => generateMonthOptions(), []);
+
+  const filteredExpenses = useMemo(() => {
+    return expenses.filter((expense) => {
+      if (filterOwner !== "all") {
+        if (filterOwner === "common" && expense.allocation !== "common") return false;
+        if (filterOwner !== "common" && expense.ownerId?.toString() !== filterOwner) return false;
+      }
+      if (filterCategory !== "all" && expense.expenseType !== filterCategory) return false;
+      if (filterMonth !== "all") {
+        const expenseMonth = expense.expenseDate.substring(0, 7);
+        if (expenseMonth !== filterMonth) return false;
+      }
+      if (filterDateFrom && expense.expenseDate < filterDateFrom) return false;
+      if (filterDateTo && expense.expenseDate > filterDateTo) return false;
+      return true;
+    });
+  }, [expenses, filterOwner, filterCategory, filterMonth, filterDateFrom, filterDateTo]);
+
+  const hasActiveFilters = filterOwner !== "all" || filterCategory !== "all" || filterMonth !== "all" || filterDateFrom || filterDateTo;
+
+  const clearAllFilters = () => {
+    setFilterOwner("all");
+    setFilterCategory("all");
+    setFilterMonth("all");
+    setFilterDateFrom("");
+    setFilterDateTo("");
+  };
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -324,8 +375,8 @@ export default function ExpensesPage() {
     return formatCurrency(num, currency, exchangeRate);
   };
 
-  const totalExpenses = expenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
-  const commonExpenses = expenses.filter(e => e.allocation === "common").reduce((sum, e) => sum + parseFloat(e.amount), 0);
+  const totalExpenses = filteredExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
+  const commonExpenses = filteredExpenses.filter(e => e.allocation === "common").reduce((sum, e) => sum + parseFloat(e.amount), 0);
 
   if (isLoading) {
     return (
@@ -380,7 +431,7 @@ export default function ExpensesPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Total Expenses</p>
+                <p className="text-sm text-muted-foreground">Total Expenses {hasActiveFilters && "(Filtered)"}</p>
                 <p className="text-2xl font-semibold tabular-nums text-destructive">
                   {formatValue(totalExpenses)}
                 </p>
@@ -395,7 +446,7 @@ export default function ExpensesPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Common Expenses</p>
+                <p className="text-sm text-muted-foreground">Common Expenses {hasActiveFilters && "(Filtered)"}</p>
                 <p className="text-2xl font-semibold tabular-nums">
                   {formatValue(commonExpenses)}
                 </p>
@@ -409,9 +460,93 @@ export default function ExpensesPage() {
         </Card>
       </div>
 
+      <Card className="overflow-visible">
+        <CardContent className="p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">Filters</span>
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" onClick={clearAllFilters} className="h-7 px-2 text-xs ml-auto">
+                <X className="h-3 w-3 mr-1" />
+                Clear All
+              </Button>
+            )}
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Owner/Allocation</label>
+              <Select value={filterOwner} onValueChange={setFilterOwner}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="All" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="common">Common Expenses</SelectItem>
+                  {owners.map((owner) => (
+                    <SelectItem key={owner.id} value={owner.id.toString()}>
+                      {owner.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Category</label>
+              <Select value={filterCategory} onValueChange={setFilterCategory}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="All" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  {EXPENSE_TYPES.map((type) => (
+                    <SelectItem key={type} value={type} className="capitalize">
+                      {type.charAt(0).toUpperCase() + type.slice(1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Month</label>
+              <Select value={filterMonth} onValueChange={setFilterMonth}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="All Months" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Months</SelectItem>
+                  {monthOptions.map((month) => (
+                    <SelectItem key={month.value} value={month.value}>
+                      {month.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">From Date</label>
+              <Input
+                type="date"
+                value={filterDateFrom}
+                onChange={(e) => setFilterDateFrom(e.target.value)}
+                className="h-9"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">To Date</label>
+              <Input
+                type="date"
+                value={filterDateTo}
+                onChange={(e) => setFilterDateTo(e.target.value)}
+                className="h-9"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardContent className="p-0">
-          {expenses.length > 0 ? (
+          {filteredExpenses.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -425,7 +560,7 @@ export default function ExpensesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {expenses.map((expense) => {
+                {filteredExpenses.map((expense) => {
                   const Icon = expenseTypeIcons[expense.expenseType] || Receipt;
                   return (
                     <TableRow key={expense.id} data-testid={`row-expense-${expense.id}`}>
