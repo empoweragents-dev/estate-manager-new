@@ -139,6 +139,13 @@ export function PaymentForm({
         });
       });
     });
+    // Sort by floor order: ground -> first -> second -> subedari
+    const floorOrder: Record<string, number> = { ground: 1, first: 2, second: 3, subedari: 4 };
+    items.sort((a, b) => {
+      const orderA = floorOrder[a.floor] || 999;
+      const orderB = floorOrder[b.floor] || 999;
+      return orderA - orderB;
+    });
     return items;
   }, [tenants]);
 
