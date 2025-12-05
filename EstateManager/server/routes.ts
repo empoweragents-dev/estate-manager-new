@@ -2756,5 +2756,409 @@ export async function registerRoutes(
     }
   });
 
+  // ===== OWNER-SPECIFIC REPORTS =====
+  
+  // Rent Payment Report for a specific owner
+  app.get("/api/owners/:id/reports/rent-payments", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const ownerId = parseInt(req.params.id);
+      const { month, year, startDate, endDate } = req.query;
+      
+      // Authorization check
+      if (isOwnerUser(req) && req.session.ownerId !== ownerId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const owner = await storage.getOwner(ownerId);
+      if (!owner) return res.status(404).json({ message: "Owner not found" });
+      
+      const allOwners = await storage.getOwners();
+      const allShops = await storage.getShops();
+      const allLeases = await storage.getLeases();
+      const allTenants = await storage.getTenants();
+      const allPayments = await storage.getPayments();
+      const allInvoices = await storage.getRentInvoices();
+      
+      // Get owner's accessible shops (own + common)
+      const ownerShops = allShops.filter(s => s.ownerId === ownerId);
+      const commonShops = allShops.filter(s => s.ownershipType === 'common');
+      const accessibleShopIds = [...ownerShops, ...commonShops].map(s => s.id);
+      
+      // Get active leases for accessible shops
+      const activeLeases = allLeases.filter(l => 
+        (l.status === 'active' || l.status === 'expiring_soon') &&
+        accessibleShopIds.includes(l.shopId)
+      );
+      
+      const reportData = [];
+      
+      for (const lease of activeLeases) {
+        const tenant = allTenants.find(t => t.id === lease.tenantId);
+        const shop = allShops.find(s => s.id === lease.shopId);
+        if (!tenant || !shop) continue;
+        
+        const isCommon = shop.ownershipType === 'common';
+        const shareRatio = isCommon ? 1 / allOwners.length : 1;
+        
+        // Get payments for this lease
+        let leasePayments = allPayments.filter(p => p.leaseId === lease.id);
+        
+        // Apply date filters
+        if (month && year) {
+          leasePayments = leasePayments.filter(p => {
+            const pDate = new Date(p.paymentDate);
+            return pDate.getMonth() + 1 === parseInt(month as string) && 
+                   pDate.getFullYear() === parseInt(year as string);
+          });
+        } else if (startDate || endDate) {
+          leasePayments = leasePayments.filter(p => {
+            const pDate = new Date(p.paymentDate);
+            if (startDate && pDate < new Date(startDate as string)) return false;
+            if (endDate && pDate > new Date(endDate as string)) return false;
+            return true;
+          });
+        }
+        
+        // Get most recent payment
+        const sortedPayments = [...leasePayments].sort((a, b) => 
+          new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime()
+        );
+        const recentPayment = sortedPayments[0];
+        
+        // Calculate total elapsed invoices
+        const leaseInvoices = allInvoices.filter(inv => inv.leaseId === lease.id);
+        const elapsedInvoices = getElapsedInvoices(leaseInvoices);
+        const totalInvoiced = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+        const totalPaid = allPayments.filter(p => p.leaseId === lease.id).reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const openingBalance = parseFloat(tenant.openingDueBalance || '0');
+        const currentOutstanding = Math.max(0, openingBalance + totalInvoiced - totalPaid);
+        
+        reportData.push({
+          leaseId: lease.id,
+          tenantId: tenant.id,
+          tenantName: tenant.name,
+          phone: tenant.phone,
+          shopId: shop.id,
+          shopNumber: shop.shopNumber,
+          shopLocation: `${formatFloorLabel(shop.floor)} - ${shop.shopNumber}`,
+          floor: shop.floor,
+          monthlyRent: parseFloat(lease.monthlyRent) * shareRatio,
+          fullMonthlyRent: parseFloat(lease.monthlyRent),
+          recentPaymentAmount: recentPayment ? parseFloat(recentPayment.amount) * shareRatio : 0,
+          recentPaymentDate: recentPayment?.paymentDate || null,
+          currentOutstanding: currentOutstanding * shareRatio,
+          fullCurrentOutstanding: currentOutstanding,
+          isCommon,
+        });
+      }
+      
+      // Sort by floor, prefix, number
+      reportData.sort((a, b) => {
+        const orderA = FLOOR_ORDER[a.floor] || 999;
+        const orderB = FLOOR_ORDER[b.floor] || 999;
+        if (orderA !== orderB) return orderA - orderB;
+        const prefixA = extractShopPrefix(a.shopNumber || '');
+        const prefixB = extractShopPrefix(b.shopNumber || '');
+        const prefixOrderA = PREFIX_ORDER[prefixA] || 999;
+        const prefixOrderB = PREFIX_ORDER[prefixB] || 999;
+        if (prefixOrderA !== prefixOrderB) return prefixOrderA - prefixOrderB;
+        const numA = extractShopNumber(a.shopNumber || '');
+        const numB = extractShopNumber(b.shopNumber || '');
+        return numA - numB;
+      });
+      
+      // Calculate totals
+      const totals = {
+        totalMonthlyRent: reportData.reduce((sum, r) => sum + r.monthlyRent, 0),
+        totalRecentPayments: reportData.reduce((sum, r) => sum + r.recentPaymentAmount, 0),
+        totalOutstanding: reportData.reduce((sum, r) => sum + r.currentOutstanding, 0),
+      };
+      
+      res.json({ data: reportData, totals, owner: { id: owner.id, name: owner.name } });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+  
+  // Financial Transaction Report for a specific owner
+  app.get("/api/owners/:id/reports/financial-transactions", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const ownerId = parseInt(req.params.id);
+      const { month, year, startDate, endDate } = req.query;
+      
+      // Authorization check
+      if (isOwnerUser(req) && req.session.ownerId !== ownerId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const owner = await storage.getOwner(ownerId);
+      if (!owner) return res.status(404).json({ message: "Owner not found" });
+      
+      const allOwners = await storage.getOwners();
+      const bankDeposits = await storage.getBankDeposits();
+      const allExpenses = await storage.getExpenses();
+      
+      const transactions: Array<{
+        id: number;
+        date: string;
+        type: 'deposit' | 'expense';
+        category: string;
+        description: string;
+        amount: number;
+        isCommon: boolean;
+      }> = [];
+      
+      // Add bank deposits
+      let ownerDeposits = bankDeposits.filter(d => d.ownerId === ownerId);
+      
+      // Apply date filters to deposits
+      if (month && year) {
+        ownerDeposits = ownerDeposits.filter(d => {
+          const dDate = new Date(d.depositDate);
+          return dDate.getMonth() + 1 === parseInt(month as string) && 
+                 dDate.getFullYear() === parseInt(year as string);
+        });
+      } else if (startDate || endDate) {
+        ownerDeposits = ownerDeposits.filter(d => {
+          const dDate = new Date(d.depositDate);
+          if (startDate && dDate < new Date(startDate as string)) return false;
+          if (endDate && dDate > new Date(endDate as string)) return false;
+          return true;
+        });
+      }
+      
+      for (const deposit of ownerDeposits) {
+        transactions.push({
+          id: deposit.id,
+          date: deposit.depositDate,
+          type: 'deposit',
+          category: 'Bank Deposit',
+          description: `${deposit.bankName}${deposit.depositSlipRef ? ` - Ref: ${deposit.depositSlipRef}` : ''}`,
+          amount: parseFloat(deposit.amount),
+          isCommon: false,
+        });
+      }
+      
+      // Add expenses (owner's direct + share of common)
+      let relevantExpenses = allExpenses.filter(e => 
+        (e.allocation === 'owner' && e.ownerId === ownerId) ||
+        e.allocation === 'common'
+      );
+      
+      // Apply date filters to expenses
+      if (month && year) {
+        relevantExpenses = relevantExpenses.filter(e => {
+          const eDate = new Date(e.expenseDate);
+          return eDate.getMonth() + 1 === parseInt(month as string) && 
+                 eDate.getFullYear() === parseInt(year as string);
+        });
+      } else if (startDate || endDate) {
+        relevantExpenses = relevantExpenses.filter(e => {
+          const eDate = new Date(e.expenseDate);
+          if (startDate && eDate < new Date(startDate as string)) return false;
+          if (endDate && eDate > new Date(endDate as string)) return false;
+          return true;
+        });
+      }
+      
+      for (const expense of relevantExpenses) {
+        const isCommon = expense.allocation === 'common';
+        const shareRatio = isCommon ? 1 / allOwners.length : 1;
+        transactions.push({
+          id: expense.id + 100000, // Offset to avoid ID collision
+          date: expense.expenseDate,
+          type: 'expense',
+          category: expense.expenseType.charAt(0).toUpperCase() + expense.expenseType.slice(1),
+          description: expense.description,
+          amount: parseFloat(expense.amount) * shareRatio,
+          isCommon,
+        });
+      }
+      
+      // Sort by date descending
+      transactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      
+      // Calculate totals
+      const totals = {
+        totalDeposits: transactions.filter(t => t.type === 'deposit').reduce((sum, t) => sum + t.amount, 0),
+        totalExpenses: transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0),
+        netBalance: 0,
+      };
+      totals.netBalance = totals.totalDeposits - totals.totalExpenses;
+      
+      res.json({ data: transactions, totals, owner: { id: owner.id, name: owner.name } });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+  
+  // Tenant Ledger for owner's tenants
+  app.get("/api/owners/:id/reports/tenant-ledger", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const ownerId = parseInt(req.params.id);
+      const { tenantId } = req.query;
+      
+      // Authorization check
+      if (isOwnerUser(req) && req.session.ownerId !== ownerId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const owner = await storage.getOwner(ownerId);
+      if (!owner) return res.status(404).json({ message: "Owner not found" });
+      
+      const allOwners = await storage.getOwners();
+      const allShops = await storage.getShops();
+      const allLeases = await storage.getLeases();
+      const allTenants = await storage.getTenants();
+      const allPayments = await storage.getPayments();
+      const allInvoices = await storage.getRentInvoices();
+      
+      // Get owner's accessible shops
+      const ownerShops = allShops.filter(s => s.ownerId === ownerId);
+      const commonShops = allShops.filter(s => s.ownershipType === 'common');
+      const accessibleShopIds = [...ownerShops, ...commonShops].map(s => s.id);
+      
+      // Get accessible leases
+      const accessibleLeases = allLeases.filter(l => accessibleShopIds.includes(l.shopId));
+      const accessibleTenantIds = [...new Set(accessibleLeases.map(l => l.tenantId))];
+      
+      // Get list of tenants for selection
+      const accessibleTenants = allTenants.filter(t => accessibleTenantIds.includes(t.id)).map(t => ({
+        id: t.id,
+        name: t.name,
+        phone: t.phone,
+      }));
+      
+      // Sort tenants by name
+      accessibleTenants.sort((a, b) => a.name.localeCompare(b.name));
+      
+      // If no tenant selected, just return the tenant list
+      if (!tenantId) {
+        return res.json({ tenants: accessibleTenants, ledger: null, owner: { id: owner.id, name: owner.name } });
+      }
+      
+      const selectedTenantId = parseInt(tenantId as string);
+      const tenant = allTenants.find(t => t.id === selectedTenantId);
+      if (!tenant || !accessibleTenantIds.includes(selectedTenantId)) {
+        return res.status(404).json({ message: "Tenant not found or not accessible" });
+      }
+      
+      // Build ledger entries for the selected tenant
+      const tenantLeases = accessibleLeases.filter(l => l.tenantId === selectedTenantId);
+      const entries: Array<{
+        id: number;
+        date: string;
+        description: string;
+        debit: number;
+        credit: number;
+        balance: number;
+      }> = [];
+      
+      // Add opening balance
+      const openingBalance = parseFloat(tenant.openingDueBalance || '0');
+      let runningBalance = openingBalance;
+      
+      if (openingBalance !== 0) {
+        entries.push({
+          id: 0,
+          date: tenant.createdAt || new Date().toISOString().split('T')[0],
+          description: 'Opening Balance',
+          debit: openingBalance > 0 ? openingBalance : 0,
+          credit: openingBalance < 0 ? Math.abs(openingBalance) : 0,
+          balance: runningBalance,
+        });
+      }
+      
+      // Collect all transactions
+      const allTransactions: Array<{
+        id: number;
+        date: string;
+        description: string;
+        debit: number;
+        credit: number;
+        type: 'invoice' | 'payment';
+      }> = [];
+      
+      for (const lease of tenantLeases) {
+        const shop = allShops.find(s => s.id === lease.shopId);
+        const shopLabel = shop ? `${formatFloorLabel(shop.floor)} - ${shop.shopNumber}` : 'Unknown Shop';
+        
+        // Add invoices (debits)
+        const leaseInvoices = allInvoices.filter(inv => inv.leaseId === lease.id);
+        const elapsedInvoices = getElapsedInvoices(leaseInvoices);
+        for (const invoice of elapsedInvoices) {
+          const monthName = new Date(invoice.year, invoice.month - 1).toLocaleString('default', { month: 'long', year: 'numeric' });
+          allTransactions.push({
+            id: invoice.id,
+            date: `${invoice.year}-${String(invoice.month).padStart(2, '0')}-01`,
+            description: `Rent Invoice - ${monthName} (${shopLabel})`,
+            debit: parseFloat(invoice.amount),
+            credit: 0,
+            type: 'invoice',
+          });
+        }
+        
+        // Add payments (credits)
+        const leasePayments = allPayments.filter(p => p.leaseId === lease.id);
+        for (const payment of leasePayments) {
+          allTransactions.push({
+            id: payment.id + 200000,
+            date: payment.paymentDate,
+            description: `Payment Received (${shopLabel})`,
+            debit: 0,
+            credit: parseFloat(payment.amount),
+            type: 'payment',
+          });
+        }
+      }
+      
+      // Sort by date
+      allTransactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      
+      // Build entries with running balance
+      for (const tx of allTransactions) {
+        runningBalance = runningBalance + tx.debit - tx.credit;
+        entries.push({
+          id: tx.id,
+          date: tx.date,
+          description: tx.description,
+          debit: tx.debit,
+          credit: tx.credit,
+          balance: runningBalance,
+        });
+      }
+      
+      // Calculate totals
+      const totals = {
+        totalDebit: entries.reduce((sum, e) => sum + e.debit, 0),
+        totalCredit: entries.reduce((sum, e) => sum + e.credit, 0),
+        currentBalance: runningBalance,
+      };
+      
+      res.json({
+        tenants: accessibleTenants,
+        ledger: {
+          tenant: { id: tenant.id, name: tenant.name, phone: tenant.phone },
+          entries,
+          totals,
+        },
+        owner: { id: owner.id, name: owner.name },
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   return httpServer;
+}
+
+// Helper function for floor label
+function formatFloorLabel(floor: string): string {
+  switch (floor) {
+    case 'ground': return 'Ground Floor';
+    case 'first': return '1st Floor';
+    case 'second': return '2nd Floor';
+    case 'subedari': return 'Subedari';
+    default: return floor;
+  }
 }

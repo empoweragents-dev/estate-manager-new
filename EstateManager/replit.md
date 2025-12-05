@@ -206,3 +206,24 @@ Owners see only their data plus common/shared resources across all endpoints:
 - `GET /api/owners/:id` - Super Admin or same owner only
 - `GET /api/owners/:id/details` - Super Admin or same owner only
 - All other filtered endpoints use helper functions `isOwnerUser()` and `getOwnerAccessibleShops()` for consistent filtering
+
+### Owner Reports Section (December 2025)
+
+**New Owner-Specific Report Endpoints**:
+- `GET /api/owners/:id/reports/rent-payments` - Monthly rent payment report with tenant list, payments, and outstanding dues
+- `GET /api/owners/:id/reports/financial-transactions` - Deposits and expenses for the owner
+- `GET /api/owners/:id/reports/tenant-ledger` - Detailed ledger for specific tenant with opening balance, invoices, payments
+
+**OwnerReportsTab Component Features**:
+1. **Report Type Selection** - Horizontal button bar to switch between Rent Payments, Financial Transactions, and Tenant Ledger
+2. **Month/Year Filters** - Horizontal filter bar for date filtering (rent and financial reports)
+3. **Tenant Selection** - Dropdown to select tenant for ledger view
+4. **PDF Export** - Export rent payment report to PDF format
+5. **Mobile Responsive** - Horizontal scrollable filters, compact tables with overflow-x-auto
+
+**Owner Dashboard Mobile Improvements**:
+- Stats cards use grid-cols-2 on mobile, grid-cols-4 on desktop
+- Tables have overflow-x-auto for horizontal scrolling
+- TabsList is horizontally scrollable on mobile
+- Compact padding (p-3 on mobile, p-6 on desktop)
+- Smaller text sizes on mobile (text-xs vs text-sm)

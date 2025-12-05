@@ -18,6 +18,7 @@ import {
   Download,
   Filter,
   X,
+  ClipboardList,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -176,96 +177,96 @@ export default function OwnerDetailPage() {
   const combinedOutstandingDues = summary.totalOutstandingDues + summary.commonOutstandingDues;
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center gap-4">
+    <div className="p-3 md:p-6 space-y-4 md:space-y-6">
+      <div className="flex items-center gap-3 md:gap-4">
         <Link href="/owners">
-          <Button variant="ghost" size="icon">
+          <Button variant="ghost" size="icon" className="shrink-0">
             <ArrowLeft className="h-5 w-5" />
           </Button>
         </Link>
-        <div>
-          <h1 className="text-2xl font-semibold">{owner.name}</h1>
-          <div className="flex items-center gap-4 text-muted-foreground text-sm">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-2xl font-semibold truncate">{owner.name}</h1>
+          <div className="flex flex-wrap items-center gap-2 md:gap-4 text-muted-foreground text-xs md:text-sm">
             {owner.phone && (
               <span className="flex items-center gap-1">
                 <Phone className="h-3 w-3" />
                 {owner.phone}
               </span>
             )}
-            {owner.email && <span>{owner.email}</span>}
+            {owner.email && <span className="truncate">{owner.email}</span>}
           </div>
         </div>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-3 md:space-y-4">
         <div className="flex items-center gap-2">
-          <Badge variant="default" className="bg-blue-600">My Private Properties</Badge>
-          <span className="text-sm text-muted-foreground">Sole ownership</span>
+          <Badge variant="default" className="bg-blue-600 text-xs md:text-sm">My Private Properties</Badge>
+          <span className="text-xs md:text-sm text-muted-foreground">Sole ownership</span>
         </div>
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
           <Card className="border-l-4 border-l-blue-600">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <DollarSign className="h-4 w-4" />
-                Security Deposit
+            <CardHeader className="p-3 md:pb-2 md:p-6">
+              <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground flex items-center gap-1 md:gap-2">
+                <DollarSign className="h-3 w-3 md:h-4 md:w-4" />
+                <span className="truncate">Security Deposit</span>
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-blue-600">
+            <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
+              <div className="text-lg md:text-2xl font-bold text-blue-600">
                 {formatValue(summary.totalSecurityDeposit)}
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-[10px] md:text-xs text-muted-foreground mt-1">
                 From {summary.totalTenants} tenant(s)
               </p>
             </CardContent>
           </Card>
 
           <Card className="border-l-4 border-l-blue-600">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <AlertCircle className="h-4 w-4" />
-                Outstanding Dues
+            <CardHeader className="p-3 md:pb-2 md:p-6">
+              <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground flex items-center gap-1 md:gap-2">
+                <AlertCircle className="h-3 w-3 md:h-4 md:w-4" />
+                <span className="truncate">Outstanding Dues</span>
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className={`text-2xl font-bold ${summary.totalOutstandingDues > 0 ? 'text-red-600' : 'text-green-600'}`}>
+            <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
+              <div className={`text-lg md:text-2xl font-bold ${summary.totalOutstandingDues > 0 ? 'text-red-600' : 'text-green-600'}`}>
                 {formatValue(summary.totalOutstandingDues)}
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-[10px] md:text-xs text-muted-foreground mt-1">
                 Pending collection
               </p>
             </CardContent>
           </Card>
 
           <Card className="border-l-4 border-l-blue-600">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <Users className="h-4 w-4" />
+            <CardHeader className="p-3 md:pb-2 md:p-6">
+              <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground flex items-center gap-1 md:gap-2">
+                <Users className="h-3 w-3 md:h-4 md:w-4" />
                 Tenants
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
+            <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
+              <div className="text-lg md:text-2xl font-bold">
                 {summary.totalTenants}
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-[10px] md:text-xs text-muted-foreground mt-1">
                 In {summary.totalShops} shop(s)
               </p>
             </CardContent>
           </Card>
 
           <Card className="border-l-4 border-l-blue-600">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                <Building2 className="h-4 w-4" />
+            <CardHeader className="p-3 md:pb-2 md:p-6">
+              <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground flex items-center gap-1 md:gap-2">
+                <Building2 className="h-3 w-3 md:h-4 md:w-4" />
                 Shops
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
+            <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
+              <div className="text-lg md:text-2xl font-bold">
                 {summary.totalShops}
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="text-[10px] md:text-xs text-muted-foreground mt-1">
                 Sole ownership
               </p>
             </CardContent>
@@ -274,75 +275,75 @@ export default function OwnerDetailPage() {
       </div>
 
       {hasCommonData && (
-        <div className="space-y-4">
+        <div className="space-y-3 md:space-y-4">
           <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="bg-purple-100 text-purple-700 border-purple-200">Common/Shared Properties</Badge>
-            <span className="text-sm text-muted-foreground">Shared among {summary.totalOwners} owner(s)</span>
+            <Badge variant="secondary" className="bg-purple-100 text-purple-700 border-purple-200 text-xs md:text-sm">Common/Shared Properties</Badge>
+            <span className="text-xs md:text-sm text-muted-foreground">Shared among {summary.totalOwners} owner(s)</span>
           </div>
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
             <Card className="border-l-4 border-l-purple-500">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                  <DollarSign className="h-4 w-4" />
-                  Your Share of Deposit
+              <CardHeader className="p-3 md:pb-2 md:p-6">
+                <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground flex items-center gap-1 md:gap-2">
+                  <DollarSign className="h-3 w-3 md:h-4 md:w-4" />
+                  <span className="truncate">Your Share of Deposit</span>
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-purple-600">
+              <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
+                <div className="text-lg md:text-2xl font-bold text-purple-600">
                   {formatValue(summary.commonSecurityDeposit)}
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-[10px] md:text-xs text-muted-foreground mt-1">
                   From {summary.commonTenants} common tenant(s)
                 </p>
               </CardContent>
             </Card>
 
             <Card className="border-l-4 border-l-purple-500">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                  <AlertCircle className="h-4 w-4" />
-                  Your Share of Dues
+              <CardHeader className="p-3 md:pb-2 md:p-6">
+                <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground flex items-center gap-1 md:gap-2">
+                  <AlertCircle className="h-3 w-3 md:h-4 md:w-4" />
+                  <span className="truncate">Your Share of Dues</span>
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className={`text-2xl font-bold ${summary.commonOutstandingDues > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+              <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
+                <div className={`text-lg md:text-2xl font-bold ${summary.commonOutstandingDues > 0 ? 'text-orange-600' : 'text-green-600'}`}>
                   {formatValue(summary.commonOutstandingDues)}
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-[10px] md:text-xs text-muted-foreground mt-1">
                   Pending collection
                 </p>
               </CardContent>
             </Card>
 
             <Card className="border-l-4 border-l-purple-500">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                  <Users className="h-4 w-4" />
-                  Common Tenants
+              <CardHeader className="p-3 md:pb-2 md:p-6">
+                <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground flex items-center gap-1 md:gap-2">
+                  <Users className="h-3 w-3 md:h-4 md:w-4" />
+                  <span className="truncate">Common Tenants</span>
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
+              <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
+                <div className="text-lg md:text-2xl font-bold">
                   {summary.commonTenants}
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-[10px] md:text-xs text-muted-foreground mt-1">
                   In {summary.commonShops} common shop(s)
                 </p>
               </CardContent>
             </Card>
 
             <Card className="border-l-4 border-l-purple-500">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                  <Building2 className="h-4 w-4" />
-                  Common Shops
+              <CardHeader className="p-3 md:pb-2 md:p-6">
+                <CardTitle className="text-xs md:text-sm font-medium text-muted-foreground flex items-center gap-1 md:gap-2">
+                  <Building2 className="h-3 w-3 md:h-4 md:w-4" />
+                  <span className="truncate">Common Shops</span>
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
+              <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
+                <div className="text-lg md:text-2xl font-bold">
                   {summary.commonShops}
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="text-[10px] md:text-xs text-muted-foreground mt-1">
                   Shared ownership
                 </p>
               </CardContent>
@@ -352,38 +353,56 @@ export default function OwnerDetailPage() {
       )}
 
       <Card className="bg-muted/30">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-2">
-            <TrendingUp className="h-5 w-5" />
+        <CardHeader className="p-3 md:p-6 pb-2">
+          <CardTitle className="text-sm md:text-base flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 md:h-5 md:w-5" />
             Combined Summary
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-3">
+        <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
+          <div className="grid grid-cols-3 gap-2 md:gap-4">
             <div className="text-center">
-              <p className="text-sm text-muted-foreground">Total Security Deposit</p>
-              <p className="text-xl font-bold text-blue-600">{formatValue(combinedSecurityDeposit)}</p>
+              <p className="text-[10px] md:text-sm text-muted-foreground">Total Security Deposit</p>
+              <p className="text-sm md:text-xl font-bold text-blue-600">{formatValue(combinedSecurityDeposit)}</p>
             </div>
             <div className="text-center">
-              <p className="text-sm text-muted-foreground">Total Outstanding Dues</p>
-              <p className={`text-xl font-bold ${combinedOutstandingDues > 0 ? 'text-red-600' : 'text-green-600'}`}>{formatValue(combinedOutstandingDues)}</p>
+              <p className="text-[10px] md:text-sm text-muted-foreground">Total Outstanding Dues</p>
+              <p className={`text-sm md:text-xl font-bold ${combinedOutstandingDues > 0 ? 'text-red-600' : 'text-green-600'}`}>{formatValue(combinedOutstandingDues)}</p>
             </div>
             <div className="text-center">
-              <p className="text-sm text-muted-foreground">Total Tenants</p>
-              <p className="text-xl font-bold">{summary.totalTenants + summary.commonTenants}</p>
+              <p className="text-[10px] md:text-sm text-muted-foreground">Total Tenants</p>
+              <p className="text-sm md:text-xl font-bold">{summary.totalTenants + summary.commonTenants}</p>
             </div>
           </div>
         </CardContent>
       </Card>
 
       <Tabs defaultValue="tenants" className="w-full">
-        <TabsList className="grid w-full grid-cols-5">
-          <TabsTrigger value="tenants">My Tenants ({tenants.length})</TabsTrigger>
-          {hasCommonData && <TabsTrigger value="common-tenants">Common Tenants ({commonTenants.length})</TabsTrigger>}
-          <TabsTrigger value="deposits">Bank Deposits ({bankDeposits.length})</TabsTrigger>
-          <TabsTrigger value="expenses">Expenses ({expenses.length})</TabsTrigger>
-          <TabsTrigger value="reports">Income Reports</TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto -mx-3 md:mx-0 px-3 md:px-0">
+          <TabsList className="inline-flex w-max md:grid md:w-full md:grid-cols-6 min-w-full">
+            <TabsTrigger value="tenants" className="text-xs md:text-sm whitespace-nowrap">
+              My Tenants ({tenants.length})
+            </TabsTrigger>
+            {hasCommonData && (
+              <TabsTrigger value="common-tenants" className="text-xs md:text-sm whitespace-nowrap">
+                Common ({commonTenants.length})
+              </TabsTrigger>
+            )}
+            <TabsTrigger value="deposits" className="text-xs md:text-sm whitespace-nowrap">
+              Deposits ({bankDeposits.length})
+            </TabsTrigger>
+            <TabsTrigger value="expenses" className="text-xs md:text-sm whitespace-nowrap">
+              Expenses ({expenses.length})
+            </TabsTrigger>
+            <TabsTrigger value="income-reports" className="text-xs md:text-sm whitespace-nowrap">
+              Income Summary
+            </TabsTrigger>
+            <TabsTrigger value="reports" className="text-xs md:text-sm whitespace-nowrap">
+              <ClipboardList className="h-3 w-3 mr-1 md:hidden" />
+              <span>Reports</span>
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="tenants" className="mt-4">
           <TenantsTab tenants={tenants} formatValue={formatValue} ownerName={owner.name} isCommon={false} />
@@ -407,13 +426,17 @@ export default function OwnerDetailPage() {
           <ExpensesTab expenses={expenses} formatValue={formatValue} />
         </TabsContent>
 
-        <TabsContent value="reports" className="mt-4">
+        <TabsContent value="income-reports" className="mt-4">
           <IncomeReportsTab 
             ownerName={owner.name}
             monthlyReports={monthlyReports} 
             yearlyReports={yearlyReports}
             formatValue={formatValue} 
           />
+        </TabsContent>
+
+        <TabsContent value="reports" className="mt-4">
+          <OwnerReportsTab ownerId={owner.id} ownerName={owner.name} />
         </TabsContent>
       </Tabs>
     </div>
@@ -539,19 +562,20 @@ function TenantsTab({ tenants, formatValue, ownerName, isCommon = false, totalOw
           </p>
         )}
       </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Tenant Name</TableHead>
-              <TableHead>Shop Location</TableHead>
-              <TableHead className="text-right">{isCommon ? 'Your Share of Deposit' : 'Security Deposit'}</TableHead>
-              <TableHead className="text-right">{isCommon ? 'Your Share of Rent' : 'Monthly Rent'}</TableHead>
-              <TableHead className="text-right">{isCommon ? 'Your Share of Dues' : 'Current Dues'}</TableHead>
-              <TableHead>Last Payment</TableHead>
-              <TableHead>Status</TableHead>
-            </TableRow>
-          </TableHeader>
+      <CardContent className="p-0 md:p-6">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="whitespace-nowrap">Tenant Name</TableHead>
+                <TableHead className="whitespace-nowrap">Shop Location</TableHead>
+                <TableHead className="text-right whitespace-nowrap">{isCommon ? 'Your Share of Deposit' : 'Security Deposit'}</TableHead>
+                <TableHead className="text-right whitespace-nowrap">{isCommon ? 'Your Share of Rent' : 'Monthly Rent'}</TableHead>
+                <TableHead className="text-right whitespace-nowrap">{isCommon ? 'Your Share of Dues' : 'Current Dues'}</TableHead>
+                <TableHead className="whitespace-nowrap">Last Payment</TableHead>
+                <TableHead className="whitespace-nowrap">Status</TableHead>
+              </TableRow>
+            </TableHeader>
           <TableBody>
             {tenants.map((tenant) => (
               <TableRow key={tenant.leaseId} className={isCommon ? 'bg-purple-50/30' : ''}>
@@ -617,7 +641,8 @@ function TenantsTab({ tenants, formatValue, ownerName, isCommon = false, totalOw
               </TableRow>
             )}
           </TableBody>
-        </Table>
+          </Table>
+        </div>
       </CardContent>
     </Card>
   );
@@ -909,6 +934,452 @@ function ExpensesTab({ expenses, formatValue }: { expenses: ExpenseWithAllocatio
           </Table>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+interface RentPaymentData {
+  leaseId: number;
+  tenantId: number;
+  tenantName: string;
+  phone: string;
+  shopLocation: string;
+  monthlyRent: number;
+  recentPaymentAmount: number;
+  recentPaymentDate: string | null;
+  currentOutstanding: number;
+  isCommon: boolean;
+}
+
+interface FinancialTransaction {
+  id: number;
+  date: string;
+  type: 'deposit' | 'expense';
+  category: string;
+  description: string;
+  amount: number;
+  isCommon: boolean;
+}
+
+interface TenantLedgerEntry {
+  id: number;
+  date: string;
+  description: string;
+  debit: number;
+  credit: number;
+  balance: number;
+}
+
+const monthNames = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"
+];
+
+function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: string }) {
+  const [reportType, setReportType] = useState<'rent' | 'financial' | 'ledger'>('rent');
+  const [selectedMonth, setSelectedMonth] = useState<string>((new Date().getMonth() + 1).toString());
+  const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
+  const [selectedTenantId, setSelectedTenantId] = useState<string>('');
+  
+  const formatValue = (val: number) => formatCurrency(val);
+  const formatNumber = (val: number) => val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const years = useMemo(() => {
+    const startYear = 2020;
+    const endYear = new Date().getFullYear() + 1;
+    return Array.from({ length: endYear - startYear + 1 }, (_, i) => startYear + i);
+  }, []);
+
+  // Rent Payment Report Query
+  const { data: rentData, isLoading: rentLoading } = useQuery<{
+    data: RentPaymentData[];
+    totals: { totalMonthlyRent: number; totalRecentPayments: number; totalOutstanding: number };
+  }>({
+    queryKey: [`/api/owners/${ownerId}/reports/rent-payments`, selectedMonth, selectedYear],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.append('month', selectedMonth);
+      params.append('year', selectedYear);
+      const response = await fetch(`/api/owners/${ownerId}/reports/rent-payments?${params}`);
+      if (!response.ok) throw new Error('Failed to fetch');
+      return response.json();
+    },
+    enabled: reportType === 'rent',
+  });
+
+  // Financial Transaction Report Query
+  const { data: financialData, isLoading: financialLoading } = useQuery<{
+    data: FinancialTransaction[];
+    totals: { totalDeposits: number; totalExpenses: number; netBalance: number };
+  }>({
+    queryKey: [`/api/owners/${ownerId}/reports/financial-transactions`, selectedMonth, selectedYear],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.append('month', selectedMonth);
+      params.append('year', selectedYear);
+      const response = await fetch(`/api/owners/${ownerId}/reports/financial-transactions?${params}`);
+      if (!response.ok) throw new Error('Failed to fetch');
+      return response.json();
+    },
+    enabled: reportType === 'financial',
+  });
+
+  // Tenant Ledger Query
+  const { data: ledgerData, isLoading: ledgerLoading } = useQuery<{
+    tenants: { id: number; name: string; phone: string }[];
+    ledger: { tenant: { id: number; name: string }; entries: TenantLedgerEntry[]; totals: { totalDebit: number; totalCredit: number; currentBalance: number } } | null;
+  }>({
+    queryKey: [`/api/owners/${ownerId}/reports/tenant-ledger`, selectedTenantId],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (selectedTenantId) params.append('tenantId', selectedTenantId);
+      const response = await fetch(`/api/owners/${ownerId}/reports/tenant-ledger?${params}`);
+      if (!response.ok) throw new Error('Failed to fetch');
+      return response.json();
+    },
+    enabled: reportType === 'ledger',
+  });
+
+  const exportRentPDF = () => {
+    if (!rentData?.data?.length) return;
+    const doc = new jsPDF({ orientation: 'landscape' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    
+    doc.setFillColor(37, 99, 235);
+    doc.rect(0, 0, pageWidth, 30, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(16);
+    doc.text('Rent Payment Report', pageWidth / 2, 12, { align: 'center' });
+    doc.setFontSize(11);
+    doc.text(`${ownerName} - ${monthNames[parseInt(selectedMonth) - 1]} ${selectedYear}`, pageWidth / 2, 22, { align: 'center' });
+    doc.setTextColor(0, 0, 0);
+
+    autoTable(doc, {
+      startY: 38,
+      head: [['SL', 'Tenant Name', 'Phone', 'Shop Location', 'Monthly Rent', 'Recent Payment', 'Payment Date', 'Outstanding']],
+      body: rentData.data.map((row, idx) => [
+        (idx + 1).toString(),
+        row.tenantName,
+        row.phone,
+        row.shopLocation,
+        formatNumber(row.monthlyRent),
+        row.recentPaymentAmount > 0 ? formatNumber(row.recentPaymentAmount) : '-',
+        row.recentPaymentDate || '-',
+        formatNumber(row.currentOutstanding),
+      ]),
+      foot: [[
+        '', 'TOTAL', `${rentData.data.length} Tenants`, '',
+        formatNumber(rentData.totals.totalMonthlyRent),
+        formatNumber(rentData.totals.totalRecentPayments),
+        '',
+        formatNumber(rentData.totals.totalOutstanding),
+      ]],
+      theme: 'grid',
+      headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold', fontSize: 9 },
+      bodyStyles: { fontSize: 8 },
+      footStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold', fontSize: 9 },
+    });
+
+    doc.save(`${ownerName.replace(/\s+/g, '_')}_Rent_Report_${monthNames[parseInt(selectedMonth) - 1]}_${selectedYear}.pdf`);
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardContent className="p-3 md:p-4">
+          <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4">
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Report Type:</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button 
+                variant={reportType === 'rent' ? 'default' : 'outline'} 
+                size="sm"
+                onClick={() => setReportType('rent')}
+                className="text-xs md:text-sm"
+              >
+                Rent Payments
+              </Button>
+              <Button 
+                variant={reportType === 'financial' ? 'default' : 'outline'} 
+                size="sm"
+                onClick={() => setReportType('financial')}
+                className="text-xs md:text-sm"
+              >
+                Financial Transactions
+              </Button>
+              <Button 
+                variant={reportType === 'ledger' ? 'default' : 'outline'} 
+                size="sm"
+                onClick={() => setReportType('ledger')}
+                className="text-xs md:text-sm"
+              >
+                Tenant Ledger
+              </Button>
+            </div>
+          </div>
+          
+          {(reportType === 'rent' || reportType === 'financial') && (
+            <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs md:text-sm">Filter:</span>
+              </div>
+              <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+                <SelectTrigger className="w-28 md:w-32 h-8 text-xs md:text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {monthNames.map((month, idx) => (
+                    <SelectItem key={idx} value={(idx + 1).toString()}>{month}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={selectedYear} onValueChange={setSelectedYear}>
+                <SelectTrigger className="w-20 md:w-24 h-8 text-xs md:text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {years.map((year) => (
+                    <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {reportType === 'rent' && rentData?.data?.length ? (
+                <Button size="sm" variant="outline" onClick={exportRentPDF} className="h-8 text-xs md:text-sm ml-auto">
+                  <Download className="h-3 w-3 mr-1" />
+                  PDF
+                </Button>
+              ) : null}
+            </div>
+          )}
+
+          {reportType === 'ledger' && ledgerData?.tenants && (
+            <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t">
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs md:text-sm">Select Tenant:</span>
+              </div>
+              <Select value={selectedTenantId} onValueChange={setSelectedTenantId}>
+                <SelectTrigger className="w-48 md:w-64 h-8 text-xs md:text-sm">
+                  <SelectValue placeholder="Choose a tenant" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ledgerData.tenants.map((t) => (
+                    <SelectItem key={t.id} value={t.id.toString()}>{t.name} - {t.phone}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {reportType === 'rent' && (
+        <Card>
+          <CardHeader className="p-3 md:p-6">
+            <CardTitle className="text-sm md:text-base flex items-center gap-2">
+              <Receipt className="h-4 w-4 md:h-5 md:w-5" />
+              Rent Payment Report - {monthNames[parseInt(selectedMonth) - 1]} {selectedYear}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0 md:p-6">
+            {rentLoading ? (
+              <div className="p-6"><Skeleton className="h-64" /></div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-10 text-center whitespace-nowrap">SL</TableHead>
+                      <TableHead className="whitespace-nowrap">Tenant Name</TableHead>
+                      <TableHead className="whitespace-nowrap">Phone</TableHead>
+                      <TableHead className="whitespace-nowrap">Shop Location</TableHead>
+                      <TableHead className="text-right whitespace-nowrap">Monthly Rent</TableHead>
+                      <TableHead className="text-right whitespace-nowrap">Recent Payment</TableHead>
+                      <TableHead className="text-center whitespace-nowrap">Payment Date</TableHead>
+                      <TableHead className="text-right whitespace-nowrap">Outstanding</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rentData?.data?.map((row, idx) => (
+                      <TableRow key={row.leaseId} className={row.isCommon ? 'bg-purple-50/30' : ''}>
+                        <TableCell className="text-center">{idx + 1}</TableCell>
+                        <TableCell className="font-medium">{row.tenantName}</TableCell>
+                        <TableCell>{row.phone}</TableCell>
+                        <TableCell>
+                          <Badge variant={row.isCommon ? 'secondary' : 'outline'} className={row.isCommon ? 'bg-purple-100 text-purple-700' : ''}>
+                            {row.shopLocation}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">{formatValue(row.monthlyRent)}</TableCell>
+                        <TableCell className="text-right text-green-600">{row.recentPaymentAmount > 0 ? formatValue(row.recentPaymentAmount) : '-'}</TableCell>
+                        <TableCell className="text-center">{row.recentPaymentDate || '-'}</TableCell>
+                        <TableCell className={`text-right font-medium ${row.currentOutstanding > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                          {formatValue(row.currentOutstanding)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {!rentData?.data?.length && (
+                      <TableRow>
+                        <TableCell colSpan={8} className="text-center text-muted-foreground py-8">No data available</TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                  {rentData?.data?.length ? (
+                    <tfoot>
+                      <TableRow className="bg-muted/50 font-semibold">
+                        <TableCell></TableCell>
+                        <TableCell>TOTAL</TableCell>
+                        <TableCell>{rentData.data.length} Tenants</TableCell>
+                        <TableCell></TableCell>
+                        <TableCell className="text-right">{formatValue(rentData.totals.totalMonthlyRent)}</TableCell>
+                        <TableCell className="text-right text-green-600">{formatValue(rentData.totals.totalRecentPayments)}</TableCell>
+                        <TableCell></TableCell>
+                        <TableCell className="text-right text-red-600">{formatValue(rentData.totals.totalOutstanding)}</TableCell>
+                      </TableRow>
+                    </tfoot>
+                  ) : null}
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {reportType === 'financial' && (
+        <Card>
+          <CardHeader className="p-3 md:p-6">
+            <CardTitle className="text-sm md:text-base flex items-center gap-2">
+              <Banknote className="h-4 w-4 md:h-5 md:w-5" />
+              Financial Transactions - {monthNames[parseInt(selectedMonth) - 1]} {selectedYear}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0 md:p-6">
+            {financialLoading ? (
+              <div className="p-6"><Skeleton className="h-64" /></div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="whitespace-nowrap">Date</TableHead>
+                      <TableHead className="whitespace-nowrap">Type</TableHead>
+                      <TableHead className="whitespace-nowrap">Category</TableHead>
+                      <TableHead className="whitespace-nowrap">Description</TableHead>
+                      <TableHead className="text-right whitespace-nowrap">Amount</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {financialData?.data?.map((tx) => (
+                      <TableRow key={tx.id} className={tx.isCommon ? 'bg-purple-50/30' : ''}>
+                        <TableCell>{new Date(tx.date).toLocaleDateString()}</TableCell>
+                        <TableCell>
+                          <Badge variant={tx.type === 'deposit' ? 'default' : 'secondary'} className={tx.type === 'deposit' ? 'bg-green-600' : 'bg-red-600 text-white'}>
+                            {tx.type === 'deposit' ? 'Deposit' : 'Expense'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{tx.category}</TableCell>
+                        <TableCell className="max-w-[200px] truncate">{tx.description}</TableCell>
+                        <TableCell className={`text-right font-medium ${tx.type === 'deposit' ? 'text-green-600' : 'text-red-600'}`}>
+                          {tx.type === 'deposit' ? '+' : '-'}{formatValue(tx.amount)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {!financialData?.data?.length && (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center text-muted-foreground py-8">No transactions found</TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                  {financialData?.data?.length ? (
+                    <tfoot>
+                      <TableRow className="bg-green-50 font-semibold">
+                        <TableCell colSpan={4}>Total Deposits</TableCell>
+                        <TableCell className="text-right text-green-600">+{formatValue(financialData.totals.totalDeposits)}</TableCell>
+                      </TableRow>
+                      <TableRow className="bg-red-50 font-semibold">
+                        <TableCell colSpan={4}>Total Expenses</TableCell>
+                        <TableCell className="text-right text-red-600">-{formatValue(financialData.totals.totalExpenses)}</TableCell>
+                      </TableRow>
+                      <TableRow className="bg-muted font-bold">
+                        <TableCell colSpan={4}>Net Balance</TableCell>
+                        <TableCell className={`text-right ${financialData.totals.netBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {formatValue(financialData.totals.netBalance)}
+                        </TableCell>
+                      </TableRow>
+                    </tfoot>
+                  ) : null}
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {reportType === 'ledger' && (
+        <Card>
+          <CardHeader className="p-3 md:p-6">
+            <CardTitle className="text-sm md:text-base flex items-center gap-2">
+              <FileText className="h-4 w-4 md:h-5 md:w-5" />
+              Tenant Ledger {ledgerData?.ledger?.tenant?.name ? `- ${ledgerData.ledger.tenant.name}` : ''}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0 md:p-6">
+            {ledgerLoading ? (
+              <div className="p-6"><Skeleton className="h-64" /></div>
+            ) : !selectedTenantId ? (
+              <div className="p-8 text-center text-muted-foreground">
+                <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>Select a tenant to view their ledger</p>
+              </div>
+            ) : ledgerData?.ledger?.entries?.length ? (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="whitespace-nowrap">Date</TableHead>
+                      <TableHead className="whitespace-nowrap">Description</TableHead>
+                      <TableHead className="text-right whitespace-nowrap">Debit</TableHead>
+                      <TableHead className="text-right whitespace-nowrap">Credit</TableHead>
+                      <TableHead className="text-right whitespace-nowrap">Balance</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {ledgerData.ledger.entries.map((entry) => (
+                      <TableRow key={entry.id}>
+                        <TableCell>{new Date(entry.date).toLocaleDateString()}</TableCell>
+                        <TableCell>{entry.description}</TableCell>
+                        <TableCell className="text-right text-red-600">{entry.debit > 0 ? formatValue(entry.debit) : '-'}</TableCell>
+                        <TableCell className="text-right text-green-600">{entry.credit > 0 ? formatValue(entry.credit) : '-'}</TableCell>
+                        <TableCell className={`text-right font-medium ${entry.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                          {formatValue(entry.balance)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                  <tfoot>
+                    <TableRow className="bg-muted/50 font-semibold">
+                      <TableCell colSpan={2}>TOTAL</TableCell>
+                      <TableCell className="text-right text-red-600">{formatValue(ledgerData.ledger.totals.totalDebit)}</TableCell>
+                      <TableCell className="text-right text-green-600">{formatValue(ledgerData.ledger.totals.totalCredit)}</TableCell>
+                      <TableCell className={`text-right font-bold ${ledgerData.ledger.totals.currentBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                        {formatValue(ledgerData.ledger.totals.currentBalance)}
+                      </TableCell>
+                    </TableRow>
+                  </tfoot>
+                </Table>
+              </div>
+            ) : (
+              <div className="p-8 text-center text-muted-foreground">
+                <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>No ledger entries found for this tenant</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
