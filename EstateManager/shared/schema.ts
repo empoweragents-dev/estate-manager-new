@@ -117,6 +117,7 @@ export const leases = pgTable("leases", {
   monthlyRent: decimal("monthly_rent", { precision: 12, scale: 2 }).notNull(),
   status: leaseStatusEnum("status").notNull().default('active'),
   notes: text("notes"),
+  terminationNotes: text("termination_notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

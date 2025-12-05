@@ -4,6 +4,7 @@ import { useRoute, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -128,6 +129,7 @@ function TerminateLeaseDialog({
   const [isOpen, setIsOpen] = useState(false);
   const [settlement, setSettlement] = useState<SettlementDetails | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [terminationNotes, setTerminationNotes] = useState('');
 
   const formatValue = (val: number | string) => {
     const num = typeof val === 'string' ? parseFloat(val) || 0 : val;
@@ -137,6 +139,7 @@ function TerminateLeaseDialog({
   useEffect(() => {
     if (isOpen) {
       setIsLoading(true);
+      setTerminationNotes('');
       apiRequest("GET", `/api/leases/${lease.id}/settlement`)
         .then((data) => {
           setSettlement(data);
@@ -151,7 +154,7 @@ function TerminateLeaseDialog({
 
   const terminateMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("PATCH", `/api/leases/${lease.id}/terminate`);
+      return apiRequest("PATCH", `/api/leases/${lease.id}/terminate`, { terminationNotes });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tenants", tenant.id] });
@@ -264,6 +267,20 @@ function TerminateLeaseDialog({
                     {formatValue(settlement.finalSettledAmount)}
                   </span>
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Settlement Notes</label>
+                <Textarea
+                  value={terminationNotes}
+                  onChange={(e) => setTerminationNotes(e.target.value)}
+                  placeholder="Document how both parties agreed to settle the amount (e.g., security deposit adjustment, waiver of dues, payment plan, etc.)"
+                  rows={3}
+                  className="resize-none"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Record details of any agreements made between owner and tenant regarding final settlement.
+                </p>
               </div>
             </div>
 

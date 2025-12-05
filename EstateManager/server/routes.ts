@@ -1410,6 +1410,7 @@ export async function registerRoutes(
   app.patch("/api/leases/:id/terminate", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const leaseId = parseInt(req.params.id);
+      const { terminationNotes } = req.body;
       const lease = await storage.getLease(leaseId);
       if (!lease) return res.status(404).json({ message: "Lease not found" });
       
@@ -1429,11 +1430,12 @@ export async function registerRoutes(
       // Deduct from security deposit if tenant has due
       const securityDepositUsed = Math.min(currentDue, parseFloat(lease.securityDeposit)).toString();
       
-      // Update lease with security deposit used and terminate
+      // Update lease with security deposit used, termination notes, and terminate
       const [updated] = await db.update(leases)
         .set({ 
           status: 'terminated',
           securityDepositUsed: securityDepositUsed,
+          terminationNotes: terminationNotes || null,
         })
         .where(eq(leases.id, leaseId))
         .returning();
