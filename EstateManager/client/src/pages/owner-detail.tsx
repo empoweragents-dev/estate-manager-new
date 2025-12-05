@@ -980,6 +980,8 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
   const [selectedMonth, setSelectedMonth] = useState<string>((new Date().getMonth() + 1).toString());
   const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
   const [selectedTenantId, setSelectedTenantId] = useState<string>('');
+  const [financialStartDate, setFinancialStartDate] = useState<string>('');
+  const [financialEndDate, setFinancialEndDate] = useState<string>('');
   
   const formatValue = (val: number) => formatCurrency(val);
   const formatNumber = (val: number) => val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1012,11 +1014,11 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
     data: FinancialTransaction[];
     totals: { totalDeposits: number; totalExpenses: number; netBalance: number };
   }>({
-    queryKey: [`/api/owners/${ownerId}/reports/financial-transactions`, selectedMonth, selectedYear],
+    queryKey: [`/api/owners/${ownerId}/reports/financial-transactions`, financialStartDate, financialEndDate],
     queryFn: async () => {
       const params = new URLSearchParams();
-      params.append('month', selectedMonth);
-      params.append('year', selectedYear);
+      if (financialStartDate) params.append('startDate', financialStartDate);
+      if (financialEndDate) params.append('endDate', financialEndDate);
       const response = await fetch(`/api/owners/${ownerId}/reports/financial-transactions?${params}`);
       if (!response.ok) throw new Error('Failed to fetch');
       return response.json();
@@ -1120,7 +1122,7 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
             </div>
           </div>
           
-          {(reportType === 'rent' || reportType === 'financial') && (
+          {reportType === 'rent' && (
             <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t">
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -1146,12 +1148,48 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
                   ))}
                 </SelectContent>
               </Select>
-              {reportType === 'rent' && rentData?.data?.length ? (
+              {rentData?.data?.length ? (
                 <Button size="sm" variant="outline" onClick={exportRentPDF} className="h-8 text-xs md:text-sm ml-auto">
                   <Download className="h-3 w-3 mr-1" />
                   PDF
                 </Button>
               ) : null}
+            </div>
+          )}
+
+          {reportType === 'financial' && (
+            <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs md:text-sm">Date Range:</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="date"
+                  value={financialStartDate}
+                  onChange={(e) => setFinancialStartDate(e.target.value)}
+                  className="w-32 md:w-36 h-8 text-xs md:text-sm"
+                  placeholder="Start Date"
+                />
+                <span className="text-muted-foreground text-xs">to</span>
+                <Input
+                  type="date"
+                  value={financialEndDate}
+                  onChange={(e) => setFinancialEndDate(e.target.value)}
+                  className="w-32 md:w-36 h-8 text-xs md:text-sm"
+                  placeholder="End Date"
+                />
+              </div>
+              {(financialStartDate || financialEndDate) && (
+                <Button 
+                  size="sm" 
+                  variant="ghost" 
+                  onClick={() => { setFinancialStartDate(''); setFinancialEndDate(''); }}
+                  className="h-8 text-xs text-muted-foreground"
+                >
+                  Clear
+                </Button>
+              )}
             </div>
           )}
 
@@ -1253,7 +1291,17 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
           <CardHeader className="p-3 md:p-6">
             <CardTitle className="text-sm md:text-base flex items-center gap-2">
               <Banknote className="h-4 w-4 md:h-5 md:w-5" />
-              Financial Transactions - {monthNames[parseInt(selectedMonth) - 1]} {selectedYear}
+              Financial Transactions
+              {(financialStartDate || financialEndDate) && (
+                <span className="text-muted-foreground font-normal">
+                  {financialStartDate && financialEndDate 
+                    ? ` (${new Date(financialStartDate).toLocaleDateString()} - ${new Date(financialEndDate).toLocaleDateString()})`
+                    : financialStartDate 
+                      ? ` (From ${new Date(financialStartDate).toLocaleDateString()})`
+                      : ` (Until ${new Date(financialEndDate).toLocaleDateString()})`
+                  }
+                </span>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0 md:p-6">
@@ -1302,12 +1350,6 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
                       <TableRow className="bg-red-50 font-semibold">
                         <TableCell colSpan={4}>Total Expenses</TableCell>
                         <TableCell className="text-right text-red-600">-{formatValue(financialData.totals.totalExpenses)}</TableCell>
-                      </TableRow>
-                      <TableRow className="bg-muted font-bold">
-                        <TableCell colSpan={4}>Net Balance</TableCell>
-                        <TableCell className={`text-right ${financialData.totals.netBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {formatValue(financialData.totals.netBalance)}
-                        </TableCell>
                       </TableRow>
                     </tfoot>
                   ) : null}
