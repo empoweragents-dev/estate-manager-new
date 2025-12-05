@@ -610,6 +610,7 @@ function RentAdjustmentsHistory({ leaseId, formatValue }: { leaseId: number; for
               <TableHead className="text-right">New Rent</TableHead>
               <TableHead className="text-right">Change</TableHead>
               <TableHead>Agreement Terms</TableHead>
+              <TableHead>Notes</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -630,12 +631,15 @@ function RentAdjustmentsHistory({ leaseId, formatValue }: { leaseId: number; for
                   <TableCell className="max-w-[200px] truncate" title={adjustment.agreementTerms || '-'}>
                     {adjustment.agreementTerms || '-'}
                   </TableCell>
+                  <TableCell className="max-w-[200px] truncate" title={adjustment.notes || '-'}>
+                    {adjustment.notes || '-'}
+                  </TableCell>
                 </TableRow>
               );
             })}
             {adjustments.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                   No rent adjustments recorded for this lease
                 </TableCell>
               </TableRow>
