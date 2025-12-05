@@ -42,13 +42,13 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, CreditCard, User, Store, Calendar, Receipt, Trash2, Search, Building2, CheckCircle2, Circle, X } from "lucide-react";
-import type { Payment, Tenant, Lease } from "@shared/schema";
+import { Plus, CreditCard, User, Store, Calendar, Receipt, Trash2, Search, Building2, CheckCircle2, Circle, X, Filter } from "lucide-react";
+import type { Payment, Tenant, Lease, Owner } from "@shared/schema";
 import { formatCurrency, useCurrencyStore } from "@/lib/currency";
 
 interface PaymentWithDetails extends Payment {
   tenant: Tenant;
-  lease: Lease & { shop: { shopNumber: string; floor: string; subedariCategory?: string | null } };
+  lease: Lease & { shop: { shopNumber: string; floor: string; subedariCategory?: string | null; ownerId?: number | null; ownershipType?: string | null } };
 }
 
 export interface TenantWithLeases extends Tenant {
@@ -586,6 +586,9 @@ export function PaymentForm({
 
 export default function PaymentsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [selectedOwnerId, setSelectedOwnerId] = useState<string>("all");
   const { toast } = useToast();
   const { currency, exchangeRate } = useCurrencyStore();
 
@@ -595,6 +598,10 @@ export default function PaymentsPage() {
 
   const { data: tenants = [] } = useQuery<TenantWithLeases[]>({
     queryKey: ["/api/tenants/with-leases"],
+  });
+
+  const { data: owners = [] } = useQuery<Owner[]>({
+    queryKey: ["/api/owners"],
   });
 
   const deleteMutation = useMutation({
@@ -621,7 +628,48 @@ export default function PaymentsPage() {
     return formatCurrency(num, currency, exchangeRate);
   };
 
-  const totalCollected = payments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+  const clearFilters = () => {
+    setStartDate("");
+    setEndDate("");
+    setSelectedOwnerId("all");
+  };
+
+  const hasActiveFilters = startDate || endDate || selectedOwnerId !== "all";
+
+  const filteredPayments = useMemo(() => {
+    return payments.filter((payment) => {
+      const paymentDate = new Date(payment.paymentDate);
+      
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        if (paymentDate < start) return false;
+      }
+      
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        if (paymentDate > end) return false;
+      }
+      
+      if (selectedOwnerId !== "all") {
+        const shop = payment.lease?.shop;
+        if (!shop) return false;
+        
+        if (shop.ownershipType === "common") {
+          return true;
+        }
+        
+        if (shop.ownerId !== parseInt(selectedOwnerId)) {
+          return false;
+        }
+      }
+      
+      return true;
+    });
+  }, [payments, startDate, endDate, selectedOwnerId]);
+
+  const totalCollected = filteredPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
 
   if (isLoading) {
     return (
@@ -673,14 +721,76 @@ export default function PaymentsPage() {
         </Dialog>
       </div>
 
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Filters:</span>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-muted-foreground whitespace-nowrap">From:</label>
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-[140px] h-9"
+              />
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-muted-foreground whitespace-nowrap">To:</label>
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-[140px] h-9"
+              />
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-muted-foreground whitespace-nowrap">Owner:</label>
+              <Select value={selectedOwnerId} onValueChange={setSelectedOwnerId}>
+                <SelectTrigger className="w-[160px] h-9">
+                  <SelectValue placeholder="All Owners" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Owners</SelectItem>
+                  {owners.map((owner) => (
+                    <SelectItem key={owner.id} value={owner.id.toString()}>
+                      {owner.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" onClick={clearFilters} className="h-9 px-2">
+                <X className="h-4 w-4 mr-1" />
+                Clear
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       <Card className="overflow-visible">
         <CardContent className="p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-muted-foreground">Total Collected</p>
+              <p className="text-sm text-muted-foreground">
+                Total Collected {hasActiveFilters && "(Filtered)"}
+              </p>
               <p className="text-2xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
                 {formatValue(totalCollected)}
               </p>
+              {hasActiveFilters && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {filteredPayments.length} of {payments.length} payments
+                </p>
+              )}
             </div>
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400">
               <CreditCard className="h-6 w-6" />
@@ -691,7 +801,7 @@ export default function PaymentsPage() {
 
       <Card>
         <CardContent className="p-0">
-          {payments.length > 0 ? (
+          {filteredPayments.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -705,7 +815,7 @@ export default function PaymentsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {payments.map((payment) => (
+                {filteredPayments.map((payment) => (
                   <TableRow key={payment.id} data-testid={`row-payment-${payment.id}`}>
                     <TableCell>
                       <div className="flex items-center gap-2">
@@ -758,6 +868,16 @@ export default function PaymentsPage() {
                 ))}
               </TableBody>
             </Table>
+          ) : hasActiveFilters ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <Filter className="h-12 w-12 text-muted-foreground/50 mb-4" />
+              <h3 className="font-semibold mb-1">No matching payments</h3>
+              <p className="text-muted-foreground text-sm mb-4">Try adjusting your filters</p>
+              <Button variant="outline" onClick={clearFilters}>
+                <X className="h-4 w-4 mr-2" />
+                Clear Filters
+              </Button>
+            </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-12">
               <CreditCard className="h-12 w-12 text-muted-foreground/50 mb-4" />

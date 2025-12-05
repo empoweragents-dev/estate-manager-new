@@ -1548,7 +1548,7 @@ export async function registerRoutes(
         if (lease) {
           shop = await storage.getShop(lease.shopId);
         }
-        return { ...payment, tenant, lease: lease ? { ...lease, shop: shop ? { shopNumber: shop.shopNumber, floor: shop.floor } : null } : null };
+        return { ...payment, tenant, lease: lease ? { ...lease, shop: shop ? { shopNumber: shop.shopNumber, floor: shop.floor, ownerId: shop.ownerId, ownershipType: shop.ownershipType } : null } : null };
       }));
       
       res.json(paymentsWithDetails);
