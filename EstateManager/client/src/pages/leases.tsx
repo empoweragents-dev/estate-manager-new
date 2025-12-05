@@ -50,7 +50,6 @@ import {
   User,
   AlertTriangle,
   Eye,
-  XCircle,
 } from "lucide-react";
 import type { LeaseWithDetails, Tenant, ShopWithOwner } from "@shared/schema";
 import { formatCurrency, useCurrencyStore, getLeaseStatusColor, formatFloor } from "@/lib/currency";
@@ -463,17 +462,6 @@ export default function LeasesPage() {
                             <Eye className="h-4 w-4" />
                           </Button>
                         </Link>
-                        {(lease.status === "active" || lease.status === "expiring_soon") && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => terminateMutation.mutate(lease.id)}
-                            disabled={terminateMutation.isPending}
-                            data-testid={`button-terminate-lease-${lease.id}`}
-                          >
-                            <XCircle className="h-4 w-4 text-destructive" />
-                          </Button>
-                        )}
                       </div>
                     </TableCell>
                   </TableRow>

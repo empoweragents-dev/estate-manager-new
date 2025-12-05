@@ -92,6 +92,7 @@ export const tenants = pgTable("tenants", {
   name: text("name").notNull(),
   phone: text("phone").notNull(),
   email: text("email"),
+  businessName: text("business_name"),
   nidPassport: text("nid_passport"),
   permanentAddress: text("permanent_address"),
   photoUrl: text("photo_url"),

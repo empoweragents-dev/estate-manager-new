@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
@@ -49,7 +48,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, User, Phone, Mail, MapPin, CreditCard, Eye, Edit2, Trash2, AlertTriangle, FileText, AlertCircle, Calendar, X, Building, Upload, FileSpreadsheet, Download, CheckCircle, XCircle } from "lucide-react";
+import { Plus, User, Phone, MapPin, CreditCard, Eye, Edit2, Trash2, AlertTriangle, FileText, AlertCircle, Calendar, X, Building, Upload, FileSpreadsheet, Download, CheckCircle, XCircle } from "lucide-react";
 import type { TenantWithDues, Owner } from "@shared/schema";
 import { formatCurrency, useCurrencyStore } from "@/lib/currency";
 
@@ -121,6 +120,7 @@ const tenantFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
   phone: z.string().min(1, "Phone number is required"),
   email: z.string().email().optional().or(z.literal("")),
+  businessName: z.string().optional(),
   nidPassport: z.string().optional(),
   permanentAddress: z.string().optional(),
   photoUrl: z.string().optional(),
@@ -144,6 +144,7 @@ function TenantForm({
       name: tenant?.name ?? "",
       phone: tenant?.phone ?? "",
       email: tenant?.email ?? "",
+      businessName: (tenant as any)?.businessName ?? "",
       nidPassport: tenant?.nidPassport ?? "",
       permanentAddress: tenant?.permanentAddress ?? "",
       photoUrl: tenant?.photoUrl ?? "",
@@ -235,6 +236,20 @@ function TenantForm({
             )}
           />
         </div>
+
+        <FormField
+          control={form.control}
+          name="businessName"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Business / Shop Name</FormLabel>
+              <FormControl>
+                <Input {...field} placeholder="e.g. Rahman Electronics, ABC Trading" data-testid="input-tenant-business" />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
 
         <FormField
           control={form.control}
@@ -668,10 +683,9 @@ export default function TenantsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[300px]">Tenant</TableHead>
-                  <TableHead>Contact</TableHead>
-                  <TableHead>NID/Passport</TableHead>
-                  <TableHead className="text-right">Opening Balance</TableHead>
+                  <TableHead className="w-[200px]">Tenant Name</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>Business / Shop Name</TableHead>
                   <TableHead className="text-center">Months Due</TableHead>
                   <TableHead className="text-right">Current Due</TableHead>
                   <TableHead className="w-[120px]"></TableHead>
@@ -686,45 +700,24 @@ export default function TenantsPage() {
                   return (
                   <TableRow key={tenant.id} data-testid={`row-tenant-${tenant.id}`} className={severity === 'critical' ? 'bg-red-50 dark:bg-red-950/20' : severity === 'high' ? 'bg-orange-50 dark:bg-orange-950/20' : ''}>
                     <TableCell>
-                      <div className="flex items-center gap-3">
-                        <Avatar className="h-10 w-10">
-                          <AvatarImage src={tenant.photoUrl || undefined} alt={tenant.name} />
-                          <AvatarFallback className="bg-primary/10 text-primary">
-                            {tenant.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium">{tenant.name}</p>
-                            {severity === 'critical' && <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400" />}
-                          </div>
-                          <p className="text-sm text-muted-foreground flex items-center gap-1">
-                            <Phone className="h-3 w-3" />
-                            {tenant.phone}
-                          </p>
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium">{tenant.name}</p>
+                          {severity === 'critical' && <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400" />}
                         </div>
                       </div>
                     </TableCell>
                     <TableCell>
-                      {tenant.email && (
-                        <div className="flex items-center gap-1 text-sm">
-                          <Mail className="h-3 w-3 text-muted-foreground" />
-                          <span className="truncate max-w-[150px]">{tenant.email}</span>
-                        </div>
-                      )}
+                      <span className="flex items-center gap-1 text-sm">
+                        <Phone className="h-3 w-3 text-muted-foreground" />
+                        {tenant.phone}
+                      </span>
                     </TableCell>
                     <TableCell>
-                      {tenant.nidPassport && (
-                        <span className="text-sm font-mono">{tenant.nidPassport}</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {parseFloat(tenant.openingDueBalance) > 0 ? (
-                        <span className="text-amber-600 dark:text-amber-400">
-                          {formatValue(tenant.openingDueBalance)}
-                        </span>
+                      {(tenant as any).businessName ? (
+                        <span className="text-sm font-medium">{(tenant as any).businessName}</span>
                       ) : (
-                        <span className="text-muted-foreground">-</span>
+                        <span className="text-muted-foreground text-sm">-</span>
                       )}
                     </TableCell>
                     <TableCell className="text-center">
