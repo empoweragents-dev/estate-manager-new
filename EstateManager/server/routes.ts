@@ -787,14 +787,23 @@ export async function registerRoutes(
         return { ...tenant, totalDue, totalPaid, currentDue, monthlyDues, floor, shopNumber };
       }));
       
-      // Sort tenants by floor order, then by numerical shop number
+      // Sort tenants by floor order, then by prefix (E->M->W), then by numerical shop number
       tenantsWithDues.sort((a, b) => {
+        // First: sort by floor
         const orderA = a.floor ? (FLOOR_ORDER[a.floor] || 999) : 999;
         const orderB = b.floor ? (FLOOR_ORDER[b.floor] || 999) : 999;
         if (orderA !== orderB) {
           return orderA - orderB;
         }
-        // Within same floor, sort by numerical shop number
+        // Second: sort by prefix (E -> M -> W)
+        const prefixA = extractShopPrefix(a.shopNumber || '');
+        const prefixB = extractShopPrefix(b.shopNumber || '');
+        const prefixOrderA = PREFIX_ORDER[prefixA] || 999;
+        const prefixOrderB = PREFIX_ORDER[prefixB] || 999;
+        if (prefixOrderA !== prefixOrderB) {
+          return prefixOrderA - prefixOrderB;
+        }
+        // Third: sort by numerical shop number
         const numA = extractShopNumber(a.shopNumber || '');
         const numB = extractShopNumber(b.shopNumber || '');
         return numA - numB;
@@ -2639,17 +2648,23 @@ export async function registerRoutes(
         });
       }
       
-      // Sort by owner name, then floor order, then numerical shop number
+      // Sort by floor order, then by prefix (E->M->W), then by numerical shop number
       reportData.sort((a, b) => {
-        if (a.ownerName !== b.ownerName) {
-          return a.ownerName.localeCompare(b.ownerName);
-        }
+        // First: sort by floor
         const orderA = FLOOR_ORDER[a.floor] || 999;
         const orderB = FLOOR_ORDER[b.floor] || 999;
         if (orderA !== orderB) {
           return orderA - orderB;
         }
-        // Within same floor, sort by numerical shop number
+        // Second: sort by prefix (E -> M -> W)
+        const prefixA = extractShopPrefix(a.shopNumber || '');
+        const prefixB = extractShopPrefix(b.shopNumber || '');
+        const prefixOrderA = PREFIX_ORDER[prefixA] || 999;
+        const prefixOrderB = PREFIX_ORDER[prefixB] || 999;
+        if (prefixOrderA !== prefixOrderB) {
+          return prefixOrderA - prefixOrderB;
+        }
+        // Third: sort by numerical shop number
         const numA = extractShopNumber(a.shopNumber || '');
         const numB = extractShopNumber(b.shopNumber || '');
         return numA - numB;
