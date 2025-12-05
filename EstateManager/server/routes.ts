@@ -727,7 +727,17 @@ export async function registerRoutes(
       
       let filteredTenants = allTenants;
       
-      if (ownerIds && ownerIds !== 'all' && ownerIds.trim() !== '') {
+      // For owner users, restrict to only their accessible shops (own + common)
+      if (isOwnerUser(req) && req.session.ownerId) {
+        const accessibleShopIds = await getOwnerAccessibleShops(req.session.ownerId);
+        const tenantIdsInAccessibleShops = new Set(
+          allLeases
+            .filter(l => accessibleShopIds.includes(l.shopId))
+            .map(l => l.tenantId)
+        );
+        filteredTenants = allTenants.filter(t => tenantIdsInAccessibleShops.has(t.id));
+      } else if (ownerIds && ownerIds !== 'all' && ownerIds.trim() !== '') {
+        // For super admin with owner filter
         const ownerIdList = ownerIds.split(',')
           .map(id => parseInt(id.trim()))
           .filter(id => !isNaN(id) && id > 0);
