@@ -188,8 +188,6 @@ export default function OwnerDetailPage() {
   const { owner, summary, tenants, commonTenants, bankDeposits, depositsByMonth, expenses, monthlyReports, yearlyReports } = ownerData;
   
   const hasCommonData = summary.commonShops > 0 || summary.commonTenants > 0;
-  const combinedSecurityDeposit = summary.totalSecurityDeposit + summary.commonSecurityDeposit;
-  const combinedOutstandingDues = summary.totalOutstandingDues + summary.commonOutstandingDues;
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6">
@@ -366,31 +364,6 @@ export default function OwnerDetailPage() {
           </div>
         </div>
       )}
-
-      <Card className="bg-muted/30">
-        <CardHeader className="p-3 md:p-6 pb-2">
-          <CardTitle className="text-sm md:text-base flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 md:h-5 md:w-5" />
-            Combined Summary
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
-          <div className="grid grid-cols-3 gap-2 md:gap-4">
-            <div className="text-center">
-              <p className="text-[10px] md:text-sm text-muted-foreground">Total Security Deposit</p>
-              <p className="text-sm md:text-xl font-bold text-blue-600">{formatValue(combinedSecurityDeposit)}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] md:text-sm text-muted-foreground">Total Outstanding Dues</p>
-              <p className={`text-sm md:text-xl font-bold ${combinedOutstandingDues > 0 ? 'text-red-600' : 'text-green-600'}`}>{formatValue(combinedOutstandingDues)}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-[10px] md:text-sm text-muted-foreground">Total Tenants</p>
-              <p className="text-sm md:text-xl font-bold">{summary.totalTenants + summary.commonTenants}</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
       {topOutstandingsData?.data && topOutstandingsData.data.length > 0 && (
         <Card>
