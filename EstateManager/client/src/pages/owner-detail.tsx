@@ -81,6 +81,16 @@ interface ExpenseWithAllocation extends Expense {
   isCommon: boolean;
 }
 
+interface TopOutstanding {
+  tenantId: number;
+  tenantName: string;
+  phone: string;
+  businessName: string | null;
+  shopLocation: string;
+  outstanding: number;
+  isCommon: boolean;
+}
+
 interface MonthlyReport {
   month: string;
   rentCollection: number;
@@ -132,6 +142,11 @@ export default function OwnerDetailPage() {
 
   const { data: ownerData, isLoading, error } = useQuery<OwnerDetailData>({
     queryKey: [`/api/owners/${ownerId}/details`],
+    enabled: !!ownerId,
+  });
+
+  const { data: topOutstandingsData } = useQuery<{ data: TopOutstanding[]; total: number }>({
+    queryKey: [`/api/owners/${ownerId}/top-outstandings`],
     enabled: !!ownerId,
   });
 
@@ -376,6 +391,52 @@ export default function OwnerDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      {topOutstandingsData?.data && topOutstandingsData.data.length > 0 && (
+        <Card>
+          <CardHeader className="p-3 md:p-6 pb-2">
+            <CardTitle className="text-sm md:text-base flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 md:h-5 md:w-5 text-red-500" />
+              Top Outstanding Dues
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0 md:p-6 md:pt-0">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="whitespace-nowrap text-xs md:text-sm">Tenant</TableHead>
+                    <TableHead className="whitespace-nowrap text-xs md:text-sm">Shop</TableHead>
+                    <TableHead className="text-right whitespace-nowrap text-xs md:text-sm">Outstanding</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {topOutstandingsData.data.map((item, idx) => (
+                    <TableRow key={idx} className={item.isCommon ? 'bg-purple-50/30' : ''}>
+                      <TableCell className="py-2 md:py-3">
+                        <div>
+                          <p className="font-medium text-xs md:text-sm">{item.tenantName}</p>
+                          {item.businessName && (
+                            <p className="text-[10px] md:text-xs text-muted-foreground">{item.businessName}</p>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-2 md:py-3">
+                        <Badge variant={item.isCommon ? 'secondary' : 'outline'} className={`text-[10px] md:text-xs ${item.isCommon ? 'bg-purple-100 text-purple-700' : ''}`}>
+                          {item.shopLocation}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right py-2 md:py-3">
+                        <span className="font-semibold text-red-600 text-xs md:text-sm">{formatValue(item.outstanding)}</span>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Tabs defaultValue="tenants" className="w-full">
         <div className="overflow-x-auto -mx-3 md:mx-0 px-3 md:px-0">

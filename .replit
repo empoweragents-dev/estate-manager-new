@@ -35,16 +35,16 @@ localPort = 5000
 externalPort = 80
 
 [[ports]]
+localPort = 33923
+externalPort = 3002
+
+[[ports]]
 localPort = 35999
 externalPort = 3001
 
 [[ports]]
 localPort = 39919
 externalPort = 3000
-
-[[ports]]
-localPort = 45353
-externalPort = 3002
 
 [deployment]
 run = ["bash", "-c", "cd EstateManager && NODE_ENV=production node dist/index.cjs"]

@@ -3159,6 +3159,100 @@ export async function registerRoutes(
     }
   });
 
+  // Top Outstandings for owner dashboard
+  app.get("/api/owners/:id/top-outstandings", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const ownerId = parseInt(req.params.id);
+      const limit = parseInt(req.query.limit as string) || 5;
+      
+      // Authorization check
+      if (isOwnerUser(req) && req.session.ownerId !== ownerId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const owner = await storage.getOwner(ownerId);
+      if (!owner) return res.status(404).json({ message: "Owner not found" });
+      
+      const allOwners = await storage.getOwners();
+      const allShops = await storage.getShops();
+      const allLeases = await storage.getLeases();
+      const allTenants = await storage.getTenants();
+      const allInvoices = await storage.getRentInvoices();
+      const allPayments = await storage.getPayments();
+      
+      const ownerCount = allOwners.length;
+      
+      // Get owner's accessible shops
+      const ownerShops = allShops.filter(s => s.ownerId === ownerId);
+      const commonShops = allShops.filter(s => s.ownershipType === 'common');
+      const accessibleShopIds = [...ownerShops, ...commonShops].map(s => s.id);
+      
+      // Get active leases for accessible shops
+      const activeLeases = allLeases.filter(l => 
+        accessibleShopIds.includes(l.shopId) && 
+        (l.status === 'active' || l.status === 'expiring_soon')
+      );
+      
+      interface OutstandingEntry {
+        tenantId: number;
+        tenantName: string;
+        phone: string;
+        businessName: string | null;
+        shopLocation: string;
+        floor: string;
+        shopNumber: string;
+        outstanding: number;
+        isCommon: boolean;
+      }
+      
+      const outstandingList: OutstandingEntry[] = [];
+      
+      for (const lease of activeLeases) {
+        const tenant = allTenants.find(t => t.id === lease.tenantId);
+        const shop = allShops.find(s => s.id === lease.shopId);
+        if (!tenant || !shop) continue;
+        
+        const isCommon = shop.ownershipType === 'common';
+        const shareRatio = isCommon ? 1 / ownerCount : 1;
+        
+        // Calculate outstanding
+        const leaseInvoices = allInvoices.filter(inv => inv.leaseId === lease.id);
+        const leasePayments = allPayments.filter(p => p.leaseId === lease.id);
+        
+        const elapsedInvoices = getElapsedInvoices(leaseInvoices);
+        const totalBilled = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+        const totalPaid = leasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const openingDue = parseFloat(tenant.openingDueBalance || '0');
+        const currentOutstanding = openingDue + totalBilled - totalPaid;
+        
+        if (currentOutstanding > 0) {
+          outstandingList.push({
+            tenantId: tenant.id,
+            tenantName: tenant.name,
+            phone: tenant.phone,
+            businessName: tenant.businessName || null,
+            shopLocation: `${formatFloorLabel(shop.floor)} - ${shop.shopNumber}`,
+            floor: shop.floor,
+            shopNumber: shop.shopNumber,
+            outstanding: currentOutstanding * shareRatio,
+            isCommon,
+          });
+        }
+      }
+      
+      // Sort by outstanding descending and take top N
+      outstandingList.sort((a, b) => b.outstanding - a.outstanding);
+      const topOutstandings = outstandingList.slice(0, limit);
+      
+      res.json({ 
+        data: topOutstandings,
+        total: outstandingList.reduce((sum, o) => sum + o.outstanding, 0),
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   return httpServer;
 }
 
