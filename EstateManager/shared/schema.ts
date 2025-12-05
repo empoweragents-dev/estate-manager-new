@@ -249,6 +249,27 @@ export const settings = pgTable("settings", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+// Deletion record type enum
+export const deletionRecordTypeEnum = pgEnum('deletion_record_type', ['payment', 'bank_deposit', 'tenant', 'shop', 'lease', 'expense']);
+
+// Deletion Logs table - audit trail for deleted records
+export const deletionLogs = pgTable("deletion_logs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  recordType: deletionRecordTypeEnum("record_type").notNull(),
+  recordId: integer("record_id").notNull(),
+  recordDetails: jsonb("record_details").notNull(), // Snapshot of the deleted record
+  reason: text("reason").notNull(),
+  deletedBy: varchar("deleted_by").references(() => users.id),
+  deletedAt: timestamp("deleted_at").notNull().defaultNow(),
+});
+
+export const deletionLogsRelations = relations(deletionLogs, ({ one }) => ({
+  deletedByUser: one(users, {
+    fields: [deletionLogs.deletedBy],
+    references: [users.id],
+  }),
+}));
+
 // Insert Schemas
 export const insertOwnerSchema = createInsertSchema(owners).omit({ id: true });
 export const insertShopSchema = createInsertSchema(shops).omit({ id: true });
@@ -261,6 +282,7 @@ export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true,
 export const insertSettingSchema = createInsertSchema(settings).omit({ id: true, updatedAt: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertRentAdjustmentSchema = createInsertSchema(rentAdjustments).omit({ id: true, createdAt: true });
+export const insertDeletionLogSchema = createInsertSchema(deletionLogs).omit({ id: true, deletedAt: true });
 
 // User types
 export type User = typeof users.$inferSelect;
@@ -297,6 +319,10 @@ export type InsertSetting = z.infer<typeof insertSettingSchema>;
 
 export type RentAdjustment = typeof rentAdjustments.$inferSelect;
 export type InsertRentAdjustment = z.infer<typeof insertRentAdjustmentSchema>;
+
+export type DeletionLog = typeof deletionLogs.$inferSelect;
+export type InsertDeletionLog = z.infer<typeof insertDeletionLogSchema>;
+export type DeletionRecordType = 'payment' | 'bank_deposit' | 'tenant' | 'shop' | 'lease' | 'expense';
 
 // Extended types for frontend use with relations
 export type ShopWithOwner = Shop & { owner?: Owner };

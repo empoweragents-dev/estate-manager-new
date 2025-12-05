@@ -2,7 +2,7 @@ import { eq, and, desc, sql, gte, lte, or, like, ilike, ne } from "drizzle-orm";
 import { db } from "./db";
 import bcrypt from "bcryptjs";
 import {
-  owners, shops, tenants, leases, rentInvoices, payments, bankDeposits, expenses, settings, users,
+  owners, shops, tenants, leases, rentInvoices, payments, bankDeposits, expenses, settings, users, deletionLogs,
   type Owner, type InsertOwner,
   type Shop, type InsertShop,
   type Tenant, type InsertTenant,
@@ -13,6 +13,7 @@ import {
   type Expense, type InsertExpense,
   type Setting, type InsertSetting,
   type User, type InsertUser,
+  type DeletionLog, type InsertDeletionLog, type DeletionRecordType,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -83,6 +84,10 @@ export interface IStorage {
   updateUser(id: string, data: Partial<InsertUser>): Promise<User | undefined>;
   deleteUser(id: string): Promise<void>;
   initSuperAdmin(): Promise<void>;
+  
+  // Deletion Logs
+  getDeletionLogs(): Promise<DeletionLog[]>;
+  createDeletionLog(log: InsertDeletionLog): Promise<DeletionLog>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -467,6 +472,16 @@ export class DatabaseStorage implements IStorage {
       });
       console.log('Super Admin account created');
     }
+  }
+
+  // Deletion Logs
+  async getDeletionLogs(): Promise<DeletionLog[]> {
+    return db.select().from(deletionLogs).orderBy(desc(deletionLogs.deletedAt));
+  }
+
+  async createDeletionLog(log: InsertDeletionLog): Promise<DeletionLog> {
+    const [created] = await db.insert(deletionLogs).values(log).returning();
+    return created;
   }
 }
 

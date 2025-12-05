@@ -519,6 +519,9 @@ export default function TenantsPage() {
   const [monthlyDuesModalOpen, setMonthlyDuesModalOpen] = useState(false);
   const [selectedTenantForMonthly, setSelectedTenantForMonthly] = useState<TenantWithDues | null>(null);
   const [selectedOwnerIds, setSelectedOwnerIds] = useState<number[]>([]);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [tenantToDelete, setTenantToDelete] = useState<TenantWithDues | null>(null);
+  const [deleteReason, setDeleteReason] = useState("");
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { currency, exchangeRate } = useCurrencyStore();
@@ -551,17 +554,32 @@ export default function TenantsPage() {
   };
 
   const deleteMutation = useMutation({
-    mutationFn: async (id: number) => {
-      return apiRequest("DELETE", `/api/tenants/${id}`);
+    mutationFn: async ({ id, reason }: { id: number; reason: string }) => {
+      return apiRequest("DELETE", `/api/tenants/${id}`, { reason });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tenants/by-owner"] });
       toast({ title: "Tenant deleted successfully" });
+      setDeleteDialogOpen(false);
+      setTenantToDelete(null);
+      setDeleteReason("");
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
+
+  const handleDeleteClick = (tenant: TenantWithDues) => {
+    setTenantToDelete(tenant);
+    setDeleteReason("");
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (tenantToDelete && deleteReason.trim()) {
+      deleteMutation.mutate({ id: tenantToDelete.id, reason: deleteReason.trim() });
+    }
+  };
 
   const handleEdit = (tenant: TenantWithDues) => {
     setEditingTenant(tenant);
@@ -770,30 +788,14 @@ export default function TenantsPage() {
                         >
                           <Edit2 className="h-4 w-4" />
                         </Button>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon" data-testid={`button-delete-tenant-${tenant.id}`}>
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Delete Tenant?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                This will permanently delete {tenant.name}'s profile and all associated data. This action cannot be undone.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => deleteMutation.mutate(tenant.id)}
-                                className="bg-destructive text-destructive-foreground"
-                              >
-                                Delete
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={() => handleDeleteClick(tenant)}
+                          data-testid={`button-delete-tenant-${tenant.id}`}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -823,6 +825,49 @@ export default function TenantsPage() {
           setSelectedTenantForMonthly(null);
         }}
       />
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Tenant</AlertDialogTitle>
+            <AlertDialogDescription>
+              {tenantToDelete && (
+                <div className="space-y-2 mt-2">
+                  <p>Are you sure you want to delete this tenant?</p>
+                  <div className="bg-muted p-3 rounded-md text-sm">
+                    <p><strong>Name:</strong> {tenantToDelete.name}</p>
+                    <p><strong>Phone:</strong> {tenantToDelete.phone}</p>
+                    {tenantToDelete.businessName && (
+                      <p><strong>Business:</strong> {tenantToDelete.businessName}</p>
+                    )}
+                    <p><strong>Current Due:</strong> {formatValue(tenantToDelete.currentDue)}</p>
+                  </div>
+                  <p className="text-destructive text-sm">This will permanently delete the tenant profile and all associated data. This action cannot be undone.</p>
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Reason for deletion <span className="text-destructive">*</span></label>
+            <Textarea
+              value={deleteReason}
+              onChange={(e) => setDeleteReason(e.target.value)}
+              placeholder="Please provide a reason for deleting this tenant..."
+              className="min-h-[80px]"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteDialogOpen(false)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={!deleteReason.trim() || deleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete Tenant"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

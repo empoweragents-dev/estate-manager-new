@@ -13,6 +13,17 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Select,
   SelectContent,
@@ -239,6 +250,9 @@ function BankDepositForm({
 
 export default function BankDepositsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [depositToDelete, setDepositToDelete] = useState<BankDepositWithOwner | null>(null);
+  const [deleteReason, setDeleteReason] = useState("");
   const { toast } = useToast();
   const { currency, exchangeRate } = useCurrencyStore();
 
@@ -251,17 +265,32 @@ export default function BankDepositsPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (id: number) => {
-      return apiRequest("DELETE", `/api/bank-deposits/${id}`);
+    mutationFn: async ({ id, reason }: { id: number; reason: string }) => {
+      return apiRequest("DELETE", `/api/bank-deposits/${id}`, { reason });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/bank-deposits"] });
       toast({ title: "Bank deposit deleted successfully" });
+      setDeleteDialogOpen(false);
+      setDepositToDelete(null);
+      setDeleteReason("");
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
+
+  const handleDeleteClick = (deposit: BankDepositWithOwner) => {
+    setDepositToDelete(deposit);
+    setDeleteReason("");
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (depositToDelete && deleteReason.trim()) {
+      deleteMutation.mutate({ id: depositToDelete.id, reason: deleteReason.trim() });
+    }
+  };
 
   const handleDialogClose = () => {
     setIsDialogOpen(false);
@@ -395,7 +424,7 @@ export default function BankDepositsPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => deleteMutation.mutate(deposit.id)}
+                        onClick={() => handleDeleteClick(deposit)}
                         disabled={deleteMutation.isPending}
                         data-testid={`button-delete-deposit-${deposit.id}`}
                       >
@@ -419,6 +448,46 @@ export default function BankDepositsPage() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Bank Deposit Record</AlertDialogTitle>
+            <AlertDialogDescription>
+              {depositToDelete && (
+                <div className="space-y-2 mt-2">
+                  <p>Are you sure you want to delete this bank deposit?</p>
+                  <div className="bg-muted p-3 rounded-md text-sm">
+                    <p><strong>Owner:</strong> {depositToDelete.owner?.name}</p>
+                    <p><strong>Amount:</strong> {formatValue(depositToDelete.amount)}</p>
+                    <p><strong>Date:</strong> {new Date(depositToDelete.depositDate).toLocaleDateString()}</p>
+                    <p><strong>Bank:</strong> {depositToDelete.bankName}</p>
+                  </div>
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Reason for deletion <span className="text-destructive">*</span></label>
+            <Textarea
+              value={deleteReason}
+              onChange={(e) => setDeleteReason(e.target.value)}
+              placeholder="Please provide a reason for deleting this bank deposit record..."
+              className="min-h-[80px]"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteDialogOpen(false)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={!deleteReason.trim() || deleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete Deposit"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

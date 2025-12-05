@@ -606,7 +606,30 @@ export async function registerRoutes(
 
   app.delete("/api/shops/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      await storage.deleteShop(parseInt(req.params.id));
+      const shopId = parseInt(req.params.id);
+      const { reason } = req.body;
+      
+      if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
+        return res.status(400).json({ message: "Deletion reason is required" });
+      }
+      
+      // Get the shop first for logging
+      const shopToDelete = await storage.getShop(shopId);
+      
+      if (!shopToDelete) {
+        return res.status(404).json({ message: "Shop not found" });
+      }
+      
+      // Log the deletion
+      await storage.createDeletionLog({
+        recordType: 'shop',
+        recordId: shopId,
+        recordDetails: shopToDelete,
+        reason: reason.trim(),
+        deletedBy: req.session.userId || null,
+      });
+      
+      await storage.deleteShop(shopId);
       res.status(204).send();
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -1007,7 +1030,30 @@ export async function registerRoutes(
 
   app.delete("/api/tenants/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      await storage.deleteTenant(parseInt(req.params.id));
+      const tenantId = parseInt(req.params.id);
+      const { reason } = req.body;
+      
+      if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
+        return res.status(400).json({ message: "Deletion reason is required" });
+      }
+      
+      // Get the tenant first for logging
+      const tenantToDelete = await storage.getTenant(tenantId);
+      
+      if (!tenantToDelete) {
+        return res.status(404).json({ message: "Tenant not found" });
+      }
+      
+      // Log the deletion
+      await storage.createDeletionLog({
+        recordType: 'tenant',
+        recordId: tenantId,
+        recordDetails: tenantToDelete,
+        reason: reason.trim(),
+        deletedBy: req.session.userId || null,
+      });
+      
+      await storage.deleteTenant(tenantId);
       res.status(204).send();
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -1666,16 +1712,33 @@ export async function registerRoutes(
   app.delete("/api/payments/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const paymentId = parseInt(req.params.id);
-      // Get the payment first to find the tenantId
+      const { reason } = req.body;
+      
+      if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
+        return res.status(400).json({ message: "Deletion reason is required" });
+      }
+      
+      // Get the payment first to find the tenantId and log details
       const payments = await storage.getPayments();
       const paymentToDelete = payments.find(p => p.id === paymentId);
+      
+      if (!paymentToDelete) {
+        return res.status(404).json({ message: "Payment not found" });
+      }
+      
+      // Log the deletion
+      await storage.createDeletionLog({
+        recordType: 'payment',
+        recordId: paymentId,
+        recordDetails: paymentToDelete,
+        reason: reason.trim(),
+        deletedBy: req.session.userId || null,
+      });
       
       await storage.deletePayment(paymentId);
       
       // Recalculate FIFO status after deleting payment
-      if (paymentToDelete) {
-        await updateInvoicePaidStatus(paymentToDelete.tenantId);
-      }
+      await updateInvoicePaidStatus(paymentToDelete.tenantId);
       
       res.status(204).send();
     } catch (error: any) {
@@ -1711,7 +1774,31 @@ export async function registerRoutes(
 
   app.delete("/api/bank-deposits/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      await storage.deleteBankDeposit(parseInt(req.params.id));
+      const depositId = parseInt(req.params.id);
+      const { reason } = req.body;
+      
+      if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
+        return res.status(400).json({ message: "Deletion reason is required" });
+      }
+      
+      // Get the deposit first for logging
+      const deposits = await storage.getBankDeposits();
+      const depositToDelete = deposits.find(d => d.id === depositId);
+      
+      if (!depositToDelete) {
+        return res.status(404).json({ message: "Bank deposit not found" });
+      }
+      
+      // Log the deletion
+      await storage.createDeletionLog({
+        recordType: 'bank_deposit',
+        recordId: depositId,
+        recordDetails: depositToDelete,
+        reason: reason.trim(),
+        deletedBy: req.session.userId || null,
+      });
+      
+      await storage.deleteBankDeposit(depositId);
       res.status(204).send();
     } catch (error: any) {
       res.status(500).json({ message: error.message });

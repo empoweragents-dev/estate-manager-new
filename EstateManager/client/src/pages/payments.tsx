@@ -14,7 +14,19 @@ import {
   DialogTitle,
   DialogTrigger,
   DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Select,
   SelectContent,
@@ -589,6 +601,9 @@ export default function PaymentsPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [selectedOwnerId, setSelectedOwnerId] = useState<string>("all");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [paymentToDelete, setPaymentToDelete] = useState<PaymentWithDetails | null>(null);
+  const [deleteReason, setDeleteReason] = useState("");
   const { toast } = useToast();
   const { currency, exchangeRate } = useCurrencyStore();
 
@@ -605,19 +620,34 @@ export default function PaymentsPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (id: number) => {
-      return apiRequest("DELETE", `/api/payments/${id}`);
+    mutationFn: async ({ id, reason }: { id: number; reason: string }) => {
+      return apiRequest("DELETE", `/api/payments/${id}`, { reason });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tenants"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Payment deleted successfully" });
+      setDeleteDialogOpen(false);
+      setPaymentToDelete(null);
+      setDeleteReason("");
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
+
+  const handleDeleteClick = (payment: PaymentWithDetails) => {
+    setPaymentToDelete(payment);
+    setDeleteReason("");
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (paymentToDelete && deleteReason.trim()) {
+      deleteMutation.mutate({ id: paymentToDelete.id, reason: deleteReason.trim() });
+    }
+  };
 
   const handleDialogClose = () => {
     setIsDialogOpen(false);
@@ -857,7 +887,7 @@ export default function PaymentsPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => deleteMutation.mutate(payment.id)}
+                        onClick={() => handleDeleteClick(payment)}
                         disabled={deleteMutation.isPending}
                         data-testid={`button-delete-payment-${payment.id}`}
                       >
@@ -891,6 +921,46 @@ export default function PaymentsPage() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Payment Record</AlertDialogTitle>
+            <AlertDialogDescription>
+              {paymentToDelete && (
+                <div className="space-y-2 mt-2">
+                  <p>Are you sure you want to delete this payment?</p>
+                  <div className="bg-muted p-3 rounded-md text-sm">
+                    <p><strong>Receipt:</strong> {paymentToDelete.receiptNumber || `PMT-${paymentToDelete.id.toString().padStart(4, "0")}`}</p>
+                    <p><strong>Amount:</strong> {formatValue(paymentToDelete.amount)}</p>
+                    <p><strong>Date:</strong> {new Date(paymentToDelete.paymentDate).toLocaleDateString()}</p>
+                    <p><strong>Tenant:</strong> {paymentToDelete.tenant?.name}</p>
+                  </div>
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Reason for deletion <span className="text-destructive">*</span></label>
+            <Textarea
+              value={deleteReason}
+              onChange={(e) => setDeleteReason(e.target.value)}
+              placeholder="Please provide a reason for deleting this payment record..."
+              className="min-h-[80px]"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteDialogOpen(false)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={!deleteReason.trim() || deleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete Payment"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
