@@ -567,6 +567,9 @@ export default function LeasesPage() {
                       queryClient.invalidateQueries({ queryKey: ["/api/leases"] });
                       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
                       queryClient.invalidateQueries({ queryKey: ["/api/rent-invoices"] });
+                      queryClient.invalidateQueries({ queryKey: ["/api/tenants"] });
+                      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+                      queryClient.invalidateQueries({ queryKey: ["/api/owners"] });
                       setIsImportDialogOpen(false);
                       setImportFile(null);
                     } else {
