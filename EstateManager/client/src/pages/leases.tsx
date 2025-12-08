@@ -25,6 +25,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -61,6 +62,7 @@ const leaseFormSchema = z.object({
   endDate: z.string().min(1, "End date is required"),
   securityDeposit: z.string().min(1, "Security deposit is required"),
   monthlyRent: z.string().min(1, "Monthly rent is required"),
+  openingDueBalance: z.string().default("0"),
   notes: z.string().optional(),
 });
 
@@ -89,6 +91,7 @@ function LeaseForm({
       endDate: "",
       securityDeposit: "",
       monthlyRent: "",
+      openingDueBalance: "0",
       notes: "",
     },
   });
@@ -102,6 +105,7 @@ function LeaseForm({
         endDate: data.endDate,
         securityDeposit: data.securityDeposit,
         monthlyRent: data.monthlyRent,
+        openingDueBalance: data.openingDueBalance,
         notes: data.notes,
       });
     },
@@ -246,6 +250,35 @@ function LeaseForm({
                     data-testid="input-lease-rent"
                   />
                 </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        <div className="border-2 border-amber-500/50 bg-amber-50 dark:bg-amber-900/20 rounded-lg p-4">
+          <FormField
+            control={form.control}
+            name="openingDueBalance"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="h-4 w-4" />
+                  Opening Due Balance (BDT)
+                </FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    className="text-lg font-semibold"
+                    data-testid="input-lease-opening-balance"
+                  />
+                </FormControl>
+                <FormDescription className="text-amber-600 dark:text-amber-500">
+                  Enter any pre-existing debt for this specific shop/lease from before using this system.
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
