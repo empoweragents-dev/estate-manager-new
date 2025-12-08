@@ -81,6 +81,9 @@ interface PaymentFormMonth {
   label: string;
   rent: number;
   isPaid: boolean;
+  paidAmount: number;
+  remainingBalance: number;
+  paymentDates: string[];
   isPast: boolean;
   isCurrent: boolean;
   isFuture: boolean;
@@ -232,13 +235,24 @@ export function PaymentForm({
     return selectedRentMonths.reduce((sum, monthValue) => {
       const [year, month] = monthValue.split('-').map(Number);
       const monthData = paymentFormData.months.find(m => m.year === year && m.month === month);
-      return sum + (monthData?.rent || 0);
+      // Use remainingBalance for partial payments, otherwise full rent
+      return sum + (monthData?.remainingBalance ?? monthData?.rent ?? 0);
     }, 0);
   }, [selectedRentMonths, paymentFormData?.months]);
 
   const openingBalanceRemaining = paymentFormData?.openingBalanceRemaining || 0;
   const arrearsAmount = includeArrears ? openingBalanceRemaining : 0;
   const suggestedAmount = selectedMonthsRent + arrearsAmount;
+  
+  // Check if any selected months have partial payments
+  const hasPartialPayments = useMemo(() => {
+    if (!paymentFormData?.months) return false;
+    return selectedRentMonths.some(monthValue => {
+      const [year, month] = monthValue.split('-').map(Number);
+      const monthData = paymentFormData.months.find(m => m.year === year && m.month === month);
+      return monthData && monthData.paidAmount > 0 && !monthData.isPaid;
+    });
+  }, [selectedRentMonths, paymentFormData?.months]);
 
   const form = useForm<PaymentFormValues>({
     resolver: zodResolver(paymentFormSchema),
@@ -550,8 +564,20 @@ export function PaymentForm({
                                 {month.isFuture && (
                                   <Badge variant="outline" className="text-[10px] px-1 py-0">Advance</Badge>
                                 )}
+                                {month.paidAmount > 0 && !month.isPaid && (
+                                  <Badge variant="outline" className="text-[10px] px-1 py-0 border-amber-500 text-amber-600">Partial</Badge>
+                                )}
                               </div>
-                              <span className="text-sm font-semibold tabular-nums">{formatValue(month.rent)}</span>
+                              <div className="text-right">
+                                {month.paidAmount > 0 && !month.isPaid ? (
+                                  <div className="flex flex-col items-end">
+                                    <span className="text-sm font-semibold tabular-nums text-amber-600">{formatValue(month.remainingBalance)}</span>
+                                    <span className="text-[10px] text-muted-foreground tabular-nums">{formatValue(month.paidAmount)} / {formatValue(month.rent)} paid</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-sm font-semibold tabular-nums">{formatValue(month.rent)}</span>
+                                )}
+                              </div>
                             </button>
                           );
                         })}
@@ -595,7 +621,12 @@ export function PaymentForm({
                       <div className="space-y-2">
                         {selectedRentMonths.length > 0 && (
                           <div className="flex justify-between text-sm">
-                            <span>Rent for {selectedRentMonths.length} month(s)</span>
+                            <span>
+                              {hasPartialPayments 
+                                ? `Remaining balance for ${selectedRentMonths.length} month(s)`
+                                : `Rent for ${selectedRentMonths.length} month(s)`
+                              }
+                            </span>
                             <span className="tabular-nums">{formatValue(selectedMonthsRent)}</span>
                           </div>
                         )}
