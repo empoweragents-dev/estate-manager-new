@@ -124,7 +124,6 @@ const tenantFormSchema = z.object({
   nidPassport: z.string().optional(),
   permanentAddress: z.string().optional(),
   photoUrl: z.string().optional(),
-  openingDueBalance: z.string().default("0"),
 });
 
 type TenantFormData = z.infer<typeof tenantFormSchema>;
@@ -148,7 +147,6 @@ function TenantForm({
       nidPassport: tenant?.nidPassport ?? "",
       permanentAddress: tenant?.permanentAddress ?? "",
       photoUrl: tenant?.photoUrl ?? "",
-      openingDueBalance: tenant?.openingDueBalance ?? "0",
     },
   });
 
@@ -292,35 +290,6 @@ function TenantForm({
             </FormItem>
           )}
         />
-
-        <div className="border-2 border-amber-500/50 bg-amber-50 dark:bg-amber-900/20 rounded-lg p-4">
-          <FormField
-            control={form.control}
-            name="openingDueBalance"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
-                  <AlertTriangle className="h-4 w-4" />
-                  Opening Due Balance (BDT)
-                </FormLabel>
-                <FormControl>
-                  <Input
-                    {...field}
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    className="text-lg font-semibold"
-                    data-testid="input-tenant-opening-balance"
-                  />
-                </FormControl>
-                <FormDescription className="text-amber-600 dark:text-amber-500">
-                  Enter any pre-existing debt this tenant owes from before using this system. This amount will be included in their total outstanding dues.
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
 
         <div className="flex justify-end gap-2 pt-4">
           <Button type="submit" disabled={isPending} data-testid="button-save-tenant">

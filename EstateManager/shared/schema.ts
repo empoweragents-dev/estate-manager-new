@@ -115,6 +115,7 @@ export const leases = pgTable("leases", {
   securityDeposit: decimal("security_deposit", { precision: 12, scale: 2 }).notNull(),
   securityDepositUsed: decimal("security_deposit_used", { precision: 12, scale: 2 }).notNull().default('0'),
   monthlyRent: decimal("monthly_rent", { precision: 12, scale: 2 }).notNull(),
+  openingDueBalance: decimal("opening_due_balance", { precision: 12, scale: 2 }).notNull().default('0'),
   status: leaseStatusEnum("status").notNull().default('active'),
   notes: text("notes"),
   terminationNotes: text("termination_notes"),
