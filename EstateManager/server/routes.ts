@@ -1636,25 +1636,47 @@ export async function registerRoutes(
       );
       const isFirstLease = activeLeases.length === 0 || activeLeases[0].id === leaseId;
       
-      // Opening balance remaining (only shown on first lease to avoid confusion)
-      const openingBalance = isFirstLease ? parseFloat(tenant.openingDueBalance || '0') : 0;
-      const allTenantPayments = await storage.getPaymentsByTenant(lease.tenantId);
-      const totalPaidByTenant = allTenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
-      const openingBalanceRemaining = Math.max(0, openingBalance - totalPaidByTenant);
+      // Opening balance remaining (only fetch tenant payments if this is the first lease)
+      let openingBalance = 0;
+      let openingBalanceRemaining = 0;
+      if (isFirstLease) {
+        openingBalance = parseFloat(tenant.openingDueBalance || '0');
+        if (openingBalance > 0) {
+          const allTenantPayments = await storage.getPaymentsByTenant(lease.tenantId);
+          const totalPaidByTenant = allTenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+          openingBalanceRemaining = Math.max(0, openingBalance - totalPaidByTenant);
+        }
+      }
       
-      // Get rent adjustments for this lease to find initial rent
+      // Get rent adjustments for this lease ONCE (no N+1 queries)
       const adjustments = await db.select().from(rentAdjustments)
         .where(eq(rentAdjustments.leaseId, leaseId))
         .orderBy(rentAdjustments.effectiveDate);
       
       // Find initial rent (first rent before any adjustments, or current if no adjustments)
-      let initialRent = lease.monthlyRent;
+      let initialRent = parseFloat(lease.monthlyRent);
       if (adjustments.length > 0) {
-        initialRent = adjustments[0].previousRent;
+        initialRent = parseFloat(adjustments[0].previousRent);
       }
+      
+      // Helper function to get rent for a specific month using in-memory adjustments
+      const getRentForMonth = (year: number, month: number): number => {
+        const targetDate = new Date(year, month - 1, 1);
+        let rent = initialRent;
+        for (const adj of adjustments) {
+          const effectiveDate = new Date(adj.effectiveDate);
+          if (effectiveDate <= targetDate) {
+            rent = parseFloat(adj.newRent);
+          } else {
+            break;
+          }
+        }
+        return rent;
+      };
       
       // Build list of months from lease start to current + 12 future months
       const leaseStartDate = new Date(lease.startDate);
+      const leaseEndDate = new Date(lease.endDate);
       const months: Array<{
         year: number;
         month: number;
@@ -1674,7 +1696,6 @@ export async function registerRoutes(
         const m = monthIterator.getMonth() + 1;
         
         // Check if lease has ended before this month
-        const leaseEndDate = new Date(lease.endDate);
         if (monthIterator > leaseEndDate && lease.status === 'terminated') {
           monthIterator.setMonth(monthIterator.getMonth() + 1);
           continue;
@@ -1688,8 +1709,8 @@ export async function registerRoutes(
         const isCurrent = y === currentYear && m === currentMonth;
         const isFuture = y > currentYear || (y === currentYear && m > currentMonth);
         
-        // Get historical rent for this month
-        const rent = await getHistoricalRentForMonth(leaseId, initialRent, y, m);
+        // Get historical rent for this month (no DB query - uses in-memory adjustments)
+        const rent = getRentForMonth(y, m);
         
         // Month label
         const monthName = new Date(y, m - 1, 1).toLocaleString('default', { month: 'long' });
