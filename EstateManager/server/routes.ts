@@ -1550,31 +1550,89 @@ export async function registerRoutes(
   app.patch("/api/leases/:id/terminate", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const leaseId = parseInt(req.params.id);
-      const { terminationNotes } = req.body;
+      const { terminationNotes, useSecurityDeposit, useGlobalLedger, globalLedgerAmount } = req.body;
       const lease = await storage.getLease(leaseId);
       if (!lease) return res.status(404).json({ message: "Lease not found" });
       
-      // Calculate tenant's current due
-      const invoices = await storage.getRentInvoicesByTenant(lease.tenantId);
-      const tenantPayments = await storage.getPaymentsByTenant(lease.tenantId);
+      // Get all data for this tenant
+      const allInvoices = await storage.getRentInvoicesByTenant(lease.tenantId);
+      const allPayments = await storage.getPaymentsByTenant(lease.tenantId);
       const tenant = await storage.getTenant(lease.tenantId);
       
-      // Only count invoices for elapsed months (up to current month)
-      const elapsedInvoices = getElapsedInvoices(invoices);
+      // === THIS LEASE'S ISOLATED SETTLEMENT ===
+      const thisLeaseInvoices = allInvoices.filter(inv => inv.leaseId === leaseId);
+      const thisLeasePayments = allPayments.filter(p => p.leaseId === leaseId);
+      const elapsedThisLeaseInvoices = getElapsedInvoices(thisLeaseInvoices);
       
-      const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
-      const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
-      const openingBalance = parseFloat(tenant?.openingDueBalance || '0');
-      const currentDue = Math.max(0, openingBalance + totalInvoices - totalPaid);
+      const thisLeaseOpeningBalance = parseFloat(lease.openingDueBalance || '0');
+      const thisLeaseTotalInvoices = elapsedThisLeaseInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+      const thisLeaseTotalPaid = thisLeasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      const thisLeaseCurrentDue = thisLeaseOpeningBalance + thisLeaseTotalInvoices - thisLeaseTotalPaid;
       
-      // Deduct from security deposit if tenant has due
-      const securityDepositUsed = Math.min(currentDue, parseFloat(lease.securityDeposit)).toString();
+      // Determine security deposit to use
+      let securityDepositUsedAmount = 0;
+      if (useSecurityDeposit) {
+        securityDepositUsedAmount = Math.min(Math.max(0, thisLeaseCurrentDue), parseFloat(lease.securityDeposit));
+      }
       
-      // Update lease with security deposit used, termination notes, and terminate
+      // If using global ledger adjustment, create a transfer payment
+      if (useGlobalLedger && globalLedgerAmount > 0) {
+        const allLeases = await storage.getLeasesByTenant(lease.tenantId);
+        
+        // Find other leases that have credit (negative balance = overpayment)
+        let remainingTransfer = globalLedgerAmount;
+        
+        for (const otherLease of allLeases) {
+          if (otherLease.id === leaseId || remainingTransfer <= 0) continue;
+          
+          const otherLeaseInvoices = allInvoices.filter(inv => inv.leaseId === otherLease.id);
+          const otherLeasePayments = allPayments.filter(p => p.leaseId === otherLease.id);
+          const elapsedOtherInvoices = getElapsedInvoices(otherLeaseInvoices);
+          
+          const otherOpeningBalance = parseFloat(otherLease.openingDueBalance || '0');
+          const otherTotalInvoices = elapsedOtherInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+          const otherTotalPaid = otherLeasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+          const otherBalance = otherOpeningBalance + otherTotalInvoices - otherTotalPaid;
+          
+          // If this lease has credit (negative balance = overpaid)
+          if (otherBalance < 0) {
+            const availableCredit = Math.abs(otherBalance);
+            const transferFromThis = Math.min(availableCredit, remainingTransfer);
+            
+            if (transferFromThis > 0) {
+              // Create a negative payment on the source lease (debit)
+              await storage.createPayment({
+                tenantId: lease.tenantId,
+                leaseId: otherLease.id,
+                amount: (-transferFromThis).toString(),
+                paymentDate: new Date().toISOString().split('T')[0],
+                method: 'transfer',
+                notes: `Settlement transfer to Shop ${(await storage.getShop(lease.shopId))?.shopNumber || lease.shopId} (Lease #${leaseId})`,
+                createdBy: (req as any).user?.id || null,
+              });
+              
+              // Create a positive payment on this lease (credit)
+              await storage.createPayment({
+                tenantId: lease.tenantId,
+                leaseId: leaseId,
+                amount: transferFromThis.toString(),
+                paymentDate: new Date().toISOString().split('T')[0],
+                method: 'transfer',
+                notes: `Settlement transfer from Shop ${(await storage.getShop(otherLease.shopId))?.shopNumber || otherLease.shopId} (Lease #${otherLease.id})`,
+                createdBy: (req as any).user?.id || null,
+              });
+              
+              remainingTransfer -= transferFromThis;
+            }
+          }
+        }
+      }
+      
+      // Update lease with security deposit used and terminate
       const [updated] = await db.update(leases)
         .set({ 
           status: 'terminated',
-          securityDepositUsed: securityDepositUsed,
+          securityDepositUsed: securityDepositUsedAmount.toString(),
           terminationNotes: terminationNotes || null,
         })
         .where(eq(leases.id, leaseId))
