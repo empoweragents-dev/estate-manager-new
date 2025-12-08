@@ -71,6 +71,23 @@ async function getOwnerAccessibleShops(ownerId: number | undefined): Promise<num
     .map(s => s.id);
 }
 
+// Helper functions to filter out soft-deleted records for financial calculations
+function getActivePayments<T extends { isDeleted?: boolean | null }>(payments: T[]): T[] {
+  return payments.filter(p => !p.isDeleted);
+}
+
+function getActiveBankDeposits<T extends { isDeleted?: boolean | null }>(deposits: T[]): T[] {
+  return deposits.filter(d => !d.isDeleted);
+}
+
+function getActiveTenants<T extends { isDeleted?: boolean | null }>(tenants: T[]): T[] {
+  return tenants.filter(t => !t.isDeleted);
+}
+
+function getActiveShops<T extends { isDeleted?: boolean | null }>(shops: T[]): T[] {
+  return shops.filter(s => !s.isDeleted);
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -292,7 +309,7 @@ export async function registerRoutes(
 
         // Get payments for this lease
         const leasePayments = allPayments.filter(p => p.leaseId === lease.id);
-        const totalPaid = leasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const totalPaid = getActivePayments(leasePayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
 
         // Calculate total dues
         const openingDue = parseFloat(tenant.openingDueBalance || '0');
@@ -387,14 +404,14 @@ export async function registerRoutes(
                  pDate.getMonth() + 1 === month &&
                  ownerLeases.some(l => l.id === p.leaseId);
         });
-        const rentCollection = monthPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const rentCollection = getActivePayments(monthPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
 
         // Bank deposits in this month
         const monthDeposits = bankDeposits.filter(d => {
           const dDate = new Date(d.depositDate);
           return dDate.getFullYear() === year && dDate.getMonth() + 1 === month;
         });
-        const totalDeposits = monthDeposits.reduce((sum, d) => sum + parseFloat(d.amount), 0);
+        const totalDeposits = getActiveBankDeposits(monthDeposits).reduce((sum, d) => sum + parseFloat(d.amount), 0);
 
         // Expenses in this month
         const monthExpenses = allExpenses.filter(e => {
@@ -467,7 +484,7 @@ export async function registerRoutes(
         );
         
         const leasePayments = allPayments.filter(p => p.leaseId === lease.id);
-        const totalPaid = leasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const totalPaid = getActivePayments(leasePayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
         
         const openingDue = parseFloat(tenant.openingDueBalance || '0');
         const totalInvoiced = leaseInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
@@ -607,7 +624,7 @@ export async function registerRoutes(
   app.delete("/api/shops/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const shopId = parseInt(req.params.id);
-      const { reason } = req.body;
+      const { reason, deletionDate } = req.body;
       
       if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
         return res.status(400).json({ message: "Deletion reason is required" });
@@ -620,17 +637,28 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Shop not found" });
       }
       
-      // Log the deletion
+      // Soft delete: Update the shop with deletion metadata
+      const deletedAt = deletionDate ? new Date(deletionDate) : new Date();
+      const [updated] = await db.update(shops)
+        .set({
+          isDeleted: true,
+          deletedAt: deletedAt,
+          deletionReason: reason.trim(),
+          deletedBy: (req as any).user?.id || null,
+        })
+        .where(eq(shops.id, shopId))
+        .returning();
+      
+      // Log the deletion for audit trail
       await storage.createDeletionLog({
         recordType: 'shop',
         recordId: shopId,
         recordDetails: shopToDelete,
         reason: reason.trim(),
-        deletedBy: req.session.userId || null,
+        deletedBy: (req as any).user?.id || null,
       });
       
-      await storage.deleteShop(shopId);
-      res.status(204).send();
+      res.json(updated);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -687,7 +715,7 @@ export async function registerRoutes(
         const elapsedInvoices = getElapsedInvoices(invoices);
         
         const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
-        const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const totalPaid = getActivePayments(tenantPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
         
         // Opening balance only applies when viewing all data (super admin) or first lease context
         // For owner users, we exclude opening balance to avoid cross-owner confusion
@@ -828,7 +856,7 @@ export async function registerRoutes(
         const elapsedInvoices = getElapsedInvoices(tenantInvoices);
         
         const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
-        const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const totalPaid = getActivePayments(tenantPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
         // Opening balance excluded for owner users to avoid cross-owner confusion
         const openingBalance = accessibleLeaseIds ? 0 : parseFloat(tenant.openingDueBalance);
         const totalDue = openingBalance + totalInvoices;
@@ -927,7 +955,7 @@ export async function registerRoutes(
       
       // Calculate totals
       const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
-      const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      const totalPaid = getActivePayments(tenantPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
       // Opening balance excluded for owner users to avoid cross-owner confusion
       const openingBalance = accessibleLeaseIds ? 0 : parseFloat(tenant.openingDueBalance);
       const totalDue = openingBalance + totalInvoices;
@@ -1088,7 +1116,7 @@ export async function registerRoutes(
   app.delete("/api/tenants/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const tenantId = parseInt(req.params.id);
-      const { reason } = req.body;
+      const { reason, deletionDate } = req.body;
       
       if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
         return res.status(400).json({ message: "Deletion reason is required" });
@@ -1101,17 +1129,28 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Tenant not found" });
       }
       
-      // Log the deletion
+      // Soft delete: Update the tenant with deletion metadata
+      const deletedAt = deletionDate ? new Date(deletionDate) : new Date();
+      const [updated] = await db.update(tenants)
+        .set({
+          isDeleted: true,
+          deletedAt: deletedAt,
+          deletionReason: reason.trim(),
+          deletedBy: (req as any).user?.id || null,
+        })
+        .where(eq(tenants.id, tenantId))
+        .returning();
+      
+      // Log the deletion for audit trail
       await storage.createDeletionLog({
         recordType: 'tenant',
         recordId: tenantId,
         recordDetails: tenantToDelete,
         reason: reason.trim(),
-        deletedBy: req.session.userId || null,
+        deletedBy: (req as any).user?.id || null,
       });
       
-      await storage.deleteTenant(tenantId);
-      res.status(204).send();
+      res.json(updated);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -1333,7 +1372,7 @@ export async function registerRoutes(
         : [];
       
       // Calculate outstanding per month (only elapsed invoices)
-      const totalPaid = leasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      const totalPaid = getActivePayments(leasePayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
       const totalInvoiced = elapsedLeaseInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
       const totalExpenses = tenantExpenses.reduce((sum, exp) => sum + parseFloat(exp.amount), 0);
       
@@ -1448,7 +1487,7 @@ export async function registerRoutes(
       // Opening balance is now per-lease
       const thisLeaseOpeningBalance = parseFloat(lease.openingDueBalance || '0');
       const thisLeaseTotalInvoices = elapsedThisLeaseInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
-      const thisLeaseTotalPaid = thisLeasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      const thisLeaseTotalPaid = getActivePayments(thisLeasePayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
       const thisLeaseTotalDue = thisLeaseOpeningBalance + thisLeaseTotalInvoices;
       const thisLeaseCurrentDue = thisLeaseTotalDue - thisLeaseTotalPaid;
       
@@ -1468,7 +1507,7 @@ export async function registerRoutes(
         
         const otherOpeningBalance = parseFloat(otherLease.openingDueBalance || '0');
         const otherTotalInvoices = elapsedOtherInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
-        const otherTotalPaid = otherLeasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const otherTotalPaid = getActivePayments(otherLeasePayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const otherTotalDue = otherOpeningBalance + otherTotalInvoices;
         
         // Positive = tenant owes, Negative = tenant has credit
@@ -1566,7 +1605,7 @@ export async function registerRoutes(
       
       const thisLeaseOpeningBalance = parseFloat(lease.openingDueBalance || '0');
       const thisLeaseTotalInvoices = elapsedThisLeaseInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
-      const thisLeaseTotalPaid = thisLeasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      const thisLeaseTotalPaid = getActivePayments(thisLeasePayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
       const thisLeaseCurrentDue = thisLeaseOpeningBalance + thisLeaseTotalInvoices - thisLeaseTotalPaid;
       
       // Determine security deposit to use
@@ -1597,7 +1636,7 @@ export async function registerRoutes(
           
           const otherOpeningBalance = parseFloat(otherLease.openingDueBalance || '0');
           const otherTotalInvoices = elapsedOtherInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
-          const otherTotalPaid = otherLeasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+          const otherTotalPaid = getActivePayments(otherLeasePayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
           const otherBalance = otherOpeningBalance + otherTotalInvoices - otherTotalPaid;
           
           // If this lease has credit (negative balance = overpaid)
@@ -1771,7 +1810,7 @@ export async function registerRoutes(
       // Get invoices and payments for this specific lease only
       const leaseInvoices = await storage.getRentInvoicesByLease(leaseId);
       const leasePayments = await storage.getPaymentsByLease(leaseId);
-      const totalPaidForLease = leasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      const totalPaidForLease = getActivePayments(leasePayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
       
       // Calculate total due from elapsed invoices for this lease
       const today = new Date();
@@ -1801,7 +1840,7 @@ export async function registerRoutes(
         openingBalance = parseFloat(tenant.openingDueBalance || '0');
         if (openingBalance > 0) {
           const allTenantPayments = await storage.getPaymentsByTenant(lease.tenantId);
-          const totalPaidByTenant = allTenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+          const totalPaidByTenant = getActivePayments(allTenantPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
           openingBalanceRemaining = Math.max(0, openingBalance - totalPaidByTenant);
         }
       }
@@ -2010,9 +2049,10 @@ export async function registerRoutes(
         return a.month - b.month;
       });
     
-    // Get total payments for this specific lease only
+    // Get total payments for this specific lease only - EXCLUDE DELETED PAYMENTS
     const leasePayments = await storage.getPaymentsByLease(leaseId);
-    let remainingForInvoices = leasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+    const activePayments = leasePayments.filter(p => !p.isDeleted);
+    let remainingForInvoices = activePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
     
     // Update isPaid status for each invoice in FIFO order
     for (const invoice of elapsedInvoices) {
@@ -2035,35 +2075,45 @@ export async function registerRoutes(
   app.delete("/api/payments/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const paymentId = parseInt(req.params.id);
-      const { reason } = req.body;
+      const { reason, deletionDate } = req.body;
       
       if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
         return res.status(400).json({ message: "Deletion reason is required" });
       }
       
-      // Get the payment first to find the tenantId and log details
-      const payments = await storage.getPayments();
-      const paymentToDelete = payments.find(p => p.id === paymentId);
+      // Get the payment first to find the tenantId
+      const allPayments = await storage.getPayments();
+      const paymentToDelete = allPayments.find(p => p.id === paymentId);
       
       if (!paymentToDelete) {
         return res.status(404).json({ message: "Payment not found" });
       }
       
-      // Log the deletion
+      // Soft delete: Update the payment with deletion metadata
+      const deletedAt = deletionDate ? new Date(deletionDate) : new Date();
+      const [updated] = await db.update(payments)
+        .set({
+          isDeleted: true,
+          deletedAt: deletedAt,
+          deletionReason: reason.trim(),
+          deletedBy: (req as any).user?.id || null,
+        })
+        .where(eq(payments.id, paymentId))
+        .returning();
+      
+      // Log the deletion for audit trail
       await storage.createDeletionLog({
         recordType: 'payment',
         recordId: paymentId,
         recordDetails: paymentToDelete,
         reason: reason.trim(),
-        deletedBy: req.session.userId || null,
+        deletedBy: (req as any).user?.id || null,
       });
       
-      await storage.deletePayment(paymentId);
-      
-      // Recalculate FIFO status after deleting payment for this specific lease
+      // Recalculate FIFO status after soft-deleting payment for this specific lease
       await updateInvoicePaidStatusForLease(paymentToDelete.leaseId);
       
-      res.status(204).send();
+      res.json(updated);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -2098,7 +2148,7 @@ export async function registerRoutes(
   app.delete("/api/bank-deposits/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const depositId = parseInt(req.params.id);
-      const { reason } = req.body;
+      const { reason, deletionDate } = req.body;
       
       if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
         return res.status(400).json({ message: "Deletion reason is required" });
@@ -2112,17 +2162,28 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Bank deposit not found" });
       }
       
-      // Log the deletion
+      // Soft delete: Update the deposit with deletion metadata
+      const deletedAt = deletionDate ? new Date(deletionDate) : new Date();
+      const [updated] = await db.update(bankDeposits)
+        .set({
+          isDeleted: true,
+          deletedAt: deletedAt,
+          deletionReason: reason.trim(),
+          deletedBy: (req as any).user?.id || null,
+        })
+        .where(eq(bankDeposits.id, depositId))
+        .returning();
+      
+      // Log the deletion for audit trail
       await storage.createDeletionLog({
         recordType: 'bank_deposit',
         recordId: depositId,
         recordDetails: depositToDelete,
         reason: reason.trim(),
-        deletedBy: req.session.userId || null,
+        deletedBy: (req as any).user?.id || null,
       });
       
-      await storage.deleteBankDeposit(depositId);
-      res.status(204).send();
+      res.json(updated);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -2267,7 +2328,7 @@ export async function registerRoutes(
         const elapsedInvoices = getElapsedInvoices(invoices);
         
         const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
-        const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const totalPaid = getActivePayments(tenantPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const openingBalance = parseFloat(tenant.openingDueBalance);
         
         const currentDue = Math.max(0, openingBalance + totalInvoices - totalPaid);
@@ -2280,7 +2341,7 @@ export async function registerRoutes(
       const thisMonth = new Date();
       const firstOfMonth = new Date(thisMonth.getFullYear(), thisMonth.getMonth(), 1);
       const monthlyPayments = allPayments.filter(p => new Date(p.paymentDate) >= firstOfMonth);
-      const monthlyCollection = monthlyPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      const monthlyCollection = getActivePayments(monthlyPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
       
       // Shop stats
       const occupiedShops = allShops.filter(s => s.status === 'occupied').length;
@@ -2339,7 +2400,7 @@ export async function registerRoutes(
           return pDate >= monthStart && pDate <= monthEnd;
         });
         
-        const collected = monthPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const collected = getActivePayments(monthPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
         
         // Calculate expected (sum of all monthly rents for active leases)
         const activeLeases = allLeases.filter(l => l.status === 'active' || l.status === 'expiring_soon');
@@ -2491,7 +2552,7 @@ export async function registerRoutes(
       const elapsedInvoices = getElapsedInvoices(invoices);
       
       const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
-      const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      const totalPaid = getActivePayments(tenantPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
       const openingBalance = parseFloat(tenant.openingDueBalance);
       const currentDue = Math.max(0, openingBalance + totalInvoices - totalPaid);
       
@@ -2633,7 +2694,7 @@ export async function registerRoutes(
           const pDate = new Date(p.paymentDate);
           return pDate >= monthStart && pDate <= monthEnd;
         });
-        const collected = monthPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const collected = getActivePayments(monthPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
         
         const pending = Math.max(0, expected - collected);
         
@@ -3018,7 +3079,7 @@ export async function registerRoutes(
           const pDate = new Date(p.paymentDate);
           return pDate.getMonth() + 1 === reportMonth && pDate.getFullYear() === reportYear;
         });
-        const currentMonthPaid = currentMonthPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const currentMonthPaid = getActivePayments(currentMonthPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const currentRentDue = Math.max(0, currentMonthDue - currentMonthPaid);
         
         // Calculate previous rent due (only elapsed months before report month)
@@ -3033,7 +3094,7 @@ export async function registerRoutes(
           return pDate.getFullYear() < reportYear || 
                  (pDate.getFullYear() === reportYear && pDate.getMonth() + 1 < reportMonth);
         });
-        const previousPaid = previousPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const previousPaid = getActivePayments(previousPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
         
         // Add opening balance to previous due
         const openingBalance = parseFloat(tenant.openingDueBalance || '0');
@@ -3047,7 +3108,7 @@ export async function registerRoutes(
         
         // Calculate current outstanding (total due across all elapsed invoices)
         const totalElapsedInvoices = elapsedLeaseInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
-        const totalAllPayments = leasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const totalAllPayments = getActivePayments(leasePayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const currentOutstanding = Math.max(0, openingBalance + totalElapsedInvoices - totalAllPayments);
         
         reportData.push({
@@ -3113,7 +3174,7 @@ export async function registerRoutes(
         const pDate = new Date(p.paymentDate);
         return pDate.getMonth() + 1 === reportMonth && pDate.getFullYear() === reportYear;
       });
-      totals.totalRecentPayments = periodReceivedPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      totals.totalRecentPayments = getActivePayments(periodReceivedPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
       
       // Calculate rent collection by location/floor for selected period
       const locationTotals = {
@@ -3251,7 +3312,7 @@ export async function registerRoutes(
         const leaseInvoices = allInvoices.filter(inv => inv.leaseId === lease.id);
         const elapsedInvoices = getElapsedInvoices(leaseInvoices);
         const totalInvoiced = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
-        const totalPaid = allPayments.filter(p => p.leaseId === lease.id).reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const totalPaid = getActivePayments(allPayments.filter(p => p.leaseId === lease.id)).reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const openingBalance = parseFloat(tenant.openingDueBalance || '0');
         const currentOutstanding = Math.max(0, openingBalance + totalInvoiced - totalPaid);
         
@@ -3633,7 +3694,7 @@ export async function registerRoutes(
         
         const elapsedInvoices = getElapsedInvoices(leaseInvoices);
         const totalBilled = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
-        const totalPaid = leasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const totalPaid = getActivePayments(leasePayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const openingDue = parseFloat(tenant.openingDueBalance || '0');
         const currentOutstanding = openingDue + totalBilled - totalPaid;
         
