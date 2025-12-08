@@ -1716,7 +1716,7 @@ export async function registerRoutes(
         openingBalance,
         openingBalanceRemaining,
         outstandingBalance,
-        totalPaid,
+        totalPaid: totalPaidForLease,
         months,
       });
     } catch (error: any) {
