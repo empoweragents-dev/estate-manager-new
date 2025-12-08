@@ -1572,6 +1572,150 @@ export async function registerRoutes(
     }
   });
 
+  // Helper function to get the historical rent for a specific month/year based on rent adjustments
+  async function getHistoricalRentForMonth(leaseId: number, initialRent: string, year: number, month: number): Promise<number> {
+    // Get all rent adjustments for this lease, ordered by effective date
+    const adjustments = await db.select().from(rentAdjustments)
+      .where(eq(rentAdjustments.leaseId, leaseId))
+      .orderBy(rentAdjustments.effectiveDate);
+    
+    // Start with the initial rent amount
+    let rentForMonth = parseFloat(initialRent);
+    
+    // The target date is the first day of the month we're checking
+    const targetDate = new Date(year, month - 1, 1);
+    
+    // Go through adjustments and find the rent that was active for this month
+    for (const adj of adjustments) {
+      const effectiveDate = new Date(adj.effectiveDate);
+      // If the adjustment was effective before or on the target month, use its new rent
+      if (effectiveDate <= targetDate) {
+        rentForMonth = parseFloat(adj.newRent);
+      } else {
+        // Adjustments after this month don't apply
+        break;
+      }
+    }
+    
+    return rentForMonth;
+  }
+
+  // Get payment form data with historical rent rates and invoice status for a lease
+  app.get("/api/leases/:id/payment-form-data", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const leaseId = parseInt(req.params.id);
+      const lease = await storage.getLease(leaseId);
+      if (!lease) return res.status(404).json({ message: "Lease not found" });
+      
+      const tenant = await storage.getTenant(lease.tenantId);
+      if (!tenant) return res.status(404).json({ message: "Tenant not found" });
+      
+      // Get all invoices for this lease
+      const allInvoices = await storage.getRentInvoicesByTenant(lease.tenantId);
+      const leaseInvoices = allInvoices.filter(inv => inv.leaseId === leaseId);
+      
+      // Get all payments for this tenant
+      const allPayments = await storage.getPaymentsByTenant(lease.tenantId);
+      const totalPaid = allPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      
+      // Get opening balance
+      const openingBalance = parseFloat(tenant.openingDueBalance || '0');
+      
+      // Calculate total due from elapsed invoices
+      const today = new Date();
+      const currentMonth = today.getMonth() + 1;
+      const currentYear = today.getFullYear();
+      
+      const elapsedInvoices = leaseInvoices.filter(inv => 
+        inv.year < currentYear || (inv.year === currentYear && inv.month <= currentMonth)
+      );
+      const totalInvoiced = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+      
+      // Calculate outstanding balance (arrears)
+      const totalDue = openingBalance + totalInvoiced;
+      const outstandingBalance = Math.max(0, totalDue - totalPaid);
+      
+      // Get rent adjustments for this lease to find initial rent
+      const adjustments = await db.select().from(rentAdjustments)
+        .where(eq(rentAdjustments.leaseId, leaseId))
+        .orderBy(rentAdjustments.effectiveDate);
+      
+      // Find initial rent (first rent before any adjustments, or current if no adjustments)
+      let initialRent = lease.monthlyRent;
+      if (adjustments.length > 0) {
+        initialRent = adjustments[0].previousRent;
+      }
+      
+      // Build list of months from lease start to current + 12 future months
+      const leaseStartDate = new Date(lease.startDate);
+      const months: Array<{
+        year: number;
+        month: number;
+        label: string;
+        rent: number;
+        isPaid: boolean;
+        isPast: boolean;
+        isCurrent: boolean;
+        isFuture: boolean;
+      }> = [];
+      
+      let monthIterator = new Date(leaseStartDate.getFullYear(), leaseStartDate.getMonth(), 1);
+      const futureLimit = new Date(currentYear, currentMonth + 11, 1); // 12 months ahead
+      
+      while (monthIterator <= futureLimit) {
+        const y = monthIterator.getFullYear();
+        const m = monthIterator.getMonth() + 1;
+        
+        // Check if lease has ended before this month
+        const leaseEndDate = new Date(lease.endDate);
+        if (monthIterator > leaseEndDate && lease.status === 'terminated') {
+          monthIterator.setMonth(monthIterator.getMonth() + 1);
+          continue;
+        }
+        
+        // Determine invoice status
+        const invoice = leaseInvoices.find(inv => inv.year === y && inv.month === m);
+        const isPaid = invoice?.isPaid ?? false;
+        
+        const isPast = y < currentYear || (y === currentYear && m < currentMonth);
+        const isCurrent = y === currentYear && m === currentMonth;
+        const isFuture = y > currentYear || (y === currentYear && m > currentMonth);
+        
+        // Get historical rent for this month
+        const rent = await getHistoricalRentForMonth(leaseId, initialRent, y, m);
+        
+        // Month label
+        const monthName = new Date(y, m - 1, 1).toLocaleString('default', { month: 'long' });
+        
+        months.push({
+          year: y,
+          month: m,
+          label: `${monthName} ${y}`,
+          rent,
+          isPaid,
+          isPast,
+          isCurrent,
+          isFuture,
+        });
+        
+        monthIterator.setMonth(monthIterator.getMonth() + 1);
+      }
+      
+      res.json({
+        leaseId: lease.id,
+        tenantId: tenant.id,
+        tenantName: tenant.name,
+        currentRent: parseFloat(lease.monthlyRent),
+        openingBalance,
+        outstandingBalance,
+        totalPaid,
+        months,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // ===== PAYMENTS =====
   app.get("/api/payments", isAuthenticated, async (req: Request, res: Response) => {
     try {
