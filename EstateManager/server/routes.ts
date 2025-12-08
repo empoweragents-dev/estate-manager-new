@@ -1880,10 +1880,28 @@ export async function registerRoutes(
         label: string;
         rent: number;
         isPaid: boolean;
+        paidAmount: number;
+        remainingBalance: number;
+        paymentDates: string[];
         isPast: boolean;
         isCurrent: boolean;
         isFuture: boolean;
       }> = [];
+      
+      // Build a map of payment dates per month using rentMonths from payments
+      const paymentDatesByMonth = new Map<string, string[]>();
+      for (const payment of getActivePayments(leasePayments)) {
+        const paymentDate = payment.paymentDate;
+        const rentMonths = payment.rentMonths || [];
+        for (const monthKey of rentMonths) {
+          if (!paymentDatesByMonth.has(monthKey)) {
+            paymentDatesByMonth.set(monthKey, []);
+          }
+          if (!paymentDatesByMonth.get(monthKey)!.includes(paymentDate)) {
+            paymentDatesByMonth.get(monthKey)!.push(paymentDate);
+          }
+        }
+      }
       
       let monthIterator = new Date(leaseStartDate.getFullYear(), leaseStartDate.getMonth(), 1);
       const futureLimit = new Date(currentYear, currentMonth + 11, 1); // 12 months ahead
@@ -1902,12 +1920,22 @@ export async function registerRoutes(
         const invoice = leaseInvoices.find(inv => inv.year === y && inv.month === m);
         const isPaid = invoice?.isPaid ?? false;
         
+        // Get paid amount from invoice (for partial payment tracking)
+        const paidAmount = invoice?.paidAmount ? parseFloat(invoice.paidAmount) : 0;
+        
         const isPast = y < currentYear || (y === currentYear && m < currentMonth);
         const isCurrent = y === currentYear && m === currentMonth;
         const isFuture = y > currentYear || (y === currentYear && m > currentMonth);
         
         // Get historical rent for this month (no DB query - uses in-memory adjustments)
         const rent = getRentForMonth(y, m);
+        
+        // Calculate remaining balance for this month
+        const remainingBalance = Math.max(0, rent - paidAmount);
+        
+        // Get payment dates for this month (format: YYYY-MM)
+        const monthKey = `${y}-${String(m).padStart(2, '0')}`;
+        const paymentDates = paymentDatesByMonth.get(monthKey) || [];
         
         // Month label
         const monthName = new Date(y, m - 1, 1).toLocaleString('default', { month: 'long' });
@@ -1918,6 +1946,9 @@ export async function registerRoutes(
           label: `${monthName} ${y}`,
           rent,
           isPaid,
+          paidAmount,
+          remainingBalance,
+          paymentDates,
           isPast,
           isCurrent,
           isFuture,
