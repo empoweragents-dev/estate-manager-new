@@ -768,16 +768,38 @@ export default function PaymentsPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async ({ id, reason, deletionDate }: { id: number; reason: string; deletionDate?: string }) => {
+    mutationFn: async ({ id, reason, deletionDate }: { id: number; reason: string; deletionDate?: string; tenantId: number; leaseId: number; ownerId?: number | null }) => {
       return apiRequest("DELETE", `/api/payments/${id}`, { reason, deletionDate });
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
+      // Helper function to check if query key matches a base path
+      const queryKeyMatchesPath = (queryKey: readonly unknown[], basePath: string): boolean => {
+        const firstKey = queryKey[0];
+        if (typeof firstKey !== 'string') return false;
+        // Match both "/api/owners" and "/api/owners/..." style keys
+        return firstKey === basePath || firstKey.startsWith(basePath + '/');
+      };
+      
+      // Invalidate all payment-related queries
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/tenants"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/leases"] });
       queryClient.invalidateQueries({ queryKey: ["/api/rent-invoices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/owners"] });
+      
+      // Invalidate all owner-related queries (list, detail, top-outstandings, etc.)
+      queryClient.invalidateQueries({
+        predicate: (query) => queryKeyMatchesPath(query.queryKey, '/api/owners')
+      });
+      
+      // Invalidate all tenant-related queries (list, detail, ledger, etc.)
+      queryClient.invalidateQueries({
+        predicate: (query) => queryKeyMatchesPath(query.queryKey, '/api/tenants')
+      });
+      
+      // Invalidate all lease-related queries (list, detail, breakdown, etc.)
+      queryClient.invalidateQueries({
+        predicate: (query) => queryKeyMatchesPath(query.queryKey, '/api/leases')
+      });
+      
       toast({ title: "Payment deleted successfully" });
       setDeleteDialogOpen(false);
       setPaymentToDelete(null);
@@ -800,7 +822,9 @@ export default function PaymentsPage() {
       deleteMutation.mutate({ 
         id: paymentToDelete.id, 
         reason: deleteReason.trim(),
-        deletionDate: deletionDate
+        deletionDate: deletionDate,
+        tenantId: paymentToDelete.tenantId,
+        leaseId: paymentToDelete.leaseId,
       });
     }
   };
