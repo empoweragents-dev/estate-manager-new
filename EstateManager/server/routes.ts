@@ -3486,6 +3486,33 @@ export async function registerRoutes(
     }
   });
 
+  // Admin endpoint to recalculate FIFO status for all leases
+  app.post("/api/admin/recalculate-fifo", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      // Only super_admin can recalculate FIFO
+      if (req.session.userRole !== 'super_admin') {
+        return res.status(403).json({ message: "Access denied. Super admin only." });
+      }
+      
+      const allLeases = await storage.getLeases();
+      let recalculatedCount = 0;
+      
+      for (const lease of allLeases) {
+        if (lease.status !== 'terminated') {
+          await updateInvoicePaidStatusForLease(lease.id);
+          recalculatedCount++;
+        }
+      }
+      
+      res.json({ 
+        message: `FIFO status recalculated for ${recalculatedCount} active leases`,
+        recalculatedCount 
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   return httpServer;
 }
 
