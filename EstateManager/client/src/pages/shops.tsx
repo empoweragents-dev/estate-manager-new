@@ -34,7 +34,14 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, Store, Edit2, Trash2, Users, Building2, Layers } from "lucide-react";
+import { Plus, Store, Edit2, Trash2, Users, Building2, Layers, Info } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { SoftDeleteModal } from "@/components/soft-delete-modal";
 import type { Owner, ShopWithOwner } from "@shared/schema";
 import { formatFloor, getShopStatusColor } from "@/lib/currency";
 import { sortByFloorAndShopNumber } from "@/lib/utils";
@@ -298,16 +305,29 @@ function ShopCard({
   onEdit: (shop: ShopWithOwner) => void;
   onDelete: (id: number) => void;
 }) {
+  const isDeleted = (shop as any).isDeleted;
+  const deletedAt = (shop as any).deletedAt;
+  const deletionReason = (shop as any).deletionReason;
+
+  const formatDeletedDate = (date: string | Date | null) => {
+    if (!date) return "N/A";
+    return new Date(date).toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  };
+
   return (
-    <Card className="overflow-visible hover-elevate" data-testid={`card-shop-${shop.id}`}>
+    <Card className={`overflow-visible hover-elevate ${isDeleted ? "opacity-60" : ""}`} data-testid={`card-shop-${shop.id}`}>
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-2 mb-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <div className={`flex h-10 w-10 items-center justify-center rounded-md ${isDeleted ? "bg-muted text-muted-foreground" : "bg-primary/10 text-primary"}`}>
               <Store className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="font-semibold">Shop {shop.shopNumber}</h3>
+              <h3 className={`font-semibold ${isDeleted ? "line-through text-muted-foreground" : ""}`}>Shop {shop.shopNumber}</h3>
               <p className="text-sm text-muted-foreground">{formatFloor(shop.floor, shop.subedariCategory)}</p>
             </div>
           </div>
@@ -315,13 +335,33 @@ function ShopCard({
             <Button variant="ghost" size="icon" onClick={() => onEdit(shop)} data-testid={`button-edit-shop-${shop.id}`}>
               <Edit2 className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="icon" onClick={() => onDelete(shop.id)} data-testid={`button-delete-shop-${shop.id}`}>
-              <Trash2 className="h-4 w-4 text-destructive" />
-            </Button>
+            {!isDeleted && (
+              <Button variant="ghost" size="icon" onClick={() => onDelete(shop.id)} data-testid={`button-delete-shop-${shop.id}`}>
+                <Trash2 className="h-4 w-4 text-destructive" />
+              </Button>
+            )}
           </div>
         </div>
 
         <div className="flex flex-wrap gap-2 mb-3">
+          {isDeleted && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="destructive" className="gap-1 cursor-help">
+                    Voided
+                    <Info className="h-3 w-3" />
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  <div className="text-xs space-y-1">
+                    <p><strong>Removed on:</strong> {formatDeletedDate(deletedAt)}</p>
+                    <p><strong>Reason:</strong> {deletionReason || "No reason provided"}</p>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
           <Badge className={getShopStatusColor(shop.status)}>
             {shop.status === "occupied" ? "Occupied" : "Vacant"}
           </Badge>
@@ -350,6 +390,8 @@ export default function ShopsPage() {
   const [editingShop, setEditingShop] = useState<ShopWithOwner | null>(null);
   const [selectedFloor, setSelectedFloor] = useState<string>("all");
   const [selectedOwner, setSelectedOwner] = useState<string>("all");
+  const [deleteShopId, setDeleteShopId] = useState<number | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const { toast } = useToast();
 
   const { data: shops = [], isLoading } = useQuery<ShopWithOwner[]>({
@@ -361,12 +403,14 @@ export default function ShopsPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (id: number) => {
-      return apiRequest("DELETE", `/api/shops/${id}`);
+    mutationFn: async ({ id, reason, deletionDate }: { id: number; reason: string; deletionDate: string }) => {
+      return apiRequest("DELETE", `/api/shops/${id}`, { reason, deletionDate });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/shops"] });
-      toast({ title: "Shop deleted successfully" });
+      toast({ title: "Shop removed successfully" });
+      setIsDeleteModalOpen(false);
+      setDeleteShopId(null);
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -382,6 +426,24 @@ export default function ShopsPage() {
     setIsDialogOpen(false);
     setEditingShop(null);
   };
+
+  const handleDeleteClick = (id: number) => {
+    setDeleteShopId(id);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = (reason: string, deletionDate: string) => {
+    if (deleteShopId) {
+      deleteMutation.mutate({ id: deleteShopId, reason, deletionDate });
+    }
+  };
+
+  const handleDeleteModalClose = () => {
+    setIsDeleteModalOpen(false);
+    setDeleteShopId(null);
+  };
+
+  const shopToDelete = shops.find(s => s.id === deleteShopId);
 
   const filteredShops = sortByFloorAndShopNumber(
     shops.filter(shop => {
@@ -604,7 +666,7 @@ export default function ShopsPage() {
             key={shop.id}
             shop={shop}
             onEdit={handleEdit}
-            onDelete={(id) => deleteMutation.mutate(id)}
+            onDelete={handleDeleteClick}
           />
         ))}
 
@@ -636,6 +698,15 @@ export default function ShopsPage() {
           </Card>
         )}
       </div>
+
+      <SoftDeleteModal
+        isOpen={isDeleteModalOpen}
+        onClose={handleDeleteModalClose}
+        onConfirm={handleConfirmDelete}
+        entityType="Shop"
+        entityDescription={shopToDelete ? `Shop ${shopToDelete.shopNumber}` : ""}
+        isPending={deleteMutation.isPending}
+      />
     </div>
   );
 }

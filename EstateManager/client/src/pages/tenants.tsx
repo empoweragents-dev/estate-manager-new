@@ -48,7 +48,13 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, User, Phone, MapPin, CreditCard, Eye, Edit2, Trash2, AlertTriangle, FileText, AlertCircle, Calendar, X, Building, Upload, FileSpreadsheet, Download, CheckCircle, XCircle } from "lucide-react";
+import { Plus, User, Phone, MapPin, CreditCard, Eye, Edit2, Trash2, AlertTriangle, FileText, AlertCircle, Calendar, X, Building, Upload, FileSpreadsheet, Download, CheckCircle, XCircle, Info } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { TenantWithDues, Owner } from "@shared/schema";
 import { formatCurrency, useCurrencyStore } from "@/lib/currency";
 
@@ -491,6 +497,7 @@ export default function TenantsPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [tenantToDelete, setTenantToDelete] = useState<TenantWithDues | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
+  const [deletionDate, setDeletionDate] = useState(new Date().toISOString().split("T")[0]);
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { currency, exchangeRate } = useCurrencyStore();
@@ -523,8 +530,8 @@ export default function TenantsPage() {
   };
 
   const deleteMutation = useMutation({
-    mutationFn: async ({ id, reason }: { id: number; reason: string }) => {
-      return apiRequest("DELETE", `/api/tenants/${id}`, { reason });
+    mutationFn: async ({ id, reason, deletionDate }: { id: number; reason: string; deletionDate?: string }) => {
+      return apiRequest("DELETE", `/api/tenants/${id}`, { reason, deletionDate });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tenants/by-owner"] });
@@ -541,12 +548,13 @@ export default function TenantsPage() {
   const handleDeleteClick = (tenant: TenantWithDues) => {
     setTenantToDelete(tenant);
     setDeleteReason("");
+    setDeletionDate(new Date().toISOString().split("T")[0]);
     setDeleteDialogOpen(true);
   };
 
   const handleConfirmDelete = () => {
     if (tenantToDelete && deleteReason.trim()) {
-      deleteMutation.mutate({ id: tenantToDelete.id, reason: deleteReason.trim() });
+      deleteMutation.mutate({ id: tenantToDelete.id, reason: deleteReason.trim(), deletionDate });
     }
   };
 
@@ -683,14 +691,33 @@ export default function TenantsPage() {
                   const severity = getDueSeverity(tenant.currentDue, tenant.totalDue);
                   const monthlyDues = (tenant as any).monthlyDues || {};
                   const monthsDueCount = getMonthsDueCount(monthlyDues);
+                  const isDeleted = (tenant as any).isDeleted;
+                  const rowClasses = isDeleted ? 'opacity-60 bg-muted/30' : (severity === 'critical' ? 'bg-red-50 dark:bg-red-950/20' : severity === 'high' ? 'bg-orange-50 dark:bg-orange-950/20' : '');
+                  const textClasses = isDeleted ? 'line-through' : '';
                   
                   return (
-                  <TableRow key={tenant.id} data-testid={`row-tenant-${tenant.id}`} className={severity === 'critical' ? 'bg-red-50 dark:bg-red-950/20' : severity === 'high' ? 'bg-orange-50 dark:bg-orange-950/20' : ''}>
+                  <TableRow key={tenant.id} data-testid={`row-tenant-${tenant.id}`} className={rowClasses}>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <div className="flex items-center gap-2">
-                          <p className="font-medium">{tenant.name}</p>
-                          {severity === 'critical' && <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400" />}
+                          <p className={`font-medium ${textClasses}`}>{tenant.name}</p>
+                          {isDeleted && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge variant="outline" className="text-muted-foreground gap-1">
+                                    <Info className="h-3 w-3" />
+                                    Voided
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Deleted: {(tenant as any).deletedAt ? new Date((tenant as any).deletedAt).toLocaleDateString() : 'N/A'}</p>
+                                  <p>Reason: {(tenant as any).deletionReason || 'No reason provided'}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+                          {!isDeleted && severity === 'critical' && <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400" />}
                         </div>
                       </div>
                     </TableCell>
@@ -757,14 +784,16 @@ export default function TenantsPage() {
                         >
                           <Edit2 className="h-4 w-4" />
                         </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          onClick={() => handleDeleteClick(tenant)}
-                          data-testid={`button-delete-tenant-${tenant.id}`}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                        {!isDeleted && (
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={() => handleDeleteClick(tenant)}
+                            data-testid={`button-delete-tenant-${tenant.id}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -816,6 +845,14 @@ export default function TenantsPage() {
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Deletion Date</label>
+            <Input
+              type="date"
+              value={deletionDate}
+              onChange={(e) => setDeletionDate(e.target.value)}
+            />
+          </div>
           <div className="space-y-2">
             <label className="text-sm font-medium">Reason for deletion <span className="text-destructive">*</span></label>
             <Textarea

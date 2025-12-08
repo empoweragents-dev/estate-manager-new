@@ -51,7 +51,13 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, Wallet, Calendar, User, Building2, Trash2, FileText } from "lucide-react";
+import { Plus, Wallet, Calendar, User, Building2, Trash2, FileText, Info } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { BankDeposit, Owner } from "@shared/schema";
 import { formatCurrency, useCurrencyStore } from "@/lib/currency";
 
@@ -253,6 +259,7 @@ export default function BankDepositsPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [depositToDelete, setDepositToDelete] = useState<BankDepositWithOwner | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
+  const [deletionDate, setDeletionDate] = useState(new Date().toISOString().split("T")[0]);
   const { toast } = useToast();
   const { currency, exchangeRate } = useCurrencyStore();
 
@@ -265,8 +272,8 @@ export default function BankDepositsPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async ({ id, reason }: { id: number; reason: string }) => {
-      return apiRequest("DELETE", `/api/bank-deposits/${id}`, { reason });
+    mutationFn: async ({ id, reason, deletionDate }: { id: number; reason: string; deletionDate?: string }) => {
+      return apiRequest("DELETE", `/api/bank-deposits/${id}`, { reason, deletionDate });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/bank-deposits"] });
@@ -283,12 +290,17 @@ export default function BankDepositsPage() {
   const handleDeleteClick = (deposit: BankDepositWithOwner) => {
     setDepositToDelete(deposit);
     setDeleteReason("");
+    setDeletionDate(new Date().toISOString().split("T")[0]);
     setDeleteDialogOpen(true);
   };
 
   const handleConfirmDelete = () => {
     if (depositToDelete && deleteReason.trim()) {
-      deleteMutation.mutate({ id: depositToDelete.id, reason: deleteReason.trim() });
+      deleteMutation.mutate({ 
+        id: depositToDelete.id, 
+        reason: deleteReason.trim(),
+        deletionDate: deletionDate
+      });
     }
   };
 
@@ -301,7 +313,8 @@ export default function BankDepositsPage() {
     return formatCurrency(num, currency, exchangeRate);
   };
 
-  const totalDeposits = deposits.reduce((sum, d) => sum + parseFloat(d.amount), 0);
+  const activeDeposits = deposits.filter(d => !d.isDeleted);
+  const totalDeposits = activeDeposits.reduce((sum, d) => sum + parseFloat(d.amount), 0);
 
   if (isLoading) {
     return (
@@ -380,59 +393,94 @@ export default function BankDepositsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {deposits.map((deposit) => (
-                  <TableRow key={deposit.id} data-testid={`row-deposit-${deposit.id}`}>
-                    <TableCell>
-                      <div className="flex items-center gap-1 text-sm">
-                        <Calendar className="h-4 w-4 text-muted-foreground" />
-                        {new Date(deposit.depositDate).toLocaleDateString()}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <User className="h-4 w-4 text-muted-foreground" />
-                        {deposit.owner?.name}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Building2 className="h-4 w-4 text-muted-foreground" />
-                        {deposit.bankName}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {deposit.depositSlipRef ? (
-                        <div className="flex items-center gap-1 text-sm">
-                          <FileText className="h-3 w-3 text-muted-foreground" />
-                          <span className="font-mono">{deposit.depositSlipRef}</span>
+                {deposits.map((deposit) => {
+                  const isDeleted = deposit.isDeleted;
+                  const rowClasses = isDeleted 
+                    ? "opacity-60 bg-muted/30" 
+                    : "";
+                  const textClasses = isDeleted 
+                    ? "line-through text-muted-foreground" 
+                    : "";
+                  
+                  return (
+                    <TableRow key={deposit.id} data-testid={`row-deposit-${deposit.id}`} className={rowClasses}>
+                      <TableCell>
+                        <div className={`flex items-center gap-1 text-sm ${textClasses}`}>
+                          <Calendar className={`h-4 w-4 ${isDeleted ? 'text-muted-foreground/50' : 'text-muted-foreground'}`} />
+                          {new Date(deposit.depositDate).toLocaleDateString()}
+                          {isDeleted && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="flex items-center gap-1 ml-2">
+                                    <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+                                      Voided
+                                    </Badge>
+                                    <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-[300px]">
+                                  <div className="space-y-1 text-xs">
+                                    <p><strong>Deleted:</strong> {deposit.deletedAt ? new Date(deposit.deletedAt).toLocaleString() : 'Unknown'}</p>
+                                    <p><strong>Reason:</strong> {deposit.deletionReason || 'No reason provided'}</p>
+                                  </div>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
                         </div>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Badge className="bg-primary/10 text-primary tabular-nums">
-                        {formatValue(deposit.amount)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-sm text-muted-foreground truncate max-w-[150px] block">
-                        {deposit.notes || "-"}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDeleteClick(deposit)}
-                        disabled={deleteMutation.isPending}
-                        data-testid={`button-delete-deposit-${deposit.id}`}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      </TableCell>
+                      <TableCell>
+                        <div className={`flex items-center gap-2 ${textClasses}`}>
+                          <User className={`h-4 w-4 ${isDeleted ? 'text-muted-foreground/50' : 'text-muted-foreground'}`} />
+                          {deposit.owner?.name}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className={`flex items-center gap-2 ${textClasses}`}>
+                          <Building2 className={`h-4 w-4 ${isDeleted ? 'text-muted-foreground/50' : 'text-muted-foreground'}`} />
+                          {deposit.bankName}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {deposit.depositSlipRef ? (
+                          <div className={`flex items-center gap-1 text-sm ${textClasses}`}>
+                            <FileText className={`h-3 w-3 ${isDeleted ? 'text-muted-foreground/50' : 'text-muted-foreground'}`} />
+                            <span className="font-mono">{deposit.depositSlipRef}</span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Badge className={isDeleted 
+                          ? "bg-gray-100 text-gray-500 dark:bg-gray-800/30 dark:text-gray-500 tabular-nums line-through" 
+                          : "bg-primary/10 text-primary tabular-nums"
+                        }>
+                          {formatValue(deposit.amount)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <span className={`text-sm truncate max-w-[150px] block ${isDeleted ? 'text-muted-foreground/50' : 'text-muted-foreground'}`}>
+                          {deposit.notes || "-"}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        {!isDeleted && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDeleteClick(deposit)}
+                            disabled={deleteMutation.isPending}
+                            data-testid={`button-delete-deposit-${deposit.id}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           ) : (
@@ -467,14 +515,25 @@ export default function BankDepositsPage() {
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Reason for deletion <span className="text-destructive">*</span></label>
-            <Textarea
-              value={deleteReason}
-              onChange={(e) => setDeleteReason(e.target.value)}
-              placeholder="Please provide a reason for deleting this bank deposit record..."
-              className="min-h-[80px]"
-            />
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Deletion Date</label>
+              <Input
+                type="date"
+                value={deletionDate}
+                onChange={(e) => setDeletionDate(e.target.value)}
+                className="w-full"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Reason for deletion <span className="text-destructive">*</span></label>
+              <Textarea
+                value={deleteReason}
+                onChange={(e) => setDeleteReason(e.target.value)}
+                placeholder="Please provide a reason for deleting this bank deposit record..."
+                className="min-h-[80px]"
+              />
+            </div>
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setDeleteDialogOpen(false)}>Cancel</AlertDialogCancel>

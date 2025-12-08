@@ -55,7 +55,13 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, CreditCard, User, Store, Calendar, Receipt, Trash2, Search, Building2, CheckCircle2, Circle, X, Filter, ChevronDown, ChevronUp, AlertCircle } from "lucide-react";
+import { Plus, CreditCard, User, Store, Calendar, Receipt, Trash2, Search, Building2, CheckCircle2, Circle, X, Filter, ChevronDown, ChevronUp, AlertCircle, Info } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { Payment, Tenant, Lease, Owner } from "@shared/schema";
 import { formatCurrency, useCurrencyStore } from "@/lib/currency";
 
@@ -713,6 +719,7 @@ export default function PaymentsPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [paymentToDelete, setPaymentToDelete] = useState<PaymentWithDetails | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
+  const [deletionDate, setDeletionDate] = useState(new Date().toISOString().split("T")[0]);
   const { toast } = useToast();
   const { currency, exchangeRate } = useCurrencyStore();
 
@@ -729,8 +736,8 @@ export default function PaymentsPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async ({ id, reason }: { id: number; reason: string }) => {
-      return apiRequest("DELETE", `/api/payments/${id}`, { reason });
+    mutationFn: async ({ id, reason, deletionDate }: { id: number; reason: string; deletionDate?: string }) => {
+      return apiRequest("DELETE", `/api/payments/${id}`, { reason, deletionDate });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
@@ -749,12 +756,17 @@ export default function PaymentsPage() {
   const handleDeleteClick = (payment: PaymentWithDetails) => {
     setPaymentToDelete(payment);
     setDeleteReason("");
+    setDeletionDate(new Date().toISOString().split("T")[0]);
     setDeleteDialogOpen(true);
   };
 
   const handleConfirmDelete = () => {
     if (paymentToDelete && deleteReason.trim()) {
-      deleteMutation.mutate({ id: paymentToDelete.id, reason: deleteReason.trim() });
+      deleteMutation.mutate({ 
+        id: paymentToDelete.id, 
+        reason: deleteReason.trim(),
+        deletionDate: deletionDate
+      });
     }
   };
 
@@ -808,7 +820,8 @@ export default function PaymentsPage() {
     });
   }, [payments, startDate, endDate, selectedOwnerId]);
 
-  const totalCollected = filteredPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+  const activePayments = filteredPayments.filter(p => !p.isDeleted);
+  const totalCollected = activePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
 
   if (isLoading) {
     return (
@@ -954,57 +967,92 @@ export default function PaymentsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredPayments.map((payment) => (
-                  <TableRow key={payment.id} data-testid={`row-payment-${payment.id}`}>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Receipt className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-mono text-sm">
-                          {payment.receiptNumber || `PMT-${payment.id.toString().padStart(4, "0")}`}
+                {filteredPayments.map((payment) => {
+                  const isDeleted = payment.isDeleted;
+                  const rowClasses = isDeleted 
+                    ? "opacity-60 bg-muted/30" 
+                    : "";
+                  const textClasses = isDeleted 
+                    ? "line-through text-muted-foreground" 
+                    : "";
+                  
+                  return (
+                    <TableRow key={payment.id} data-testid={`row-payment-${payment.id}`} className={rowClasses}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Receipt className={`h-4 w-4 ${isDeleted ? 'text-muted-foreground/50' : 'text-muted-foreground'}`} />
+                          <span className={`font-mono text-sm ${textClasses}`}>
+                            {payment.receiptNumber || `PMT-${payment.id.toString().padStart(4, "0")}`}
+                          </span>
+                          {isDeleted && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="flex items-center gap-1">
+                                    <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+                                      Voided
+                                    </Badge>
+                                    <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-[300px]">
+                                  <div className="space-y-1 text-xs">
+                                    <p><strong>Deleted:</strong> {payment.deletedAt ? new Date(payment.deletedAt).toLocaleString() : 'Unknown'}</p>
+                                    <p><strong>Reason:</strong> {payment.deletionReason || 'No reason provided'}</p>
+                                  </div>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className={`flex items-center gap-1 text-sm ${textClasses}`}>
+                          <Calendar className={`h-4 w-4 ${isDeleted ? 'text-muted-foreground/50' : 'text-muted-foreground'}`} />
+                          {new Date(payment.paymentDate).toLocaleDateString()}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className={`flex items-center gap-2 ${textClasses}`}>
+                          <User className={`h-4 w-4 ${isDeleted ? 'text-muted-foreground/50' : 'text-muted-foreground'}`} />
+                          {payment.tenant?.name}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className={`flex items-center gap-2 ${textClasses}`}>
+                          <Store className={`h-4 w-4 ${isDeleted ? 'text-muted-foreground/50' : 'text-muted-foreground'}`} />
+                          Shop {payment.lease?.shop?.shopNumber}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Badge className={isDeleted 
+                          ? "bg-gray-100 text-gray-500 dark:bg-gray-800/30 dark:text-gray-500 tabular-nums line-through" 
+                          : "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400 tabular-nums"
+                        }>
+                          {isDeleted ? '' : '+'}{formatValue(payment.amount)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <span className={`text-sm truncate max-w-[150px] block ${isDeleted ? 'text-muted-foreground/50' : 'text-muted-foreground'}`}>
+                          {payment.notes || "-"}
                         </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1 text-sm">
-                        <Calendar className="h-4 w-4 text-muted-foreground" />
-                        {new Date(payment.paymentDate).toLocaleDateString()}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <User className="h-4 w-4 text-muted-foreground" />
-                        {payment.tenant?.name}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Store className="h-4 w-4 text-muted-foreground" />
-                        Shop {payment.lease?.shop?.shopNumber}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400 tabular-nums">
-                        +{formatValue(payment.amount)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-sm text-muted-foreground truncate max-w-[150px] block">
-                        {payment.notes || "-"}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDeleteClick(payment)}
-                        disabled={deleteMutation.isPending}
-                        data-testid={`button-delete-payment-${payment.id}`}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      </TableCell>
+                      <TableCell>
+                        {!isDeleted && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDeleteClick(payment)}
+                            disabled={deleteMutation.isPending}
+                            data-testid={`button-delete-payment-${payment.id}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           ) : hasActiveFilters ? (
@@ -1049,14 +1097,25 @@ export default function PaymentsPage() {
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Reason for deletion <span className="text-destructive">*</span></label>
-            <Textarea
-              value={deleteReason}
-              onChange={(e) => setDeleteReason(e.target.value)}
-              placeholder="Please provide a reason for deleting this payment record..."
-              className="min-h-[80px]"
-            />
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Deletion Date</label>
+              <Input
+                type="date"
+                value={deletionDate}
+                onChange={(e) => setDeletionDate(e.target.value)}
+                className="w-full"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Reason for deletion <span className="text-destructive">*</span></label>
+              <Textarea
+                value={deleteReason}
+                onChange={(e) => setDeleteReason(e.target.value)}
+                placeholder="Please provide a reason for deleting this payment record..."
+                className="min-h-[80px]"
+              />
+            </div>
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setDeleteDialogOpen(false)}>Cancel</AlertDialogCancel>
