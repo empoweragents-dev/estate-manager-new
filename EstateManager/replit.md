@@ -66,8 +66,8 @@ Preferred communication style: Simple, everyday language.
 - **Shops**: Tagged as sole-owner or common ownership, status tracking (vacant/occupied), floor-based organization
 - **Tenants**: Complete profiles with NID/Passport, contact info, opening due balance support
 - **Leases**: Agreement tracking with dates, security deposits, monthly rent, status (active/expiring_soon/expired/terminated)
-- **Rent Invoices**: Monthly invoice generation linked to leases
-- **Payments**: Payment tracking with date and amount
+- **Rent Invoices**: Monthly invoice generation linked to leases, with `paidAmount` tracking for partial payments
+- **Payments**: Payment tracking with date and amount, FIFO allocation to invoices with split/partial payment support
 - **Bank Deposits**: Owner-specific deposit records
 - **Expenses**: Categorized expenses with allocation to specific owners or common pool
 - **Settings**: Application-wide configuration (exchange rates, etc.)
