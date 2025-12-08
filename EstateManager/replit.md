@@ -126,8 +126,13 @@ Preferred communication style: Simple, everyday language.
 10. **Shop Sorting Order**: All shop/tenant listings are sorted by:
     - Floor order: Ground Floor → 1st Floor → 2nd Floor → Subedari
     - Within each floor, by prefix: E (East) → M (Middle) → W (West)
-    - Within each prefix, numerically: E-1, E-6, E-7, then M-3, M-6, then W-1, W-4, etc.
-11. **User Roles & Authentication**: Traditional username/password authentication with two roles - Super Admin (full access) and Owner (filtered access to their data + common spaces)
+11. **Soft Delete with Audit Trail**: Payments, Bank Deposits, Tenants, and Shops use soft delete:
+    - Records marked as deleted with `isDeleted`, `deletedAt`, `deletionReason`, and `deletedBy` fields
+    - Deleted records remain visible in UI with strikethrough styling, faded opacity, and "Voided" badge
+    - Tooltip on voided badge shows deletion date and reason
+    - Delete action requires mandatory reason and optional deletion date via modal
+    - Deleted records are excluded from ALL financial calculations using `getActivePayments()` and `getActiveBankDeposits()` helper functions in routes.ts
+12. **User Roles & Authentication**: Traditional username/password authentication with two roles - Super Admin (full access) and Owner (filtered access to their data + common spaces)
 
 ### Authentication & Authorization
 
