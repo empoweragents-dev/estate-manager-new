@@ -52,6 +52,7 @@ interface TenantDetailData extends TenantWithDues {
   leases: (Lease & { shop: { shopNumber: string; floor: string } })[];
   payments: Payment[];
   ledgerEntries: LedgerEntry[];
+  monthlyDues?: Record<string, number>;
 }
 
 interface LedgerEntry {
@@ -141,6 +142,7 @@ function TerminateLeaseDialog({
       setIsLoading(true);
       setTerminationNotes('');
       apiRequest("GET", `/api/leases/${lease.id}/settlement`)
+        .then((res) => res.json())
         .then((data) => {
           setSettlement(data);
           setIsLoading(false);
