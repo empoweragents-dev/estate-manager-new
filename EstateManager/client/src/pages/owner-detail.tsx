@@ -981,6 +981,7 @@ interface RentPaymentData {
   monthlyRent: number;
   recentPaymentAmount: number;
   recentPaymentDate: string | null;
+  allPaymentDates: string | null; // Comma-separated dates for multiple payments
   currentOutstanding: number;
   isCommon: boolean;
 }
@@ -1092,7 +1093,7 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
 
     autoTable(doc, {
       startY: 38,
-      head: [['SL', 'Tenant Name', 'Phone', 'Shop Location', 'Monthly Rent', 'Recent Payment', 'Payment Date', 'Outstanding']],
+      head: [['SL', 'Tenant Name', 'Phone', 'Shop Location', 'Monthly Rent', 'Recent Payment', 'Payment Date(s)', 'Outstanding']],
       body: rentData.data.map((row, idx) => [
         (idx + 1).toString(),
         row.tenantName,
@@ -1100,7 +1101,7 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
         row.shopLocation,
         formatNumber(row.monthlyRent),
         row.recentPaymentAmount > 0 ? formatNumber(row.recentPaymentAmount) : '-',
-        row.recentPaymentDate || '-',
+        row.allPaymentDates || row.recentPaymentDate || '-',
         formatNumber(row.currentOutstanding),
       ]),
       foot: [[
@@ -1270,7 +1271,7 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
                       <TableHead className="whitespace-nowrap">Shop Location</TableHead>
                       <TableHead className="text-right whitespace-nowrap">Monthly Rent</TableHead>
                       <TableHead className="text-right whitespace-nowrap">Recent Payment</TableHead>
-                      <TableHead className="text-center whitespace-nowrap">Payment Date</TableHead>
+                      <TableHead className="text-center whitespace-nowrap">Payment Date(s)</TableHead>
                       <TableHead className="text-right whitespace-nowrap">Outstanding</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1287,7 +1288,7 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
                         </TableCell>
                         <TableCell className="text-right">{formatValue(row.monthlyRent)}</TableCell>
                         <TableCell className="text-right text-green-600">{row.recentPaymentAmount > 0 ? formatValue(row.recentPaymentAmount) : '-'}</TableCell>
-                        <TableCell className="text-center">{row.recentPaymentDate || '-'}</TableCell>
+                        <TableCell className="text-center text-xs">{row.allPaymentDates || row.recentPaymentDate || '-'}</TableCell>
                         <TableCell className={`text-right font-medium ${row.currentOutstanding > 0 ? 'text-red-600' : 'text-green-600'}`}>
                           {formatValue(row.currentOutstanding)}
                         </TableCell>

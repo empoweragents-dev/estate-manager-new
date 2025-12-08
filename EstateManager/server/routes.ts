@@ -3349,11 +3349,14 @@ export async function registerRoutes(
           });
         }
         
-        // Get most recent payment
+        // Get all payment dates for this period (sorted chronologically)
         const sortedPayments = [...leasePayments].sort((a, b) => 
-          new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime()
+          new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime()
         );
-        const recentPayment = sortedPayments[0];
+        const recentPayment = sortedPayments[sortedPayments.length - 1]; // Most recent
+        const allPaymentDates = getActivePayments(sortedPayments).map(p => 
+          new Date(p.paymentDate).toLocaleDateString()
+        );
         
         // Calculate total elapsed invoices
         const leaseInvoices = allInvoices.filter(inv => inv.leaseId === lease.id);
@@ -3376,6 +3379,7 @@ export async function registerRoutes(
           fullMonthlyRent: parseFloat(lease.monthlyRent),
           recentPaymentAmount: recentPayment ? parseFloat(recentPayment.amount) * shareRatio : 0,
           recentPaymentDate: recentPayment?.paymentDate || null,
+          allPaymentDates: allPaymentDates.length > 0 ? allPaymentDates.join(', ') : null, // Comma-separated for multiple payments
           currentOutstanding: currentOutstanding * shareRatio,
           fullCurrentOutstanding: currentOutstanding,
           isCommon,
