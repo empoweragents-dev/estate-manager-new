@@ -1431,42 +1431,79 @@ export async function registerRoutes(
       
       const tenant = await storage.getTenant(lease.tenantId);
       const shop = await storage.getShop(lease.shopId);
-      const invoices = await storage.getRentInvoicesByTenant(lease.tenantId);
-      const tenantPayments = await storage.getPaymentsByTenant(lease.tenantId);
       
-      // Only count invoices for elapsed months (up to current month)
-      const elapsedInvoices = getElapsedInvoices(invoices);
+      // Get ALL invoices and payments for this tenant
+      const allInvoices = await storage.getRentInvoicesByTenant(lease.tenantId);
+      const allPayments = await storage.getPaymentsByTenant(lease.tenantId);
+      const allLeases = await storage.getLeasesByTenant(lease.tenantId);
       
-      // Calculate all dues
-      const openingBalance = parseFloat(tenant?.openingDueBalance || '0');
-      const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
-      const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
-      const totalDue = openingBalance + totalInvoices;
-      const currentDue = Math.max(0, totalDue - totalPaid);
+      // === THIS LEASE'S ISOLATED SETTLEMENT ===
+      // Filter invoices and payments specific to THIS lease only
+      const thisLeaseInvoices = allInvoices.filter(inv => inv.leaseId === leaseId);
+      const thisLeasePayments = allPayments.filter(p => p.leaseId === leaseId);
       
-      // Calculate security deposit adjustment
+      // Only count invoices for elapsed months
+      const elapsedThisLeaseInvoices = getElapsedInvoices(thisLeaseInvoices);
+      
+      // Opening balance is now per-lease
+      const thisLeaseOpeningBalance = parseFloat(lease.openingDueBalance || '0');
+      const thisLeaseTotalInvoices = elapsedThisLeaseInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+      const thisLeaseTotalPaid = thisLeasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      const thisLeaseTotalDue = thisLeaseOpeningBalance + thisLeaseTotalInvoices;
+      const thisLeaseCurrentDue = thisLeaseTotalDue - thisLeaseTotalPaid;
+      
+      // Security deposit for this lease
       const securityDeposit = parseFloat(lease.securityDeposit);
-      const securityDepositUsed = Math.min(currentDue, securityDeposit);
-      const finalSettledAmount = currentDue - securityDepositUsed;
-      const remainingSecurityDeposit = securityDeposit - securityDepositUsed;
+      
+      // === GLOBAL LEDGER BALANCE (from OTHER leases) ===
+      // Calculate net balance from all other leases
+      let globalLedgerBalance = 0;
+      
+      for (const otherLease of allLeases) {
+        if (otherLease.id === leaseId) continue; // Skip current lease
+        
+        const otherLeaseInvoices = allInvoices.filter(inv => inv.leaseId === otherLease.id);
+        const otherLeasePayments = allPayments.filter(p => p.leaseId === otherLease.id);
+        const elapsedOtherInvoices = getElapsedInvoices(otherLeaseInvoices);
+        
+        const otherOpeningBalance = parseFloat(otherLease.openingDueBalance || '0');
+        const otherTotalInvoices = elapsedOtherInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+        const otherTotalPaid = otherLeasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        const otherTotalDue = otherOpeningBalance + otherTotalInvoices;
+        
+        // Positive = tenant owes, Negative = tenant has credit
+        globalLedgerBalance += (otherTotalDue - otherTotalPaid);
+      }
       
       res.json({
         leaseId: lease.id,
+        tenantId: tenant?.id,
         tenantName: tenant?.name,
         shopNumber: shop?.shopNumber,
         floor: shop?.floor,
         startDate: lease.startDate,
         endDate: lease.endDate,
         monthlyRent: lease.monthlyRent,
-        openingBalance,
-        totalInvoices,
-        totalPaid,
-        totalDue,
-        currentDue,
+        
+        // This lease's isolated settlement
+        thisLeaseOpeningBalance,
+        thisLeaseTotalInvoices,
+        thisLeaseTotalPaid,
+        thisLeaseTotalDue,
+        thisLeaseCurrentDue,
         securityDeposit,
-        securityDepositUsed,
-        finalSettledAmount,
-        remainingSecurityDeposit,
+        
+        // Global ledger balance from other leases
+        // Positive = tenant still owes money elsewhere
+        // Negative = tenant has credit from overpayment elsewhere
+        globalLedgerBalance,
+        
+        // Legacy fields for backward compatibility
+        openingBalance: thisLeaseOpeningBalance,
+        totalInvoices: thisLeaseTotalInvoices,
+        totalPaid: thisLeaseTotalPaid,
+        totalDue: thisLeaseTotalDue,
+        currentDue: thisLeaseCurrentDue,
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message });

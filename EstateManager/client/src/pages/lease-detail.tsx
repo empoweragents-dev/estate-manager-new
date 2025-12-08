@@ -46,6 +46,7 @@ import {
   TrendingUp,
   TrendingDown,
   History,
+  Wallet,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { useForm } from "react-hook-form";
@@ -90,21 +91,28 @@ interface LeaseDetailData extends Lease {
 
 interface SettlementDetails {
   leaseId: number;
+  tenantId: number;
   tenantName: string;
   shopNumber: string;
   floor: string;
   startDate: string;
   endDate: string;
   monthlyRent: string;
+  
+  thisLeaseOpeningBalance: number;
+  thisLeaseTotalInvoices: number;
+  thisLeaseTotalPaid: number;
+  thisLeaseTotalDue: number;
+  thisLeaseCurrentDue: number;
+  securityDeposit: number;
+  
+  globalLedgerBalance: number;
+  
   openingBalance: number;
   totalInvoices: number;
   totalPaid: number;
   totalDue: number;
   currentDue: number;
-  securityDeposit: number;
-  securityDepositUsed: number;
-  finalSettledAmount: number;
-  remainingSecurityDeposit: number;
 }
 
 const monthNames = [
@@ -124,9 +132,9 @@ function TerminationDialog({
   const [isOpen, setIsOpen] = useState(false);
   const [settlement, setSettlement] = useState<SettlementDetails | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [tenantAdjustment, setTenantAdjustment] = useState<number>(0);
-  const [ownerAdjustment, setOwnerAdjustment] = useState<number>(0);
   const [useSecurityDeposit, setUseSecurityDeposit] = useState(false);
+  const [useGlobalLedger, setUseGlobalLedger] = useState(false);
+  const [globalLedgerAmount, setGlobalLedgerAmount] = useState<number>(0);
 
   const formatValue = (val: number | string) => {
     const num = typeof val === 'string' ? parseFloat(val) || 0 : val;
@@ -139,6 +147,9 @@ function TerminationDialog({
       const response = await apiRequest("GET", `/api/leases/${lease.id}/settlement`);
       const data = await response.json();
       setSettlement(data);
+      setGlobalLedgerAmount(0);
+      setUseGlobalLedger(false);
+      setUseSecurityDeposit(false);
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     } finally {
@@ -153,11 +164,16 @@ function TerminationDialog({
 
   const terminateMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("PATCH", `/api/leases/${lease.id}/terminate`);
+      return apiRequest("PATCH", `/api/leases/${lease.id}/terminate`, {
+        useSecurityDeposit,
+        useGlobalLedger,
+        globalLedgerAmount: useGlobalLedger ? globalLedgerAmount : 0,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/leases/${lease.id}`] });
       queryClient.invalidateQueries({ queryKey: ["/api/leases"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tenants"] });
       toast({ title: "Lease terminated successfully" });
       setIsOpen(false);
       onSuccess();
@@ -167,23 +183,28 @@ function TerminationDialog({
     },
   });
 
-  const calculateFinalAmount = () => {
+  const calculateShopSettlement = () => {
     if (!settlement) return 0;
-    let amount = settlement.currentDue;
-    amount += tenantAdjustment;
-    amount -= ownerAdjustment;
+    let amount = settlement.thisLeaseCurrentDue;
     if (useSecurityDeposit) {
-      amount = Math.max(0, amount - settlement.securityDeposit);
+      amount = amount - settlement.securityDeposit;
+    }
+    if (useGlobalLedger && globalLedgerAmount > 0) {
+      amount = amount - globalLedgerAmount;
     }
     return amount;
   };
 
-  const getTenantCredit = () => {
+  const getMaxGlobalTransfer = () => {
     if (!settlement) return 0;
-    const finalAmount = calculateFinalAmount();
-    if (finalAmount < 0) return Math.abs(finalAmount);
-    return 0;
+    if (settlement.globalLedgerBalance >= 0) return 0;
+    const credit = Math.abs(settlement.globalLedgerBalance);
+    const due = settlement.thisLeaseCurrentDue - (useSecurityDeposit ? settlement.securityDeposit : 0);
+    return Math.min(credit, Math.max(0, due));
   };
+
+  const hasGlobalCredit = settlement && settlement.globalLedgerBalance < 0;
+  const hasGlobalDue = settlement && settlement.globalLedgerBalance > 0;
 
   return (
     <>
@@ -204,7 +225,7 @@ function TerminationDialog({
               Lease Settlement & Termination
             </DialogTitle>
             <DialogDescription>
-              Review the settlement summary before terminating this lease.
+              Review the shop-specific settlement before terminating this lease.
             </DialogDescription>
           </DialogHeader>
 
@@ -236,57 +257,114 @@ function TerminationDialog({
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="border-2 border-blue-500/50">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Outstanding Dues</CardTitle>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Store className="h-4 w-4" />
+                    Shop {settlement.shopNumber} - Isolated Settlement
+                  </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3 text-sm">
                   <div className="flex justify-between">
-                    <span>Opening Balance:</span>
-                    <span>{formatValue(settlement.openingBalance)}</span>
+                    <span>Opening Balance (This Lease):</span>
+                    <span>{formatValue(settlement.thisLeaseOpeningBalance)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Total Rent Invoiced:</span>
-                    <span>{formatValue(settlement.totalInvoices)}</span>
+                    <span>{formatValue(settlement.thisLeaseTotalInvoices)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Total Paid:</span>
-                    <span className="text-green-600">-{formatValue(settlement.totalPaid)}</span>
+                    <span>Total Paid (This Lease):</span>
+                    <span className="text-green-600">-{formatValue(settlement.thisLeaseTotalPaid)}</span>
                   </div>
                   <Separator />
                   <div className="flex justify-between font-semibold">
-                    <span>Current Due (Before Adjustments):</span>
-                    <span className="text-red-600">{formatValue(settlement.currentDue)}</span>
+                    <span>Shop {settlement.shopNumber} Settlement Amount:</span>
+                    <span className={settlement.thisLeaseCurrentDue > 0 ? "text-red-600" : "text-green-600"}>
+                      {formatValue(settlement.thisLeaseCurrentDue)}
+                    </span>
                   </div>
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Security Deposit Available:</span>
+                    <span>{formatValue(settlement.securityDeposit)}</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className={`border-2 ${hasGlobalCredit ? 'border-green-500/50' : hasGlobalDue ? 'border-amber-500/50' : 'border-muted'}`}>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Wallet className="h-4 w-4" />
+                    Global Ledger Balance (Other Shops)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex justify-between text-sm">
+                    <span>Net Balance from Other Leases:</span>
+                    <span className={settlement.globalLedgerBalance > 0 ? "text-red-600 font-semibold" : settlement.globalLedgerBalance < 0 ? "text-green-600 font-semibold" : ""}>
+                      {settlement.globalLedgerBalance > 0 
+                        ? `${formatValue(settlement.globalLedgerBalance)} (Due)`
+                        : settlement.globalLedgerBalance < 0
+                          ? `${formatValue(Math.abs(settlement.globalLedgerBalance))} (Credit)`
+                          : formatValue(0)}
+                    </span>
+                  </div>
+                  
+                  {hasGlobalCredit && (
+                    <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg space-y-3">
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          id="useGlobalLedger"
+                          checked={useGlobalLedger}
+                          onChange={(e) => {
+                            setUseGlobalLedger(e.target.checked);
+                            if (!e.target.checked) setGlobalLedgerAmount(0);
+                          }}
+                          className="h-4 w-4"
+                        />
+                        <Label htmlFor="useGlobalLedger" className="cursor-pointer font-medium">
+                          Adjust from Global Ledger?
+                        </Label>
+                      </div>
+                      
+                      {useGlobalLedger && (
+                        <div className="space-y-2 pl-7">
+                          <Label className="text-sm">Amount to transfer from Global Credit:</Label>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="number"
+                              value={globalLedgerAmount}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value) || 0;
+                                setGlobalLedgerAmount(Math.min(val, getMaxGlobalTransfer()));
+                              }}
+                              max={getMaxGlobalTransfer()}
+                              placeholder="0"
+                              className="w-40"
+                            />
+                            <span className="text-sm text-muted-foreground">
+                              (max: {formatValue(getMaxGlobalTransfer())})
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {hasGlobalDue && (
+                    <p className="text-sm text-amber-600 dark:text-amber-400">
+                      Note: Tenant has outstanding dues on other shops. Settlement here does not affect those.
+                    </p>
+                  )}
                 </CardContent>
               </Card>
 
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Adjustments</CardTitle>
+                  <CardTitle className="text-base">Settlement Options</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Tenant Adjustment (Add to Due)</Label>
-                      <Input
-                        type="number"
-                        value={tenantAdjustment}
-                        onChange={(e) => setTenantAdjustment(parseFloat(e.target.value) || 0)}
-                        placeholder="0"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Owner Adjustment (Deduct from Due)</Label>
-                      <Input
-                        type="number"
-                        value={ownerAdjustment}
-                        onChange={(e) => setOwnerAdjustment(parseFloat(e.target.value) || 0)}
-                        placeholder="0"
-                      />
-                    </div>
-                  </div>
-
                   <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
                     <input
                       type="checkbox"
@@ -304,49 +382,41 @@ function TerminationDialog({
 
               <Card className="border-2 border-primary">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Settlement Summary</CardTitle>
+                  <CardTitle className="text-base">Final Settlement Summary</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex justify-between text-sm">
-                    <span>Current Due:</span>
-                    <span>{formatValue(settlement.currentDue)}</span>
+                    <span>Shop {settlement.shopNumber} Due:</span>
+                    <span>{formatValue(settlement.thisLeaseCurrentDue)}</span>
                   </div>
-                  {tenantAdjustment !== 0 && (
-                    <div className="flex justify-between text-sm">
-                      <span>Tenant Adjustment:</span>
-                      <span className="text-red-600">+{formatValue(tenantAdjustment)}</span>
-                    </div>
-                  )}
-                  {ownerAdjustment !== 0 && (
-                    <div className="flex justify-between text-sm">
-                      <span>Owner Adjustment:</span>
-                      <span className="text-green-600">-{formatValue(ownerAdjustment)}</span>
-                    </div>
-                  )}
                   {useSecurityDeposit && (
                     <div className="flex justify-between text-sm">
                       <span>Security Deposit Applied:</span>
-                      <span className="text-green-600">-{formatValue(Math.min(settlement.securityDeposit, settlement.currentDue + tenantAdjustment - ownerAdjustment))}</span>
+                      <span className="text-green-600">-{formatValue(Math.min(settlement.securityDeposit, settlement.thisLeaseCurrentDue))}</span>
+                    </div>
+                  )}
+                  {useGlobalLedger && globalLedgerAmount > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span>Global Ledger Transfer:</span>
+                      <span className="text-green-600">-{formatValue(globalLedgerAmount)}</span>
                     </div>
                   )}
                   <Separator />
                   <div className="flex justify-between font-bold text-lg">
-                    <span>Final Settlement Amount:</span>
-                    <span className={calculateFinalAmount() > 0 ? "text-red-600" : "text-green-600"}>
-                      {formatValue(calculateFinalAmount())}
+                    <span>Final Amount:</span>
+                    <span className={calculateShopSettlement() > 0 ? "text-red-600" : calculateShopSettlement() < 0 ? "text-blue-600" : "text-green-600"}>
+                      {calculateShopSettlement() > 0 
+                        ? `${formatValue(calculateShopSettlement())} (Tenant Owes)`
+                        : calculateShopSettlement() < 0
+                          ? `${formatValue(Math.abs(calculateShopSettlement()))} (Return to Tenant)`
+                          : formatValue(0) + " (Settled)"}
                     </span>
                   </div>
-                  {getTenantCredit() > 0 && (
-                    <div className="flex justify-between text-sm text-green-600">
-                      <span>Tenant Credit Balance:</span>
-                      <span>{formatValue(getTenantCredit())}</span>
-                    </div>
-                  )}
-                  {useSecurityDeposit && settlement.securityDeposit > (settlement.currentDue + tenantAdjustment - ownerAdjustment) && (
+                  {useSecurityDeposit && settlement.securityDeposit > settlement.thisLeaseCurrentDue && (
                     <div className="flex justify-between text-sm">
                       <span>Remaining Security Deposit to Return:</span>
                       <span className="text-blue-600">
-                        {formatValue(settlement.securityDeposit - Math.min(settlement.securityDeposit, settlement.currentDue + tenantAdjustment - ownerAdjustment))}
+                        {formatValue(settlement.securityDeposit - Math.min(settlement.securityDeposit, settlement.thisLeaseCurrentDue))}
                       </span>
                     </div>
                   )}
