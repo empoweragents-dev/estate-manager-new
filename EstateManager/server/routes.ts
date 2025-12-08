@@ -1563,8 +1563,8 @@ export async function registerRoutes(
         }
       }
       
-      // Recalculate FIFO status for the tenant
-      await updateInvoicePaidStatus(lease.tenantId);
+      // Recalculate FIFO status for this specific lease
+      await updateInvoicePaidStatusForLease(leaseId);
       
       res.status(201).json(adjustment);
     } catch (error: any) {
@@ -1610,18 +1610,12 @@ export async function registerRoutes(
       const tenant = await storage.getTenant(lease.tenantId);
       if (!tenant) return res.status(404).json({ message: "Tenant not found" });
       
-      // Get all invoices for this lease
-      const allInvoices = await storage.getRentInvoicesByTenant(lease.tenantId);
-      const leaseInvoices = allInvoices.filter(inv => inv.leaseId === leaseId);
+      // Get invoices and payments for this specific lease only
+      const leaseInvoices = await storage.getRentInvoicesByLease(leaseId);
+      const leasePayments = await storage.getPaymentsByLease(leaseId);
+      const totalPaidForLease = leasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
       
-      // Get all payments for this tenant
-      const allPayments = await storage.getPaymentsByTenant(lease.tenantId);
-      const totalPaid = allPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
-      
-      // Get opening balance
-      const openingBalance = parseFloat(tenant.openingDueBalance || '0');
-      
-      // Calculate total due from elapsed invoices
+      // Calculate total due from elapsed invoices for this lease
       const today = new Date();
       const currentMonth = today.getMonth() + 1;
       const currentYear = today.getFullYear();
@@ -1631,13 +1625,22 @@ export async function registerRoutes(
       );
       const totalInvoiced = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
       
-      // Calculate outstanding balance (total arrears)
-      const totalDue = openingBalance + totalInvoiced;
-      const outstandingBalance = Math.max(0, totalDue - totalPaid);
+      // Calculate outstanding balance for this lease (total arrears)
+      const outstandingBalance = Math.max(0, totalInvoiced - totalPaidForLease);
       
-      // Calculate remaining opening balance (portion of opening balance not yet covered)
-      // FIFO: payments first cover opening balance, then invoices
-      const openingBalanceRemaining = Math.max(0, openingBalance - totalPaid);
+      // Opening balance is tenant-level (for backwards compatibility)
+      // Only show it for the first active lease to avoid confusion
+      const tenantLeases = await storage.getLeasesByTenant(lease.tenantId);
+      const activeLeases = tenantLeases.filter(l => l.status !== 'terminated').sort((a, b) => 
+        new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
+      );
+      const isFirstLease = activeLeases.length === 0 || activeLeases[0].id === leaseId;
+      
+      // Opening balance remaining (only shown on first lease to avoid confusion)
+      const openingBalance = isFirstLease ? parseFloat(tenant.openingDueBalance || '0') : 0;
+      const allTenantPayments = await storage.getPaymentsByTenant(lease.tenantId);
+      const totalPaidByTenant = allTenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      const openingBalanceRemaining = Math.max(0, openingBalance - totalPaidByTenant);
       
       // Get rent adjustments for this lease to find initial rent
       const adjustments = await db.select().from(rentAdjustments)
@@ -1768,8 +1771,8 @@ export async function registerRoutes(
         notes: notes || '',
       });
       
-      // Now update isPaid status on all invoices using FIFO logic
-      await updateInvoicePaidStatus(tenantId);
+      // Now update isPaid status on all invoices using FIFO logic for this lease
+      await updateInvoicePaidStatusForLease(leaseId);
       
       res.status(201).json(payment);
     } catch (error: any) {
@@ -1814,31 +1817,23 @@ export async function registerRoutes(
       currentDate.setMonth(currentDate.getMonth() + 1);
     }
     
-    // Recalculate FIFO paid status for all invoices
-    await updateInvoicePaidStatus(lease.tenantId);
+    // Recalculate FIFO paid status for this specific lease
+    await updateInvoicePaidStatusForLease(lease.id);
   }
 
-  // Helper function to update isPaid status on invoices using FIFO
-  async function updateInvoicePaidStatus(tenantId: number) {
-    // Get all invoices for this tenant sorted by month/year (oldest first)
-    const allInvoices = await storage.getRentInvoicesByTenant(tenantId);
-    const elapsedInvoices = getElapsedInvoices(allInvoices)
+  // Helper function to update isPaid status on invoices using FIFO (per-lease)
+  async function updateInvoicePaidStatusForLease(leaseId: number) {
+    // Get all invoices for this specific lease sorted by month/year (oldest first)
+    const leaseInvoices = await storage.getRentInvoicesByLease(leaseId);
+    const elapsedInvoices = getElapsedInvoices(leaseInvoices)
       .sort((a, b) => {
         if (a.year !== b.year) return a.year - b.year;
         return a.month - b.month;
       });
     
-    // Get tenant opening balance
-    const tenant = await storage.getTenant(tenantId);
-    const openingBalance = parseFloat(tenant?.openingDueBalance || '0');
-    
-    // Get total payments for this tenant
-    const allPayments = await storage.getPaymentsByTenant(tenantId);
-    const totalPaid = allPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
-    
-    // Calculate amount available for invoices (after covering opening balance)
-    let remainingForInvoices = totalPaid - openingBalance;
-    if (remainingForInvoices < 0) remainingForInvoices = 0;
+    // Get total payments for this specific lease only
+    const leasePayments = await storage.getPaymentsByLease(leaseId);
+    let remainingForInvoices = leasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
     
     // Update isPaid status for each invoice in FIFO order
     for (const invoice of elapsedInvoices) {
@@ -1886,8 +1881,8 @@ export async function registerRoutes(
       
       await storage.deletePayment(paymentId);
       
-      // Recalculate FIFO status after deleting payment
-      await updateInvoicePaidStatus(paymentToDelete.tenantId);
+      // Recalculate FIFO status after deleting payment for this specific lease
+      await updateInvoicePaidStatusForLease(paymentToDelete.leaseId);
       
       res.status(204).send();
     } catch (error: any) {

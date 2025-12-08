@@ -49,11 +49,13 @@ export interface IStorage {
   // Rent Invoices
   getRentInvoices(): Promise<RentInvoice[]>;
   getRentInvoicesByTenant(tenantId: number): Promise<RentInvoice[]>;
+  getRentInvoicesByLease(leaseId: number): Promise<RentInvoice[]>;
   createRentInvoice(invoice: InsertRentInvoice): Promise<RentInvoice>;
   
   // Payments
   getPayments(): Promise<Payment[]>;
   getPaymentsByTenant(tenantId: number): Promise<Payment[]>;
+  getPaymentsByLease(leaseId: number): Promise<Payment[]>;
   createPayment(payment: InsertPayment): Promise<Payment>;
   deletePayment(id: number): Promise<void>;
   
@@ -212,6 +214,10 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(rentInvoices).where(eq(rentInvoices.tenantId, tenantId)).orderBy(desc(rentInvoices.dueDate));
   }
 
+  async getRentInvoicesByLease(leaseId: number): Promise<RentInvoice[]> {
+    return db.select().from(rentInvoices).where(eq(rentInvoices.leaseId, leaseId)).orderBy(desc(rentInvoices.dueDate));
+  }
+
   async createRentInvoice(invoice: InsertRentInvoice): Promise<RentInvoice> {
     const [created] = await db.insert(rentInvoices).values(invoice).returning();
     return created;
@@ -224,6 +230,10 @@ export class DatabaseStorage implements IStorage {
 
   async getPaymentsByTenant(tenantId: number): Promise<Payment[]> {
     return db.select().from(payments).where(eq(payments.tenantId, tenantId)).orderBy(desc(payments.paymentDate));
+  }
+
+  async getPaymentsByLease(leaseId: number): Promise<Payment[]> {
+    return db.select().from(payments).where(eq(payments.leaseId, leaseId)).orderBy(desc(payments.paymentDate));
   }
 
   async createPayment(payment: InsertPayment): Promise<Payment> {
