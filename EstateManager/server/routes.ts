@@ -651,30 +651,47 @@ export async function registerRoutes(
   app.get("/api/tenants", isAuthenticated, async (req: Request, res: Response) => {
     try {
       let allTenants = await storage.getTenants();
+      const allLeases = await storage.getLeases();
       
-      // Filter tenants for owner users (only tenants in their shops + common shops)
+      // Get accessible shop IDs for owner users
+      let accessibleShopIds: number[] | null = null;
+      let accessibleLeaseIds: Set<number> | null = null;
+      
       if (isOwnerUser(req) && req.session.ownerId) {
-        const accessibleShopIds = await getOwnerAccessibleShops(req.session.ownerId);
-        const allLeases = await storage.getLeases();
+        accessibleShopIds = await getOwnerAccessibleShops(req.session.ownerId);
+        accessibleLeaseIds = new Set(
+          allLeases
+            .filter(l => accessibleShopIds!.includes(l.shopId))
+            .map(l => l.id)
+        );
         const tenantIdsInAccessibleShops = new Set(
           allLeases
-            .filter(l => accessibleShopIds.includes(l.shopId))
+            .filter(l => accessibleShopIds!.includes(l.shopId))
             .map(l => l.tenantId)
         );
         allTenants = allTenants.filter(t => tenantIdsInAccessibleShops.has(t.id));
       }
       
-      // Calculate dues for each tenant
+      // Calculate dues for each tenant (filtered by owner's accessible shops if applicable)
       const tenantsWithDues = await Promise.all(allTenants.map(async (tenant) => {
-        const invoices = await storage.getRentInvoicesByTenant(tenant.id);
-        const tenantPayments = await storage.getPaymentsByTenant(tenant.id);
+        let invoices = await storage.getRentInvoicesByTenant(tenant.id);
+        let tenantPayments = await storage.getPaymentsByTenant(tenant.id);
+        
+        // Filter by accessible leases for owner users
+        if (accessibleLeaseIds) {
+          invoices = invoices.filter(inv => accessibleLeaseIds!.has(inv.leaseId));
+          tenantPayments = tenantPayments.filter(p => accessibleLeaseIds!.has(p.leaseId));
+        }
         
         // Only count invoices for elapsed months (up to current month)
         const elapsedInvoices = getElapsedInvoices(invoices);
         
         const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
         const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
-        const openingBalance = parseFloat(tenant.openingDueBalance);
+        
+        // Opening balance only applies when viewing all data (super admin) or first lease context
+        // For owner users, we exclude opening balance to avoid cross-owner confusion
+        const openingBalance = accessibleLeaseIds ? 0 : parseFloat(tenant.openingDueBalance);
         
         const totalDue = openingBalance + totalInvoices;
         const currentDue = totalDue - totalPaid;
@@ -749,13 +766,20 @@ export async function registerRoutes(
       const allPayments = await storage.getPayments();
       
       let filteredTenants = allTenants;
+      let accessibleShopIds: number[] | null = null;
+      let accessibleLeaseIds: Set<number> | null = null;
       
       // For owner users, restrict to only their accessible shops (own + common)
       if (isOwnerUser(req) && req.session.ownerId) {
-        const accessibleShopIds = await getOwnerAccessibleShops(req.session.ownerId);
+        accessibleShopIds = await getOwnerAccessibleShops(req.session.ownerId);
+        accessibleLeaseIds = new Set(
+          allLeases
+            .filter(l => accessibleShopIds!.includes(l.shopId))
+            .map(l => l.id)
+        );
         const tenantIdsInAccessibleShops = new Set(
           allLeases
-            .filter(l => accessibleShopIds.includes(l.shopId))
+            .filter(l => accessibleShopIds!.includes(l.shopId))
             .map(l => l.tenantId)
         );
         filteredTenants = allTenants.filter(t => tenantIdsInAccessibleShops.has(t.id));
@@ -776,11 +800,21 @@ export async function registerRoutes(
       }
       
       const tenantsWithDues = await Promise.all(filteredTenants.map(async (tenant) => {
-        const tenantInvoices = allInvoices.filter(inv => inv.tenantId === tenant.id);
-        const tenantPayments = allPayments.filter(p => p.tenantId === tenant.id);
+        // Filter invoices and payments by accessible leases for owner users
+        let tenantInvoices = allInvoices.filter(inv => inv.tenantId === tenant.id);
+        let tenantPayments = allPayments.filter(p => p.tenantId === tenant.id);
         
-        // Get floor and shop number from first active lease's shop
-        const tenantLeases = allLeases.filter(l => l.tenantId === tenant.id && l.status !== 'terminated');
+        if (accessibleLeaseIds) {
+          tenantInvoices = tenantInvoices.filter(inv => accessibleLeaseIds!.has(inv.leaseId));
+          tenantPayments = tenantPayments.filter(p => accessibleLeaseIds!.has(p.leaseId));
+        }
+        
+        // Get floor and shop number from first active lease's shop (filtered for owner)
+        let tenantLeases = allLeases.filter(l => l.tenantId === tenant.id && l.status !== 'terminated');
+        if (accessibleShopIds) {
+          tenantLeases = tenantLeases.filter(l => accessibleShopIds!.includes(l.shopId));
+        }
+        
         let floor: string | null = null;
         let shopNumber: string | null = null;
         if (tenantLeases.length > 0) {
@@ -795,7 +829,8 @@ export async function registerRoutes(
         
         const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
         const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
-        const openingBalance = parseFloat(tenant.openingDueBalance);
+        // Opening balance excluded for owner users to avoid cross-owner confusion
+        const openingBalance = accessibleLeaseIds ? 0 : parseFloat(tenant.openingDueBalance);
         const totalDue = openingBalance + totalInvoices;
         const currentDue = Math.max(0, totalDue - totalPaid);
         
@@ -853,18 +888,39 @@ export async function registerRoutes(
       const tenant = await storage.getTenant(parseInt(req.params.id));
       if (!tenant) return res.status(404).json({ message: "Tenant not found" });
       
+      // Get accessible shop IDs for owner users
+      let accessibleShopIds: number[] | null = null;
+      let accessibleLeaseIds: Set<number> | null = null;
+      
+      if (isOwnerUser(req) && req.session.ownerId) {
+        accessibleShopIds = await getOwnerAccessibleShops(req.session.ownerId);
+      }
+      
       // Get leases with shop details
-      const tenantLeases = await storage.getLeasesByTenant(tenant.id);
+      let tenantLeases = await storage.getLeasesByTenant(tenant.id);
+      
+      // Filter leases to only accessible shops for owner users
+      if (accessibleShopIds) {
+        tenantLeases = tenantLeases.filter(l => accessibleShopIds!.includes(l.shopId));
+        accessibleLeaseIds = new Set(tenantLeases.map(l => l.id));
+      }
+      
       const leasesWithShops = await Promise.all(tenantLeases.map(async (lease) => {
         const shop = await storage.getShop(lease.shopId);
         return { ...lease, shop: shop ? { shopNumber: shop.shopNumber, floor: shop.floor } : null };
       }));
       
-      // Get payments
-      const tenantPayments = await storage.getPaymentsByTenant(tenant.id);
+      // Get payments (filtered by accessible leases for owner users)
+      let tenantPayments = await storage.getPaymentsByTenant(tenant.id);
+      if (accessibleLeaseIds) {
+        tenantPayments = tenantPayments.filter(p => accessibleLeaseIds!.has(p.leaseId));
+      }
       
-      // Get invoices
-      const invoices = await storage.getRentInvoicesByTenant(tenant.id);
+      // Get invoices (filtered by accessible leases for owner users)
+      let invoices = await storage.getRentInvoicesByTenant(tenant.id);
+      if (accessibleLeaseIds) {
+        invoices = invoices.filter(inv => accessibleLeaseIds!.has(inv.leaseId));
+      }
       
       // Only count invoices for elapsed months (up to current month)
       const elapsedInvoices = getElapsedInvoices(invoices);
@@ -872,7 +928,8 @@ export async function registerRoutes(
       // Calculate totals
       const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
       const totalPaid = tenantPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
-      const openingBalance = parseFloat(tenant.openingDueBalance);
+      // Opening balance excluded for owner users to avoid cross-owner confusion
+      const openingBalance = accessibleLeaseIds ? 0 : parseFloat(tenant.openingDueBalance);
       const totalDue = openingBalance + totalInvoices;
       const currentDue = Math.max(0, totalDue - totalPaid);
       
