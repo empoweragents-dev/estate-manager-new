@@ -1576,11 +1576,17 @@ export async function registerRoutes(
       }
       
       // If using global ledger adjustment, create a transfer payment
+      // Server-side validation: must be positive and within available credit
       if (useGlobalLedger && globalLedgerAmount > 0) {
+        // Validate that globalLedgerAmount is a positive number
+        const transferAmount = Math.max(0, parseFloat(globalLedgerAmount) || 0);
+        if (transferAmount <= 0) {
+          return res.status(400).json({ message: "Global ledger transfer amount must be positive" });
+        }
         const allLeases = await storage.getLeasesByTenant(lease.tenantId);
         
         // Find other leases that have credit (negative balance = overpayment)
-        let remainingTransfer = globalLedgerAmount;
+        let remainingTransfer = transferAmount;
         
         for (const otherLease of allLeases) {
           if (otherLease.id === leaseId || remainingTransfer <= 0) continue;

@@ -337,8 +337,9 @@ function TerminationDialog({
                               value={globalLedgerAmount}
                               onChange={(e) => {
                                 const val = parseFloat(e.target.value) || 0;
-                                setGlobalLedgerAmount(Math.min(val, getMaxGlobalTransfer()));
+                                setGlobalLedgerAmount(Math.max(0, Math.min(val, getMaxGlobalTransfer())));
                               }}
+                              min={0}
                               max={getMaxGlobalTransfer()}
                               placeholder="0"
                               className="w-40"
