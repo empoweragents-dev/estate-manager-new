@@ -780,24 +780,28 @@ export default function PaymentsPage() {
         return firstKey === basePath || firstKey.startsWith(basePath + '/');
       };
       
+      // Force immediate refetch with refetchType: 'all' since staleTime is Infinity
       // Invalidate all payment-related queries
-      queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/rent-invoices"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/payments"], refetchType: 'all' });
+      queryClient.invalidateQueries({ queryKey: ["/api/rent-invoices"], refetchType: 'all' });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"], refetchType: 'all' });
       
       // Invalidate all owner-related queries (list, detail, top-outstandings, etc.)
       queryClient.invalidateQueries({
-        predicate: (query) => queryKeyMatchesPath(query.queryKey, '/api/owners')
+        predicate: (query) => queryKeyMatchesPath(query.queryKey, '/api/owners'),
+        refetchType: 'all'
       });
       
       // Invalidate all tenant-related queries (list, detail, ledger, etc.)
       queryClient.invalidateQueries({
-        predicate: (query) => queryKeyMatchesPath(query.queryKey, '/api/tenants')
+        predicate: (query) => queryKeyMatchesPath(query.queryKey, '/api/tenants'),
+        refetchType: 'all'
       });
       
       // Invalidate all lease-related queries (list, detail, breakdown, etc.)
       queryClient.invalidateQueries({
-        predicate: (query) => queryKeyMatchesPath(query.queryKey, '/api/leases')
+        predicate: (query) => queryKeyMatchesPath(query.queryKey, '/api/leases'),
+        refetchType: 'all'
       });
       
       toast({ title: "Payment deleted successfully" });
