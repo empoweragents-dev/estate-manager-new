@@ -76,6 +76,10 @@ export const shops = pgTable("shops", {
   ownershipType: ownershipTypeEnum("ownership_type").notNull(),
   ownerId: integer("owner_id").references(() => owners.id), // null if common ownership
   description: text("description"),
+  isDeleted: boolean("is_deleted").notNull().default(false),
+  deletedAt: timestamp("deleted_at"),
+  deletionReason: text("deletion_reason"),
+  deletedBy: varchar("deleted_by").references(() => users.id),
 });
 
 export const shopsRelations = relations(shops, ({ one, many }) => ({
@@ -98,6 +102,10 @@ export const tenants = pgTable("tenants", {
   photoUrl: text("photo_url"),
   openingDueBalance: decimal("opening_due_balance", { precision: 12, scale: 2 }).notNull().default('0'),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  isDeleted: boolean("is_deleted").notNull().default(false),
+  deletedAt: timestamp("deleted_at"),
+  deletionReason: text("deletion_reason"),
+  deletedBy: varchar("deleted_by").references(() => users.id),
 });
 
 export const tenantsRelations = relations(tenants, ({ many }) => ({
@@ -190,6 +198,10 @@ export const payments = pgTable("payments", {
   receiptNumber: text("receipt_number"),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  isDeleted: boolean("is_deleted").notNull().default(false),
+  deletedAt: timestamp("deleted_at"),
+  deletionReason: text("deletion_reason"),
+  deletedBy: varchar("deleted_by").references(() => users.id),
 });
 
 export const paymentsRelations = relations(payments, ({ one }) => ({
@@ -213,6 +225,10 @@ export const bankDeposits = pgTable("bank_deposits", {
   depositSlipRef: text("deposit_slip_ref"),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  isDeleted: boolean("is_deleted").notNull().default(false),
+  deletedAt: timestamp("deleted_at"),
+  deletionReason: text("deletion_reason"),
+  deletedBy: varchar("deleted_by").references(() => users.id),
 });
 
 export const bankDepositsRelations = relations(bankDeposits, ({ one }) => ({
