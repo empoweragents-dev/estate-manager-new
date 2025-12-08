@@ -86,6 +86,7 @@ interface PaymentFormData {
   tenantName: string;
   currentRent: number;
   openingBalance: number;
+  openingBalanceRemaining: number;
   outstandingBalance: number;
   totalPaid: number;
   months: PaymentFormMonth[];
@@ -229,8 +230,8 @@ export function PaymentForm({
     }, 0);
   }, [selectedRentMonths, paymentFormData?.months]);
 
-  const outstandingBalance = paymentFormData?.outstandingBalance || 0;
-  const arrearsAmount = includeArrears ? outstandingBalance : 0;
+  const openingBalanceRemaining = paymentFormData?.openingBalanceRemaining || 0;
+  const arrearsAmount = includeArrears ? openingBalanceRemaining : 0;
   const suggestedAmount = selectedMonthsRent + arrearsAmount;
 
   const form = useForm<PaymentFormValues>({
@@ -443,13 +444,13 @@ export function PaymentForm({
                   <span className="text-sm text-muted-foreground">Current Monthly Rent</span>
                   <span className="font-bold text-lg">{formatValue(paymentFormData?.currentRent || 0)}</span>
                 </div>
-                {outstandingBalance > 0 && (
+                {openingBalanceRemaining > 0 && (
                   <div className="flex items-center justify-between mt-1">
                     <span className="text-sm text-muted-foreground flex items-center gap-1">
                       <AlertCircle className="h-3 w-3 text-amber-600" />
-                      Outstanding Balance (Arrears)
+                      Opening Balance Due
                     </span>
-                    <span className="font-bold text-amber-600">{formatValue(outstandingBalance)}</span>
+                    <span className="font-bold text-amber-600">{formatValue(openingBalanceRemaining)}</span>
                   </div>
                 )}
               </CardContent>
@@ -462,7 +463,7 @@ export function PaymentForm({
               </div>
             ) : (
               <>
-                {outstandingBalance > 0 && (
+                {openingBalanceRemaining > 0 && (
                   <div className="flex items-center space-x-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                     <Checkbox
                       id="includeArrears"
@@ -476,7 +477,7 @@ export function PaymentForm({
                       htmlFor="includeArrears"
                       className="text-sm font-medium cursor-pointer flex-1"
                     >
-                      Include outstanding balance ({formatValue(outstandingBalance)})
+                      Include opening balance due ({formatValue(openingBalanceRemaining)})
                     </label>
                   </div>
                 )}
@@ -592,10 +593,10 @@ export function PaymentForm({
                             <span className="tabular-nums">{formatValue(selectedMonthsRent)}</span>
                           </div>
                         )}
-                        {includeArrears && outstandingBalance > 0 && (
+                        {includeArrears && openingBalanceRemaining > 0 && (
                           <div className="flex justify-between text-sm">
-                            <span>Outstanding Balance</span>
-                            <span className="tabular-nums text-amber-600">+ {formatValue(outstandingBalance)}</span>
+                            <span>Opening Balance Due</span>
+                            <span className="tabular-nums text-amber-600">+ {formatValue(openingBalanceRemaining)}</span>
                           </div>
                         )}
                         <Separator />

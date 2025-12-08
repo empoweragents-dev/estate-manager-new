@@ -1631,9 +1631,13 @@ export async function registerRoutes(
       );
       const totalInvoiced = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
       
-      // Calculate outstanding balance (arrears)
+      // Calculate outstanding balance (total arrears)
       const totalDue = openingBalance + totalInvoiced;
       const outstandingBalance = Math.max(0, totalDue - totalPaid);
+      
+      // Calculate remaining opening balance (portion of opening balance not yet covered)
+      // FIFO: payments first cover opening balance, then invoices
+      const openingBalanceRemaining = Math.max(0, openingBalance - totalPaid);
       
       // Get rent adjustments for this lease to find initial rent
       const adjustments = await db.select().from(rentAdjustments)
@@ -1707,6 +1711,7 @@ export async function registerRoutes(
         tenantName: tenant.name,
         currentRent: parseFloat(lease.monthlyRent),
         openingBalance,
+        openingBalanceRemaining,
         outstandingBalance,
         totalPaid,
         months,
