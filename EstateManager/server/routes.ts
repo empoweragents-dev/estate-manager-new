@@ -2039,7 +2039,7 @@ export async function registerRoutes(
     await updateInvoicePaidStatusForLease(lease.id);
   }
 
-  // Helper function to update isPaid status on invoices using FIFO (per-lease)
+  // Helper function to update isPaid status and paidAmount on invoices using FIFO (per-lease)
   async function updateInvoicePaidStatusForLease(leaseId: number) {
     // Get all invoices for this specific lease sorted by month/year (oldest first)
     const leaseInvoices = await storage.getRentInvoicesByLease(leaseId);
@@ -2054,19 +2054,35 @@ export async function registerRoutes(
     const activePayments = leasePayments.filter(p => !p.isDeleted);
     let remainingForInvoices = activePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
     
-    // Update isPaid status for each invoice in FIFO order
+    // Update isPaid status AND paidAmount for each invoice in FIFO order
     for (const invoice of elapsedInvoices) {
       const invoiceAmount = parseFloat(invoice.amount);
+      
       if (remainingForInvoices >= invoiceAmount) {
-        // Fully paid - mark as paid
+        // Fully paid - mark as paid with full paidAmount
         await db.update(rentInvoices)
-          .set({ isPaid: true })
+          .set({ 
+            isPaid: true,
+            paidAmount: invoiceAmount.toFixed(2)
+          })
           .where(eq(rentInvoices.id, invoice.id));
         remainingForInvoices -= invoiceAmount;
-      } else {
-        // Not fully paid - mark as unpaid
+      } else if (remainingForInvoices > 0) {
+        // Partially paid - mark as unpaid but record paidAmount
         await db.update(rentInvoices)
-          .set({ isPaid: false })
+          .set({ 
+            isPaid: false,
+            paidAmount: remainingForInvoices.toFixed(2)
+          })
+          .where(eq(rentInvoices.id, invoice.id));
+        remainingForInvoices = 0;
+      } else {
+        // Not paid at all - mark as unpaid with 0 paidAmount
+        await db.update(rentInvoices)
+          .set({ 
+            isPaid: false,
+            paidAmount: "0"
+          })
           .where(eq(rentInvoices.id, invoice.id));
       }
     }

@@ -173,6 +173,7 @@ export const rentInvoices = pgTable("rent_invoices", {
   month: integer("month").notNull(), // 1-12
   year: integer("year").notNull(),
   isPaid: boolean("is_paid").notNull().default(false),
+  paidAmount: decimal("paid_amount", { precision: 12, scale: 2 }).notNull().default("0"), // Track partial payments
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
