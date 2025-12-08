@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -402,7 +403,7 @@ export function PaymentForm({
                         <User className="h-5 w-5 text-primary" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium truncate">{item.tenantName}</div>
+                        <Link href={`/tenants/${item.tenantId}`} className="font-medium truncate hover:underline hover:text-primary">{item.tenantName}</Link>
                         <div className="text-sm text-muted-foreground flex items-center gap-2">
                           <span>{item.tenantPhone}</span>
                           <span className="text-muted-foreground/50">|</span>
@@ -436,7 +437,7 @@ export function PaymentForm({
                       <User className="h-6 w-6 text-primary" />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-lg">{selectedItem.tenantName}</h3>
+                      <Link href={`/tenants/${selectedItem.tenantId}`} className="font-semibold text-lg hover:underline hover:text-primary">{selectedItem.tenantName}</Link>
                       <p className="text-sm text-muted-foreground">{selectedItem.tenantPhone}</p>
                       <div className="flex items-center gap-2 mt-2">
                         <Badge variant="secondary" className="gap-1">

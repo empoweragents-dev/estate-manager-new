@@ -880,7 +880,22 @@ export async function registerRoutes(
           }
         }
         
-        return { ...tenant, totalDue, totalPaid, currentDue, monthlyDues, floor, shopNumber };
+        // Add active leases with shop info
+        const activeLeases = tenantLeases
+          .filter(l => l.status === 'active' || l.status === 'expiring_soon')
+          .map(lease => {
+            const shop = allShops.find(s => s.id === lease.shopId);
+            return {
+              id: lease.id,
+              shopId: lease.shopId,
+              shopNumber: shop?.shopNumber || '',
+              floor: shop?.floor || '',
+              monthlyRent: lease.monthlyRent,
+              status: lease.status
+            };
+          });
+        
+        return { ...tenant, totalDue, totalPaid, currentDue, monthlyDues, floor, shopNumber, activeLeases };
       }));
       
       // Sort tenants by floor order, then by prefix (E->M->W), then by numerical shop number
@@ -1796,6 +1811,111 @@ export async function registerRoutes(
     
     return rentForMonth;
   }
+
+  // Bulk import rent amounts from Excel/CSV file
+  app.post("/api/leases/bulk-rent-import", isAuthenticated, upload.single('file'), async (req: Request, res: Response) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+      
+      const ownerId = req.body.ownerId ? parseInt(req.body.ownerId) : null;
+      if (!ownerId) {
+        return res.status(400).json({ message: "Owner ID is required" });
+      }
+      
+      const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const data = XLSX.utils.sheet_to_json<{ [key: string]: any }>(sheet);
+      
+      if (data.length === 0) {
+        return res.status(400).json({ message: "File is empty or has no data rows" });
+      }
+      
+      const results = {
+        success: 0,
+        failed: 0,
+        errors: [] as string[],
+      };
+      
+      // Get all shops owned by this owner
+      const allShops = await storage.getShops();
+      const ownerShops = allShops.filter(s => s.ownerId === ownerId);
+      const shopMap = new Map(ownerShops.map(s => [s.shopNumber.toLowerCase(), s]));
+      
+      // Get all leases
+      const allLeases = await storage.getLeases();
+      
+      for (const row of data) {
+        try {
+          // Find shop number column (case insensitive)
+          const shopNumberKey = Object.keys(row).find(k => 
+            k.toLowerCase().includes('shop') && k.toLowerCase().includes('number')
+          ) || Object.keys(row).find(k => k.toLowerCase() === 'shop');
+          
+          // Find monthly rent column (case insensitive)
+          const rentKey = Object.keys(row).find(k => 
+            k.toLowerCase().includes('rent') || k.toLowerCase().includes('monthly')
+          );
+          
+          if (!shopNumberKey || !rentKey) {
+            results.failed++;
+            results.errors.push(`Row missing required columns (Shop Number, Monthly Rent)`);
+            continue;
+          }
+          
+          const shopNumber = String(row[shopNumberKey]).trim().toLowerCase();
+          const rentValue = parseFloat(String(row[rentKey]).replace(/[^0-9.-]/g, ''));
+          
+          if (!shopNumber) {
+            results.failed++;
+            results.errors.push(`Empty shop number in row`);
+            continue;
+          }
+          
+          if (isNaN(rentValue) || rentValue <= 0) {
+            results.failed++;
+            results.errors.push(`Invalid rent amount for shop ${shopNumber}`);
+            continue;
+          }
+          
+          const shop = shopMap.get(shopNumber);
+          if (!shop) {
+            results.failed++;
+            results.errors.push(`Shop "${shopNumber}" not found for this owner`);
+            continue;
+          }
+          
+          // Find active lease for this shop
+          const activeLease = allLeases.find(l => 
+            l.shopId === shop.id && l.status !== 'terminated'
+          );
+          
+          if (!activeLease) {
+            results.failed++;
+            results.errors.push(`No active lease found for shop ${shopNumber}`);
+            continue;
+          }
+          
+          // Update lease with new rent
+          await storage.updateLease(activeLease.id, { monthlyRent: rentValue.toString() });
+          results.success++;
+          
+        } catch (rowError: any) {
+          results.failed++;
+          results.errors.push(`Error processing row: ${rowError.message}`);
+        }
+      }
+      
+      res.json({
+        message: `Rent import completed: ${results.success} updated, ${results.failed} failed`,
+        results,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: `Import failed: ${error.message}` });
+    }
+  });
 
   // Get payment form data with historical rent rates and invoice status for a lease
   app.get("/api/leases/:id/payment-form-data", isAuthenticated, async (req: Request, res: Response) => {

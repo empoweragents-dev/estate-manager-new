@@ -388,7 +388,9 @@ export default function OwnerDetailPage() {
                     <TableRow key={idx} className={item.isCommon ? 'bg-purple-50/30' : ''}>
                       <TableCell className="py-2 md:py-3">
                         <div>
-                          <p className="font-medium text-xs md:text-sm">{item.tenantName}</p>
+                          <Link href={`/tenants/${item.tenantId}`} className="font-medium text-xs md:text-sm hover:underline hover:text-primary">
+                            {item.tenantName}
+                          </Link>
                           {item.businessName && (
                             <p className="text-[10px] md:text-xs text-muted-foreground">{item.businessName}</p>
                           )}
@@ -1279,7 +1281,11 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
                     {rentData?.data?.map((row, idx) => (
                       <TableRow key={row.leaseId} className={row.isCommon ? 'bg-purple-50/30' : ''}>
                         <TableCell className="text-center">{idx + 1}</TableCell>
-                        <TableCell className="font-medium">{row.tenantName}</TableCell>
+                        <TableCell className="font-medium">
+                          <Link href={`/tenants/${row.tenantId}`} className="hover:underline hover:text-primary">
+                            {row.tenantName}
+                          </Link>
+                        </TableCell>
                         <TableCell>{row.phone}</TableCell>
                         <TableCell>
                           <Badge variant={row.isCommon ? 'secondary' : 'outline'} className={row.isCommon ? 'bg-purple-100 text-purple-700' : ''}>

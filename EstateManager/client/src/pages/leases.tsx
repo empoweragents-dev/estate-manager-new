@@ -51,8 +51,14 @@ import {
   User,
   AlertTriangle,
   Eye,
+  Search,
+  Building,
+  X,
+  Upload,
+  FileSpreadsheet,
+  Download,
 } from "lucide-react";
-import type { LeaseWithDetails, Tenant, ShopWithOwner } from "@shared/schema";
+import type { LeaseWithDetails, Tenant, ShopWithOwner, Owner } from "@shared/schema";
 import { formatCurrency, useCurrencyStore, getLeaseStatusColor, formatFloor } from "@/lib/currency";
 
 const leaseFormSchema = z.object({
@@ -311,7 +317,12 @@ function LeaseForm({
 
 export default function LeasesPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [selectedOwnerId, setSelectedOwnerId] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const { toast } = useToast();
   const { currency } = useCurrencyStore();
 
@@ -325,6 +336,10 @@ export default function LeasesPage() {
 
   const { data: shops = [] } = useQuery<ShopWithOwner[]>({
     queryKey: ["/api/shops"],
+  });
+
+  const { data: owners = [] } = useQuery<Owner[]>({
+    queryKey: ["/api/owners"],
   });
 
   const terminateMutation = useMutation({
@@ -350,17 +365,44 @@ export default function LeasesPage() {
     return formatCurrency(num);
   };
 
-  const filteredLeases =
-    statusFilter === "all"
-      ? leases
-      : leases.filter((lease) => lease.status === statusFilter);
+  // Helper to filter leases by owner and search (without status)
+  const filterByOwnerAndSearch = (lease: LeaseWithDetails) => {
+    // Owner filter - use embedded shop data
+    if (selectedOwnerId !== null) {
+      if (!lease.shop || lease.shop.ownerId !== selectedOwnerId) return false;
+    }
+    
+    // Search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      const tenantName = (lease.tenant?.name || '').toLowerCase();
+      const shopNumber = (lease.shop?.shopNumber || '').toLowerCase();
+      const businessName = ((lease.tenant as any)?.businessName || '').toLowerCase();
+      if (!tenantName.includes(query) && !shopNumber.includes(query) && !businessName.includes(query)) {
+        return false;
+      }
+    }
+    
+    return true;
+  };
 
+  // Get leases filtered by owner and search (for tab counts)
+  const leasesWithOwnerAndSearch = leases.filter(filterByOwnerAndSearch);
+  
+  // Filter leases by status, owner, and search query
+  const filteredLeases = leasesWithOwnerAndSearch.filter((lease) => {
+    // Status filter
+    if (statusFilter !== "all" && lease.status !== statusFilter) return false;
+    return true;
+  });
+
+  // Status counts should reflect filtered data (owner + search)
   const statusCounts = {
-    all: leases.length,
-    active: leases.filter((l) => l.status === "active").length,
-    expiring_soon: leases.filter((l) => l.status === "expiring_soon").length,
-    expired: leases.filter((l) => l.status === "expired").length,
-    terminated: leases.filter((l) => l.status === "terminated").length,
+    all: leasesWithOwnerAndSearch.length,
+    active: leasesWithOwnerAndSearch.filter((l) => l.status === "active").length,
+    expiring_soon: leasesWithOwnerAndSearch.filter((l) => l.status === "expiring_soon").length,
+    expired: leasesWithOwnerAndSearch.filter((l) => l.status === "expired").length,
+    terminated: leasesWithOwnerAndSearch.filter((l) => l.status === "terminated").length,
   };
 
   if (isLoading) {
@@ -392,42 +434,219 @@ export default function LeasesPage() {
           <h1 className="text-2xl font-semibold">Leases</h1>
           <p className="text-muted-foreground">Manage lease agreements and track expiration dates</p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button data-testid="button-add-lease">
-              <Plus className="h-4 w-4 mr-2" />
-              New Lease
+        <div className="flex gap-2">
+          {selectedOwnerId && (
+            <Button variant="outline" onClick={() => setIsImportDialogOpen(true)}>
+              <Upload className="h-4 w-4 mr-2" />
+              Import Rent
             </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Create New Lease</DialogTitle>
-            </DialogHeader>
-            <LeaseForm tenants={tenants} shops={shops} onSuccess={handleDialogClose} />
-          </DialogContent>
-        </Dialog>
+          )}
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button data-testid="button-add-lease">
+                <Plus className="h-4 w-4 mr-2" />
+                New Lease
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Create New Lease</DialogTitle>
+              </DialogHeader>
+              <LeaseForm tenants={tenants} shops={shops} onSuccess={handleDialogClose} />
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
-      <Tabs value={statusFilter} onValueChange={setStatusFilter}>
-        <TabsList>
-          <TabsTrigger value="all" data-testid="tab-all-leases">
-            All ({statusCounts.all})
-          </TabsTrigger>
-          <TabsTrigger value="active" data-testid="tab-active-leases">
-            Active ({statusCounts.active})
-          </TabsTrigger>
-          <TabsTrigger value="expiring_soon" data-testid="tab-expiring-leases">
-            <AlertTriangle className="h-3 w-3 mr-1" />
-            Expiring Soon ({statusCounts.expiring_soon})
-          </TabsTrigger>
-          <TabsTrigger value="expired" data-testid="tab-expired-leases">
-            Expired ({statusCounts.expired})
-          </TabsTrigger>
-          <TabsTrigger value="terminated" data-testid="tab-terminated-leases">
-            Terminated ({statusCounts.terminated})
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
+      {/* Import Rent Dialog */}
+      <Dialog open={isImportDialogOpen} onOpenChange={(open) => {
+        setIsImportDialogOpen(open);
+        if (!open) setImportFile(null);
+      }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5" />
+              Import Monthly Rent for {owners.find(o => o.id === selectedOwnerId)?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Upload an Excel file to bulk update monthly rent amounts for this owner's leases. 
+              Required columns: Shop Number, Monthly Rent.
+            </p>
+            <Button variant="outline" size="sm" className="w-full" onClick={() => {
+              const headers = ['Shop Number', 'Monthly Rent'];
+              const sampleData = [
+                ['E-01', '15000'],
+                ['M-02', '12000'],
+              ];
+              const csvContent = [headers.join(','), ...sampleData.map(row => row.join(','))].join('\n');
+              const blob = new Blob([csvContent], { type: 'text/csv' });
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement('a');
+              link.href = url;
+              link.download = 'rent_import_template.csv';
+              link.click();
+              URL.revokeObjectURL(url);
+            }}>
+              <Download className="h-4 w-4 mr-2" />
+              Download Template
+            </Button>
+            <label className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary transition-colors block">
+              <input 
+                type="file" 
+                className="hidden" 
+                accept=".xlsx,.xls,.csv"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) setImportFile(file);
+                }}
+              />
+              {importFile ? (
+                <>
+                  <FileSpreadsheet className="h-10 w-10 mx-auto text-primary" />
+                  <p className="text-sm font-medium mt-2">{importFile.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Click to choose a different file
+                  </p>
+                </>
+              ) : (
+                <>
+                  <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Click to upload or drag and drop
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Excel (.xlsx, .xls) or CSV files
+                  </p>
+                </>
+              )}
+            </label>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setIsImportDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button 
+                disabled={!importFile || isImporting}
+                onClick={async () => {
+                  if (!importFile || !selectedOwnerId) return;
+                  setIsImporting(true);
+                  try {
+                    const formData = new FormData();
+                    formData.append('file', importFile);
+                    formData.append('ownerId', selectedOwnerId.toString());
+                    
+                    const response = await fetch('/api/leases/bulk-rent-import', {
+                      method: 'POST',
+                      body: formData,
+                      credentials: 'include',
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (response.ok) {
+                      toast({
+                        title: "Import Completed",
+                        description: result.message,
+                      });
+                      queryClient.invalidateQueries({ queryKey: ["/api/leases"] });
+                      setIsImportDialogOpen(false);
+                      setImportFile(null);
+                    } else {
+                      toast({
+                        title: "Import Failed",
+                        description: result.message,
+                        variant: "destructive",
+                      });
+                    }
+                  } catch (error: any) {
+                    toast({
+                      title: "Error",
+                      description: error.message || "Failed to import rent data",
+                      variant: "destructive",
+                    });
+                  } finally {
+                    setIsImporting(false);
+                  }
+                }}
+              >
+                {isImporting ? "Importing..." : "Import Rent"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Owner Filter Chips */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <Button
+          variant={selectedOwnerId === null ? "default" : "outline"}
+          size="sm"
+          onClick={() => setSelectedOwnerId(null)}
+          className="flex items-center gap-1.5"
+        >
+          <Building className="h-3.5 w-3.5" />
+          All Owners
+        </Button>
+        {owners.map((owner) => (
+          <Button
+            key={owner.id}
+            variant={selectedOwnerId === owner.id ? "default" : "outline"}
+            size="sm"
+            onClick={() => setSelectedOwnerId(owner.id)}
+            className="flex items-center gap-1.5"
+          >
+            <Building className="h-3.5 w-3.5" />
+            {owner.name}
+          </Button>
+        ))}
+      </div>
+
+      {/* Status Tabs and Search */}
+      <div className="flex flex-col md:flex-row md:items-center gap-4">
+        <Tabs value={statusFilter} onValueChange={setStatusFilter} className="flex-1">
+          <TabsList>
+            <TabsTrigger value="all" data-testid="tab-all-leases">
+              All ({statusCounts.all})
+            </TabsTrigger>
+            <TabsTrigger value="active" data-testid="tab-active-leases">
+              Active ({statusCounts.active})
+            </TabsTrigger>
+            <TabsTrigger value="expiring_soon" data-testid="tab-expiring-leases">
+              <AlertTriangle className="h-3 w-3 mr-1" />
+              Expiring Soon ({statusCounts.expiring_soon})
+            </TabsTrigger>
+            <TabsTrigger value="expired" data-testid="tab-expired-leases">
+              Expired ({statusCounts.expired})
+            </TabsTrigger>
+            <TabsTrigger value="terminated" data-testid="tab-terminated-leases">
+              Terminated ({statusCounts.terminated})
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+        
+        {/* Search Bar */}
+        <div className="relative w-full md:w-64">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search tenant, shop, business..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10"
+          />
+          {searchQuery && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+              onClick={() => setSearchQuery("")}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+      </div>
 
       <Card>
         <CardContent className="p-0">
@@ -456,7 +675,9 @@ export default function LeasesPage() {
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <User className="h-4 w-4 text-muted-foreground" />
-                        <span>{lease.tenant?.name}</span>
+                        <Link href={`/tenants/${lease.tenantId}`} className="hover:underline hover:text-primary cursor-pointer">
+                          {lease.tenant?.name}
+                        </Link>
                       </div>
                     </TableCell>
                     <TableCell>

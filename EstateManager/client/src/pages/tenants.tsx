@@ -48,7 +48,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, User, Phone, MapPin, CreditCard, Eye, Edit2, Trash2, AlertTriangle, FileText, AlertCircle, Calendar, X, Building, Upload, FileSpreadsheet, Download, CheckCircle, XCircle, Info } from "lucide-react";
+import { Plus, User, Phone, MapPin, CreditCard, Eye, Edit2, Trash2, AlertTriangle, FileText, AlertCircle, Calendar, X, Building, Upload, FileSpreadsheet, Download, CheckCircle, XCircle, Info, Store, Search } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -56,7 +56,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { TenantWithDues, Owner } from "@shared/schema";
-import { formatCurrency, useCurrencyStore } from "@/lib/currency";
+import { formatCurrency, useCurrencyStore, formatFloor } from "@/lib/currency";
 
 interface MonthlyDuesModalProps {
   tenant: TenantWithDues | null;
@@ -498,6 +498,7 @@ export default function TenantsPage() {
   const [tenantToDelete, setTenantToDelete] = useState<TenantWithDues | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
   const [deletionDate, setDeletionDate] = useState(new Date().toISOString().split("T")[0]);
+  const [searchQuery, setSearchQuery] = useState("");
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { currency, exchangeRate } = useCurrencyStore();
@@ -584,6 +585,18 @@ export default function TenantsPage() {
   const getMonthsDueCount = (monthlyDues: any) => {
     return Object.keys(monthlyDues || {}).length;
   };
+
+  // Filter tenants based on search query
+  const filteredTenants = tenants.filter((tenant) => {
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase().trim();
+    const name = tenant.name.toLowerCase();
+    const businessName = ((tenant as any).businessName || '').toLowerCase();
+    const shopNumber = ((tenant as any).shopNumber || '').toLowerCase();
+    const activeLeases = (tenant as any).activeLeases || [];
+    const leaseShops = activeLeases.map((l: any) => l.shopNumber.toLowerCase()).join(' ');
+    return name.includes(query) || businessName.includes(query) || shopNumber.includes(query) || leaseShops.includes(query);
+  });
 
   const handleViewMonthlyDues = (tenant: TenantWithDues) => {
     setSelectedTenantForMonthly(tenant);
@@ -672,22 +685,44 @@ export default function TenantsPage() {
         ))}
       </div>
 
+      {/* Search Bar */}
+      <div className="relative max-w-md">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Search by name, business, or shop..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-10"
+        />
+        {searchQuery && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+            onClick={() => setSearchQuery("")}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+
       <Card>
         <CardContent className="p-0">
-          {tenants.length > 0 ? (
+          {filteredTenants.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[200px]">Tenant Name</TableHead>
                   <TableHead>Phone</TableHead>
                   <TableHead>Business / Shop Name</TableHead>
+                  <TableHead>Current Leases</TableHead>
                   <TableHead className="text-center">Months Due</TableHead>
                   <TableHead className="text-right">Current Due</TableHead>
                   <TableHead className="w-[120px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {tenants.map((tenant) => {
+                {filteredTenants.map((tenant) => {
                   const severity = getDueSeverity(tenant.currentDue, tenant.totalDue);
                   const monthlyDues = (tenant as any).monthlyDues || {};
                   const monthsDueCount = getMonthsDueCount(monthlyDues);
@@ -700,7 +735,9 @@ export default function TenantsPage() {
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <div className="flex items-center gap-2">
-                          <p className={`font-medium ${textClasses}`}>{tenant.name}</p>
+                          <Link href={`/tenants/${tenant.id}`} className={`font-medium ${textClasses} hover:underline hover:text-primary cursor-pointer`}>
+                            {tenant.name}
+                          </Link>
                           {isDeleted && (
                             <TooltipProvider>
                               <Tooltip>
@@ -730,6 +767,25 @@ export default function TenantsPage() {
                     <TableCell>
                       {(tenant as any).businessName ? (
                         <span className="text-sm font-medium">{(tenant as any).businessName}</span>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {(tenant as any).activeLeases && (tenant as any).activeLeases.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {(tenant as any).activeLeases.map((lease: any) => (
+                            <Link key={lease.id} href={`/leases/${lease.id}`}>
+                              <Badge 
+                                variant="outline" 
+                                className="hover:bg-primary/10 cursor-pointer flex items-center gap-1 text-xs"
+                              >
+                                <Store className="h-3 w-3" />
+                                {lease.shopNumber} ({formatFloor(lease.floor)})
+                              </Badge>
+                            </Link>
+                          ))}
+                        </div>
                       ) : (
                         <span className="text-muted-foreground text-sm">-</span>
                       )}

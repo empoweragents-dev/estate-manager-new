@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { format } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -634,7 +635,11 @@ export default function OwnerTenantReportPage() {
                             {row.shopLocation}
                           </div>
                         </TableCell>
-                        <TableCell className="font-medium">{row.tenantName}</TableCell>
+                        <TableCell className="font-medium">
+                          <Link href={`/tenants/${row.tenantId}`} className="hover:underline hover:text-primary">
+                            {row.tenantName}
+                          </Link>
+                        </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1 text-muted-foreground">
                             <Phone className="h-3 w-3" />
