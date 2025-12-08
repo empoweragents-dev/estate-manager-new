@@ -1812,8 +1812,160 @@ export async function registerRoutes(
     return rentForMonth;
   }
 
-  // Bulk import rent amounts from Excel/CSV file
-  app.post("/api/leases/bulk-rent-import", isAuthenticated, upload.single('file'), async (req: Request, res: Response) => {
+  // Generate pre-filled Excel template for payment collection import
+  app.get("/api/owners/:id/payment-template", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const ownerId = parseInt(req.params.id);
+      const owner = await storage.getOwner(ownerId);
+      if (!owner) return res.status(404).json({ message: "Owner not found" });
+      
+      // Get all shops for this owner
+      const allShops = await storage.getShops();
+      const ownerShops = allShops.filter(s => s.ownerId === ownerId);
+      
+      // Get all leases and find active ones for this owner's shops
+      const allLeases = await storage.getLeases();
+      const allTenants = await storage.getTenants();
+      const allInvoices = await storage.getRentInvoices();
+      const allPayments = await storage.getPayments();
+      
+      const tenantMap = new Map(allTenants.map(t => [t.id, t]));
+      
+      // Current date info
+      const today = new Date();
+      const currentMonth = today.getMonth() + 1;
+      const currentYear = today.getFullYear();
+      
+      const templateRows: any[] = [];
+      
+      for (const shop of ownerShops) {
+        // Find active lease for this shop
+        const activeLease = allLeases.find(l => 
+          l.shopId === shop.id && l.status !== 'terminated'
+        );
+        
+        if (!activeLease) continue;
+        
+        const tenant = tenantMap.get(activeLease.tenantId);
+        if (!tenant) continue;
+        
+        // Format floor name
+        const floorName = shop.floor === 'ground' ? 'Ground Floor' : 
+                         shop.floor === 'first' ? '1st Floor' : 
+                         shop.floor === 'second' ? '2nd Floor' : 'Subedari';
+        const shopLocation = `${floorName} ${shop.shopNumber}`;
+        
+        // Get unpaid invoices for this lease (up to current month)
+        const leaseInvoices = allInvoices.filter(inv => 
+          inv.leaseId === activeLease.id &&
+          (inv.year < currentYear || (inv.year === currentYear && inv.month <= currentMonth))
+        );
+        
+        // Calculate payments for this lease
+        const leasePayments = allPayments.filter(p => 
+          p.leaseId === activeLease.id && !p.deletedAt
+        );
+        const totalPaid = leasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        
+        // Calculate unpaid invoices using FIFO logic
+        let remainingPayment = totalPaid;
+        const unpaidInvoices: { month: number; year: number; amount: number; remaining: number }[] = [];
+        
+        // Sort invoices by date
+        const sortedInvoices = [...leaseInvoices].sort((a, b) => {
+          if (a.year !== b.year) return a.year - b.year;
+          return a.month - b.month;
+        });
+        
+        for (const inv of sortedInvoices) {
+          const invAmount = parseFloat(inv.amount);
+          if (remainingPayment >= invAmount) {
+            remainingPayment -= invAmount;
+            // Fully paid, skip
+          } else {
+            unpaidInvoices.push({
+              month: inv.month,
+              year: inv.year,
+              amount: invAmount,
+              remaining: invAmount - remainingPayment
+            });
+            remainingPayment = 0;
+          }
+        }
+        
+        // If no unpaid invoices, add current month as placeholder
+        if (unpaidInvoices.length === 0) {
+          unpaidInvoices.push({
+            month: currentMonth,
+            year: currentYear,
+            amount: parseFloat(activeLease.monthlyRent),
+            remaining: 0
+          });
+        }
+        
+        // Add a row for each unpaid month
+        for (const inv of unpaidInvoices) {
+          const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                             'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+          const dueMonth = `${monthNames[inv.month - 1]} ${inv.year}`;
+          
+          templateRows.push({
+            'Tenant Name': tenant.name,
+            'Lease ID': activeLease.id,
+            'Shop Location': shopLocation,
+            'Monthly Rent': parseFloat(activeLease.monthlyRent),
+            'Due Month': dueMonth,
+            'Due Amount': inv.remaining > 0 ? inv.remaining : inv.amount,
+            'Payment Amount': '',
+            'Payment Date': '',
+            'For Month': dueMonth,
+            'Notes': ''
+          });
+        }
+      }
+      
+      // Sort by tenant name, then by due month
+      templateRows.sort((a, b) => {
+        if (a['Tenant Name'] !== b['Tenant Name']) {
+          return a['Tenant Name'].localeCompare(b['Tenant Name']);
+        }
+        return 0;
+      });
+      
+      // Create Excel workbook
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.json_to_sheet(templateRows);
+      
+      // Set column widths
+      worksheet['!cols'] = [
+        { wch: 25 }, // Tenant Name
+        { wch: 10 }, // Lease ID
+        { wch: 22 }, // Shop Location
+        { wch: 14 }, // Monthly Rent
+        { wch: 12 }, // Due Month
+        { wch: 12 }, // Due Amount
+        { wch: 15 }, // Payment Amount
+        { wch: 14 }, // Payment Date
+        { wch: 12 }, // For Month
+        { wch: 30 }, // Notes
+      ];
+      
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Payment Collection');
+      
+      // Generate buffer
+      const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+      
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${owner.name}_payment_template.xlsx"`);
+      res.send(buffer);
+      
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Bulk import payment collections from Excel/CSV file
+  app.post("/api/payments/bulk-import", isAuthenticated, upload.single('file'), async (req: Request, res: Response) => {
     try {
       if (!req.file) {
         return res.status(400).json({ message: "No file uploaded" });
@@ -1836,80 +1988,149 @@ export async function registerRoutes(
       const results = {
         success: 0,
         failed: 0,
+        totalAmount: 0,
         errors: [] as string[],
       };
       
-      // Get all shops owned by this owner
-      const allShops = await storage.getShops();
-      const ownerShops = allShops.filter(s => s.ownerId === ownerId);
-      const shopMap = new Map(ownerShops.map(s => [s.shopNumber.toLowerCase(), s]));
-      
-      // Get all leases
+      // Get all leases for validation
       const allLeases = await storage.getLeases();
+      const leaseMap = new Map(allLeases.map(l => [l.id, l]));
       
-      for (const row of data) {
+      // Get all shops to validate ownership
+      const allShops = await storage.getShops();
+      const ownerShopIds = new Set(allShops.filter(s => s.ownerId === ownerId).map(s => s.id));
+      
+      const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 
+                         'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+      
+      for (let i = 0; i < data.length; i++) {
+        const row = data[i];
+        const rowNum = i + 2; // Excel row number (1-indexed + header)
+        
         try {
-          // Find shop number column (case insensitive)
-          const shopNumberKey = Object.keys(row).find(k => 
-            k.toLowerCase().includes('shop') && k.toLowerCase().includes('number')
-          ) || Object.keys(row).find(k => k.toLowerCase() === 'shop');
+          // Find columns (case insensitive)
+          const leaseIdKey = Object.keys(row).find(k => k.toLowerCase().includes('lease') && k.toLowerCase().includes('id'));
+          const paymentAmountKey = Object.keys(row).find(k => k.toLowerCase().includes('payment') && k.toLowerCase().includes('amount'));
+          const paymentDateKey = Object.keys(row).find(k => k.toLowerCase().includes('payment') && k.toLowerCase().includes('date'));
+          const forMonthKey = Object.keys(row).find(k => k.toLowerCase().includes('for') && k.toLowerCase().includes('month'));
+          const notesKey = Object.keys(row).find(k => k.toLowerCase().includes('note'));
           
-          // Find monthly rent column (case insensitive)
-          const rentKey = Object.keys(row).find(k => 
-            k.toLowerCase().includes('rent') || k.toLowerCase().includes('monthly')
-          );
-          
-          if (!shopNumberKey || !rentKey) {
+          if (!leaseIdKey || !paymentAmountKey) {
+            // Skip empty rows silently
+            const paymentAmount = paymentAmountKey ? row[paymentAmountKey] : null;
+            if (!paymentAmount || String(paymentAmount).trim() === '') continue;
+            
             results.failed++;
-            results.errors.push(`Row missing required columns (Shop Number, Monthly Rent)`);
+            results.errors.push(`Row ${rowNum}: Missing required columns (Lease ID, Payment Amount)`);
             continue;
           }
           
-          const shopNumber = String(row[shopNumberKey]).trim().toLowerCase();
-          const rentValue = parseFloat(String(row[rentKey]).replace(/[^0-9.-]/g, ''));
+          const leaseId = parseInt(String(row[leaseIdKey]));
+          const paymentAmountStr = String(row[paymentAmountKey] || '').trim();
           
-          if (!shopNumber) {
+          // Skip rows with no payment amount
+          if (!paymentAmountStr || paymentAmountStr === '') continue;
+          
+          const paymentAmount = parseFloat(paymentAmountStr.replace(/[^0-9.-]/g, ''));
+          
+          if (isNaN(leaseId)) {
             results.failed++;
-            results.errors.push(`Empty shop number in row`);
+            results.errors.push(`Row ${rowNum}: Invalid Lease ID`);
             continue;
           }
           
-          if (isNaN(rentValue) || rentValue <= 0) {
+          if (isNaN(paymentAmount) || paymentAmount <= 0) {
             results.failed++;
-            results.errors.push(`Invalid rent amount for shop ${shopNumber}`);
+            results.errors.push(`Row ${rowNum}: Invalid payment amount`);
             continue;
           }
           
-          const shop = shopMap.get(shopNumber);
-          if (!shop) {
+          const lease = leaseMap.get(leaseId);
+          if (!lease) {
             results.failed++;
-            results.errors.push(`Shop "${shopNumber}" not found for this owner`);
+            results.errors.push(`Row ${rowNum}: Lease ID ${leaseId} not found`);
             continue;
           }
           
-          // Find active lease for this shop
-          const activeLease = allLeases.find(l => 
-            l.shopId === shop.id && l.status !== 'terminated'
-          );
-          
-          if (!activeLease) {
+          // Validate lease belongs to this owner's shop
+          if (!ownerShopIds.has(lease.shopId)) {
             results.failed++;
-            results.errors.push(`No active lease found for shop ${shopNumber}`);
+            results.errors.push(`Row ${rowNum}: Lease ${leaseId} does not belong to this owner`);
             continue;
           }
           
-          // Update lease with new rent
-          await storage.updateLease(activeLease.id, { monthlyRent: rentValue.toString() });
+          // Parse payment date
+          let paymentDate: Date;
+          if (paymentDateKey && row[paymentDateKey]) {
+            const dateVal = row[paymentDateKey];
+            if (typeof dateVal === 'number') {
+              // Excel serial date
+              paymentDate = new Date((dateVal - 25569) * 86400 * 1000);
+            } else {
+              paymentDate = new Date(dateVal);
+            }
+            if (isNaN(paymentDate.getTime())) {
+              paymentDate = new Date();
+            }
+          } else {
+            paymentDate = new Date();
+          }
+          
+          // Parse for month (which month this payment is for)
+          let forMonth = new Date().getMonth() + 1;
+          let forYear = new Date().getFullYear();
+          
+          if (forMonthKey && row[forMonthKey]) {
+            const monthStr = String(row[forMonthKey]).toLowerCase().trim();
+            // Parse "Dec 2024" format
+            const parts = monthStr.split(/\s+/);
+            if (parts.length >= 2) {
+              const monthIndex = monthNames.findIndex(m => parts[0].startsWith(m));
+              if (monthIndex >= 0) {
+                forMonth = monthIndex + 1;
+                forYear = parseInt(parts[1]) || forYear;
+              }
+            }
+          }
+          
+          const notes = notesKey && row[notesKey] ? String(row[notesKey]) : '';
+          
+          // Create the payment
+          await storage.createPayment({
+            leaseId,
+            tenantId: lease.tenantId,
+            amount: paymentAmount.toString(),
+            paymentDate: paymentDate.toISOString().split('T')[0],
+            paymentMethod: 'cash',
+            receiptNumber: null,
+            notes: notes || `Imported payment for ${monthNames[forMonth - 1].charAt(0).toUpperCase() + monthNames[forMonth - 1].slice(1)} ${forYear}`,
+          });
+          
           results.success++;
+          results.totalAmount += paymentAmount;
           
         } catch (rowError: any) {
           results.failed++;
-          results.errors.push(`Error processing row: ${rowError.message}`);
+          results.errors.push(`Row ${rowNum}: ${rowError.message}`);
         }
       }
       
+      // Recalculate FIFO status for all affected leases
+      const affectedLeaseIds = new Set<number>();
+      for (const row of data) {
+        const leaseIdKey = Object.keys(row).find(k => k.toLowerCase().includes('lease') && k.toLowerCase().includes('id'));
+        if (leaseIdKey && row[leaseIdKey]) {
+          const leaseId = parseInt(String(row[leaseIdKey]));
+          if (!isNaN(leaseId)) affectedLeaseIds.add(leaseId);
+        }
+      }
+      
+      for (const leaseId of Array.from(affectedLeaseIds)) {
+        await updateInvoicePaidStatusForLease(leaseId);
+      }
+      
       res.json({
-        message: `Rent import completed: ${results.success} updated, ${results.failed} failed`,
+        message: `Payment import completed: ${results.success} payments added (Total: ৳${results.totalAmount.toLocaleString()}), ${results.failed} failed`,
         results,
       });
     } catch (error: any) {

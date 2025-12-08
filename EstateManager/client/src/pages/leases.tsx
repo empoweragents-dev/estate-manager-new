@@ -438,7 +438,7 @@ export default function LeasesPage() {
           {selectedOwnerId && (
             <Button variant="outline" onClick={() => setIsImportDialogOpen(true)}>
               <Upload className="h-4 w-4 mr-2" />
-              Import Rent
+              Import Payments
             </Button>
           )}
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -458,7 +458,7 @@ export default function LeasesPage() {
         </div>
       </div>
 
-      {/* Import Rent Dialog */}
+      {/* Import Payment Collection Dialog */}
       <Dialog open={isImportDialogOpen} onOpenChange={(open) => {
         setIsImportDialogOpen(open);
         if (!open) setImportFile(null);
@@ -467,32 +467,41 @@ export default function LeasesPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileSpreadsheet className="h-5 w-5" />
-              Import Monthly Rent for {owners.find(o => o.id === selectedOwnerId)?.name}
+              Import Payment Collection for {owners.find(o => o.id === selectedOwnerId)?.name}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Upload an Excel file to bulk update monthly rent amounts for this owner's leases. 
-              Required columns: Shop Number, Monthly Rent.
+              Download the pre-filled template with tenant data and due months, fill in payment details, then upload to record payments in bulk.
             </p>
-            <Button variant="outline" size="sm" className="w-full" onClick={() => {
-              const headers = ['Shop Number', 'Monthly Rent'];
-              const sampleData = [
-                ['E-01', '15000'],
-                ['M-02', '12000'],
-              ];
-              const csvContent = [headers.join(','), ...sampleData.map(row => row.join(','))].join('\n');
-              const blob = new Blob([csvContent], { type: 'text/csv' });
-              const url = URL.createObjectURL(blob);
-              const link = document.createElement('a');
-              link.href = url;
-              link.download = 'rent_import_template.csv';
-              link.click();
-              URL.revokeObjectURL(url);
-            }}>
+            
+            <div className="bg-muted/50 p-3 rounded-lg text-sm space-y-1">
+              <p className="font-medium">Template includes (pre-filled):</p>
+              <ul className="list-disc list-inside text-muted-foreground text-xs space-y-0.5">
+                <li>Tenant Name, Lease ID, Shop Location</li>
+                <li>Monthly Rent, Due Month, Due Amount</li>
+              </ul>
+              <p className="font-medium mt-2">You fill in:</p>
+              <ul className="list-disc list-inside text-muted-foreground text-xs space-y-0.5">
+                <li>Payment Amount, Payment Date</li>
+                <li>For Month (which month the payment is for)</li>
+                <li>Notes (optional)</li>
+              </ul>
+            </div>
+            
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="w-full" 
+              onClick={() => {
+                if (!selectedOwnerId) return;
+                window.open(`/api/owners/${selectedOwnerId}/payment-template`, '_blank');
+              }}
+            >
               <Download className="h-4 w-4 mr-2" />
-              Download Template
+              Download Pre-filled Template
             </Button>
+            
             <label className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary transition-colors block">
               <input 
                 type="file" 
@@ -515,7 +524,7 @@ export default function LeasesPage() {
                 <>
                   <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
                   <p className="text-sm text-muted-foreground mt-2">
-                    Click to upload or drag and drop
+                    Click to upload filled template
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Excel (.xlsx, .xls) or CSV files
@@ -523,6 +532,11 @@ export default function LeasesPage() {
                 </>
               )}
             </label>
+            
+            <p className="text-xs text-muted-foreground">
+              For multiple payments per tenant, add extra rows with the same Lease ID but different amounts/dates.
+            </p>
+            
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setIsImportDialogOpen(false)}>
                 Cancel
@@ -537,7 +551,7 @@ export default function LeasesPage() {
                     formData.append('file', importFile);
                     formData.append('ownerId', selectedOwnerId.toString());
                     
-                    const response = await fetch('/api/leases/bulk-rent-import', {
+                    const response = await fetch('/api/payments/bulk-import', {
                       method: 'POST',
                       body: formData,
                       credentials: 'include',
@@ -551,6 +565,8 @@ export default function LeasesPage() {
                         description: result.message,
                       });
                       queryClient.invalidateQueries({ queryKey: ["/api/leases"] });
+                      queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
+                      queryClient.invalidateQueries({ queryKey: ["/api/rent-invoices"] });
                       setIsImportDialogOpen(false);
                       setImportFile(null);
                     } else {
@@ -563,7 +579,7 @@ export default function LeasesPage() {
                   } catch (error: any) {
                     toast({
                       title: "Error",
-                      description: error.message || "Failed to import rent data",
+                      description: error.message || "Failed to import payments",
                       variant: "destructive",
                     });
                   } finally {
@@ -571,7 +587,7 @@ export default function LeasesPage() {
                   }
                 }}
               >
-                {isImporting ? "Importing..." : "Import Rent"}
+                {isImporting ? "Importing..." : "Import Payments"}
               </Button>
             </div>
           </div>
