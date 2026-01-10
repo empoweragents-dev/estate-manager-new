@@ -385,6 +385,10 @@ export default function OwnerDetailPage() {
             <TabsTrigger value="tenants" className="text-xs md:text-sm whitespace-nowrap">
               My Tenants ({tenants.length})
             </TabsTrigger>
+            <TabsTrigger value="reports" className="text-xs md:text-sm whitespace-nowrap">
+              <ClipboardList className="h-3 w-3 mr-1 md:hidden" />
+              <span>Reports</span>
+            </TabsTrigger>
             {hasCommonData && (
               <TabsTrigger value="common-tenants" className="text-xs md:text-sm whitespace-nowrap">
                 Common ({commonTenants.length})
@@ -399,15 +403,15 @@ export default function OwnerDetailPage() {
             <TabsTrigger value="income-reports" className="text-xs md:text-sm whitespace-nowrap">
               Income Summary
             </TabsTrigger>
-            <TabsTrigger value="reports" className="text-xs md:text-sm whitespace-nowrap">
-              <ClipboardList className="h-3 w-3 mr-1 md:hidden" />
-              <span>Reports</span>
-            </TabsTrigger>
           </TabsList>
         </div>
 
         <TabsContent value="tenants" className="mt-4">
           <TenantsTab tenants={tenants} formatValue={formatValue} ownerName={owner.name} isCommon={false} />
+        </TabsContent>
+
+        <TabsContent value="reports" className="mt-4">
+          <OwnerReportsTab ownerId={owner.id} ownerName={owner.name} />
         </TabsContent>
 
         {hasCommonData && (
@@ -435,10 +439,6 @@ export default function OwnerDetailPage() {
             yearlyReports={yearlyReports}
             formatValue={formatValue}
           />
-        </TabsContent>
-
-        <TabsContent value="reports" className="mt-4">
-          <OwnerReportsTab ownerId={owner.id} ownerName={owner.name} />
         </TabsContent>
       </Tabs>
 
