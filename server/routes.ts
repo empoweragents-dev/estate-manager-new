@@ -294,7 +294,8 @@ export async function registerRoutes(
       const currentMonth = now.getMonth() + 1;
 
       for (const lease of ownerLeases) {
-        if (lease.status === 'terminated') continue;
+        // Include terminated/expired leases as per request
+        // if (lease.status === 'terminated') continue;
 
         const tenant = allTenants.find(t => t.id === lease.tenantId);
         const shop = ownerShops.find(s => s.id === lease.shopId);
@@ -348,8 +349,29 @@ export async function registerRoutes(
         });
       }
 
-      // Sort tenants by floor order, then by numerical shop number
-      sortByFloorAndShopNumber(tenantList);
+      // Sort by status (active/expiring_soon first), then by floor, then by shop number
+      tenantList.sort((a, b) => {
+        // Status priority: active/expiring_soon -> others
+        const isActiveA = a.leaseStatus === 'active' || a.leaseStatus === 'expiring_soon';
+        const isActiveB = b.leaseStatus === 'active' || b.leaseStatus === 'expiring_soon';
+        if (isActiveA && !isActiveB) return -1;
+        if (!isActiveA && isActiveB) return 1;
+
+        // Existing floor/shop sort
+        const floorOrderA = FLOOR_ORDER[a.floor] || 999;
+        const floorOrderB = FLOOR_ORDER[b.floor] || 999;
+        if (floorOrderA !== floorOrderB) return floorOrderA - floorOrderB;
+
+        const prefixA = extractShopPrefix(a.shopNumber || '');
+        const prefixB = extractShopPrefix(b.shopNumber || '');
+        const prefixOrderA = PREFIX_ORDER[prefixA] || 999;
+        const prefixOrderB = PREFIX_ORDER[prefixB] || 999;
+        if (prefixOrderA !== prefixOrderB) return prefixOrderA - prefixOrderB;
+
+        const numA = extractShopNumber(a.shopNumber || '');
+        const numB = extractShopNumber(b.shopNumber || '');
+        return numA - numB;
+      });
 
       // Get bank deposits for this owner
       const bankDeposits = await storage.getBankDepositsByOwner(ownerId);

@@ -631,7 +631,7 @@ function TenantsTab({ tenants, formatValue, ownerName, isCommon = false, totalOw
                 <TableRow key={tenant.leaseId} className={isCommon ? 'bg-purple-50/30' : ''}>
                   <TableCell>
                     <Link href={`/tenants/${tenant.id}`}>
-                      <span className="font-medium text-primary hover:underline cursor-pointer">
+                      <span className={`font-medium hover:underline cursor-pointer ${tenant.leaseStatus === 'expired' || tenant.leaseStatus === 'terminated' ? 'text-red-600' : 'text-primary'}`}>
                         {tenant.name}
                       </span>
                     </Link>
