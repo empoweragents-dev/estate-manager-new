@@ -1,6 +1,10 @@
-const fs = require('fs');
-const path = require('path');
-const http = require('http');
+import fs from 'fs';
+import path from 'path';
+import http from 'http';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const LOG_FILE = 'debug_log.txt';
 // Default to 3000 if PORT not set, but Hostinger usually sets PORT
@@ -18,13 +22,18 @@ function log(message) {
 }
 
 async function runDiagnostics() {
-    log('=== Starting Hostinger Debug Diagnostics ===');
+    log('=== Starting Hostinger Debug Diagnostics (ESM) ===');
 
     // 1. Environment Info
     log(`Node Version: ${process.version}`);
     log(`Platform: ${process.platform}`);
     log(`CWD: ${process.cwd()}`);
-    log(`UID: ${process.getuid ? process.getuid() : 'N/A'}`);
+    // process.getuid is only available on POSIX platforms (Linux/macOS), not Windows
+    if (process.platform !== 'win32' && process.getuid) {
+        log(`UID: ${process.getuid()}`);
+    } else {
+        log(`UID: N/A (Windows)`);
+    }
 
     // 2. File System Check
     const requiredFiles = [
@@ -87,7 +96,7 @@ const server = http.createServer((req, res) => {
             <html>
                 <head><title>Debug Info</title></head>
                 <body style="font-family: monospace; padding: 20px;">
-                    <h1>Configured as Debug Server</h1>
+                    <h1>Configured as Debug Server (ESM)</h1>
                     <p>Status: Running</p>
                     <p><a href="/debug-log.txt">View Diagnostics Log</a></p>
                     <hr/>
@@ -105,7 +114,7 @@ server.listen(PORT, async () => {
         if (fs.existsSync(LOG_FILE)) fs.unlinkSync(LOG_FILE);
     } catch (e) { }
 
-    log(`Debug Server starting on port ${PORT}...`);
+    log(`Debug Server (ESM) starting on port ${PORT}...`);
     await runDiagnostics();
 });
 
