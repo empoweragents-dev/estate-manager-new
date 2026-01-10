@@ -7,6 +7,38 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const LOG_FILE = 'debug_log.txt';
+
+// Helper to load .env manually since we can't rely on dependencies
+function loadEnv() {
+    try {
+        const envPath = path.resolve(process.cwd(), '.env');
+        if (fs.existsSync(envPath)) {
+            const content = fs.readFileSync(envPath, 'utf-8');
+            content.split('\n').forEach(line => {
+                const match = line.match(/^\s*([\w_]+)\s*=\s*(.*)?\s*$/);
+                if (match) {
+                    const key = match[1];
+                    let value = match[2] || '';
+                    if (value.length > 0 && value.charAt(0) === '"' && value.charAt(value.length - 1) === '"') {
+                        value = value.replace(/\\n/gm, '\n');
+                    }
+                    value = value.replace(/(^['"]|['"]$)/g, '').trim();
+                    if (!process.env[key]) {
+                        process.env[key] = value;
+                    }
+                }
+            });
+            return true;
+        }
+    } catch (e) {
+        console.error('Error loading .env:', e);
+    }
+    return false;
+}
+
+// Load env vars immediately
+const envLoaded = loadEnv();
+
 // Default to 3000 if PORT not set, but Hostinger usually sets PORT
 const PORT = process.env.PORT || 3000;
 
@@ -63,6 +95,12 @@ async function runDiagnostics() {
 
     // 3. Environment Variables
     log('\n--- Checking Environment Variables ---');
+    if (envLoaded) {
+        log('(Loaded variables from local .env file)');
+    } else {
+        log('(No local .env file loaded)');
+    }
+
     const envVars = ['NODE_ENV', 'PORT', 'SESSION_SECRET'];
     envVars.forEach(v => {
         if (process.env[v]) {
