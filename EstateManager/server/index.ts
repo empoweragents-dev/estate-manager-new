@@ -66,35 +66,35 @@ async function generateMonthlyInvoices() {
     const currentMonth = today.getMonth() + 1;
     const currentYear = today.getFullYear();
     const dayOfMonth = today.getDate();
-    
+
     // Only generate on the 1st of the month
     if (dayOfMonth !== 1) return;
-    
+
     const { storage } = await import("./storage");
     const allLeases = await storage.getLeases();
     let generatedCount = 0;
-    
+
     for (const lease of allLeases) {
       if (lease.status === 'terminated') continue;
-      
+
       const startDate = new Date(lease.startDate);
       const endDate = new Date(lease.endDate);
-      
+
       // Check if current month falls within lease period
-      if (startDate.getFullYear() > currentYear || 
-          (startDate.getFullYear() === currentYear && startDate.getMonth() + 1 > currentMonth)) {
+      if (startDate.getFullYear() > currentYear ||
+        (startDate.getFullYear() === currentYear && startDate.getMonth() + 1 > currentMonth)) {
         continue; // Lease hasn't started yet
       }
-      
-      if (endDate.getFullYear() < currentYear || 
-          (endDate.getFullYear() === currentYear && endDate.getMonth() + 1 < currentMonth)) {
+
+      if (endDate.getFullYear() < currentYear ||
+        (endDate.getFullYear() === currentYear && endDate.getMonth() + 1 < currentMonth)) {
         continue; // Lease has ended
       }
-      
+
       // Check if invoice already exists for this month
       const existingInvoices = await storage.getRentInvoicesByTenant(lease.tenantId);
       const invoiceExists = existingInvoices.some(inv => inv.month === currentMonth && inv.year === currentYear && inv.leaseId === lease.id);
-      
+
       if (!invoiceExists) {
         const dueDate = new Date(currentYear, currentMonth - 1, 1);
         await storage.createRentInvoice({
@@ -109,7 +109,7 @@ async function generateMonthlyInvoices() {
         generatedCount++;
       }
     }
-    
+
     if (generatedCount > 0) {
       log(`Generated ${generatedCount} monthly invoices for ${currentMonth}/${currentYear}`, "invoices");
     }
@@ -121,7 +121,7 @@ async function generateMonthlyInvoices() {
 (async () => {
   // Generate monthly invoices on app startup (if it's the 1st of month)
   generateMonthlyInvoices();
-  
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -151,7 +151,6 @@ async function generateMonthlyInvoices() {
     {
       port,
       host: "0.0.0.0",
-      reusePort: true,
     },
     () => {
       log(`serving on port ${port}`);

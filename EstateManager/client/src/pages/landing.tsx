@@ -25,6 +25,7 @@ export default function LandingPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
+        credentials: "include",
       });
 
       const data = await response.json();
@@ -79,7 +80,7 @@ export default function LandingPage() {
                     <span>{error}</span>
                   </div>
                 )}
-                
+
                 <div className="space-y-2">
                   <Label htmlFor="username">Username</Label>
                   <div className="relative">

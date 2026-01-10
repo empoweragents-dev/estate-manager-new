@@ -14,16 +14,8 @@ declare module "express-session" {
 
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
-  const pgStore = connectPg(session);
-  const sessionStore = new pgStore({
-    conString: process.env.DATABASE_URL,
-    createTableIfMissing: false,
-    ttl: sessionTtl,
-    tableName: "sessions",
-  });
   return session({
-    secret: process.env.SESSION_SECRET!,
-    store: sessionStore,
+    secret: process.env.SESSION_SECRET || "dev_secret_key_123",
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -45,7 +37,7 @@ export async function setupAuth(app: Express) {
   app.post("/api/login", async (req: Request, res: Response) => {
     try {
       const { username, password } = req.body;
-      
+
       if (!username || !password) {
         return res.status(400).json({ message: "Username and password are required" });
       }
@@ -85,7 +77,7 @@ export async function setupAuth(app: Express) {
       res.redirect("/");
     });
   };
-  
+
   app.get("/api/logout", handleLogout);
   app.post("/api/logout", handleLogout);
 

@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
-import { 
-  ArrowLeft, 
-  Building2, 
-  Users, 
-  DollarSign, 
+import {
+  ArrowLeft,
+  Building2,
+  Users,
+  DollarSign,
   AlertCircle,
   Phone,
   Calendar,
@@ -19,7 +19,19 @@ import {
   Filter,
   X,
   ClipboardList,
+  BarChart3,
 } from "lucide-react";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  Legend,
+  ResponsiveContainer,
+  Cell
+} from 'recharts';
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -186,7 +198,7 @@ export default function OwnerDetailPage() {
   }
 
   const { owner, summary, tenants, commonTenants, bankDeposits, depositsByMonth, expenses, monthlyReports, yearlyReports } = ownerData;
-  
+
   const hasCommonData = summary.commonShops > 0 || summary.commonTenants > 0;
 
   return (
@@ -365,6 +377,71 @@ export default function OwnerDetailPage() {
         </div>
       )}
 
+      <MonthlyRentGraph monthlyReports={monthlyReports} formatValue={formatValue} />
+
+      <Tabs defaultValue="tenants" className="w-full">
+        <div className="overflow-x-auto -mx-3 md:mx-0 px-3 md:px-0">
+          <TabsList className="inline-flex w-max md:grid md:w-full md:grid-cols-6 min-w-full">
+            <TabsTrigger value="tenants" className="text-xs md:text-sm whitespace-nowrap">
+              My Tenants ({tenants.length})
+            </TabsTrigger>
+            {hasCommonData && (
+              <TabsTrigger value="common-tenants" className="text-xs md:text-sm whitespace-nowrap">
+                Common ({commonTenants.length})
+              </TabsTrigger>
+            )}
+            <TabsTrigger value="deposits" className="text-xs md:text-sm whitespace-nowrap">
+              Deposits ({bankDeposits.length})
+            </TabsTrigger>
+            <TabsTrigger value="expenses" className="text-xs md:text-sm whitespace-nowrap">
+              Expenses ({expenses.length})
+            </TabsTrigger>
+            <TabsTrigger value="income-reports" className="text-xs md:text-sm whitespace-nowrap">
+              Income Summary
+            </TabsTrigger>
+            <TabsTrigger value="reports" className="text-xs md:text-sm whitespace-nowrap">
+              <ClipboardList className="h-3 w-3 mr-1 md:hidden" />
+              <span>Reports</span>
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        <TabsContent value="tenants" className="mt-4">
+          <TenantsTab tenants={tenants} formatValue={formatValue} ownerName={owner.name} isCommon={false} />
+        </TabsContent>
+
+        {hasCommonData && (
+          <TabsContent value="common-tenants" className="mt-4">
+            <TenantsTab tenants={commonTenants} formatValue={formatValue} ownerName={owner.name} isCommon={true} totalOwners={summary.totalOwners} />
+          </TabsContent>
+        )}
+
+        <TabsContent value="deposits" className="mt-4">
+          <BankDepositsTab
+            bankDeposits={bankDeposits}
+            depositsByMonth={depositsByMonth}
+            formatValue={formatValue}
+          />
+        </TabsContent>
+
+        <TabsContent value="expenses" className="mt-4">
+          <ExpensesTab expenses={expenses} formatValue={formatValue} />
+        </TabsContent>
+
+        <TabsContent value="income-reports" className="mt-4">
+          <IncomeReportsTab
+            ownerName={owner.name}
+            monthlyReports={monthlyReports}
+            yearlyReports={yearlyReports}
+            formatValue={formatValue}
+          />
+        </TabsContent>
+
+        <TabsContent value="reports" className="mt-4">
+          <OwnerReportsTab ownerId={owner.id} ownerName={owner.name} />
+        </TabsContent>
+      </Tabs>
+
       {topOutstandingsData?.data && topOutstandingsData.data.length > 0 && (
         <Card>
           <CardHeader className="p-3 md:p-6 pb-2">
@@ -412,69 +489,6 @@ export default function OwnerDetailPage() {
           </CardContent>
         </Card>
       )}
-
-      <Tabs defaultValue="tenants" className="w-full">
-        <div className="overflow-x-auto -mx-3 md:mx-0 px-3 md:px-0">
-          <TabsList className="inline-flex w-max md:grid md:w-full md:grid-cols-6 min-w-full">
-            <TabsTrigger value="tenants" className="text-xs md:text-sm whitespace-nowrap">
-              My Tenants ({tenants.length})
-            </TabsTrigger>
-            {hasCommonData && (
-              <TabsTrigger value="common-tenants" className="text-xs md:text-sm whitespace-nowrap">
-                Common ({commonTenants.length})
-              </TabsTrigger>
-            )}
-            <TabsTrigger value="deposits" className="text-xs md:text-sm whitespace-nowrap">
-              Deposits ({bankDeposits.length})
-            </TabsTrigger>
-            <TabsTrigger value="expenses" className="text-xs md:text-sm whitespace-nowrap">
-              Expenses ({expenses.length})
-            </TabsTrigger>
-            <TabsTrigger value="income-reports" className="text-xs md:text-sm whitespace-nowrap">
-              Income Summary
-            </TabsTrigger>
-            <TabsTrigger value="reports" className="text-xs md:text-sm whitespace-nowrap">
-              <ClipboardList className="h-3 w-3 mr-1 md:hidden" />
-              <span>Reports</span>
-            </TabsTrigger>
-          </TabsList>
-        </div>
-
-        <TabsContent value="tenants" className="mt-4">
-          <TenantsTab tenants={tenants} formatValue={formatValue} ownerName={owner.name} isCommon={false} />
-        </TabsContent>
-        
-        {hasCommonData && (
-          <TabsContent value="common-tenants" className="mt-4">
-            <TenantsTab tenants={commonTenants} formatValue={formatValue} ownerName={owner.name} isCommon={true} totalOwners={summary.totalOwners} />
-          </TabsContent>
-        )}
-
-        <TabsContent value="deposits" className="mt-4">
-          <BankDepositsTab 
-            bankDeposits={bankDeposits} 
-            depositsByMonth={depositsByMonth} 
-            formatValue={formatValue} 
-          />
-        </TabsContent>
-
-        <TabsContent value="expenses" className="mt-4">
-          <ExpensesTab expenses={expenses} formatValue={formatValue} />
-        </TabsContent>
-
-        <TabsContent value="income-reports" className="mt-4">
-          <IncomeReportsTab 
-            ownerName={owner.name}
-            monthlyReports={monthlyReports} 
-            yearlyReports={yearlyReports}
-            formatValue={formatValue} 
-          />
-        </TabsContent>
-
-        <TabsContent value="reports" className="mt-4">
-          <OwnerReportsTab ownerId={owner.id} ownerName={owner.name} />
-        </TabsContent>
-      </Tabs>
     </div>
   );
 }
@@ -499,10 +513,10 @@ function TenantsTab({ tenants, formatValue, ownerName, isCommon = false, totalOw
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(18);
     doc.text('Tenant List', pageWidth / 2, 15, { align: 'center' });
-    
+
     doc.setFontSize(12);
     doc.text(`Owner: ${ownerName}`, pageWidth / 2, 24, { align: 'center' });
-    
+
     doc.setFontSize(9);
     doc.text(`Generated: ${currentDate}`, pageWidth / 2, 31, { align: 'center' });
 
@@ -538,8 +552,8 @@ function TenantsTab({ tenants, formatValue, ownerName, isCommon = false, totalOw
         ''
       ]],
       theme: 'striped',
-      headStyles: { 
-        fillColor: [37, 99, 235], 
+      headStyles: {
+        fillColor: [37, 99, 235],
         textColor: 255,
         fontStyle: 'bold',
         fontSize: 9
@@ -612,71 +626,71 @@ function TenantsTab({ tenants, formatValue, ownerName, isCommon = false, totalOw
                 <TableHead className="whitespace-nowrap">Status</TableHead>
               </TableRow>
             </TableHeader>
-          <TableBody>
-            {tenants.map((tenant) => (
-              <TableRow key={tenant.leaseId} className={isCommon ? 'bg-purple-50/30' : ''}>
-                <TableCell>
-                  <Link href={`/tenants/${tenant.id}`}>
-                    <span className="font-medium text-primary hover:underline cursor-pointer">
-                      {tenant.name}
-                    </span>
-                  </Link>
-                  <div className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Phone className="h-3 w-3" />
-                    {tenant.phone}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Badge variant={isCommon ? 'secondary' : 'outline'} className={isCommon ? 'bg-purple-100 text-purple-700' : ''}>
-                    {tenant.shopLocation}
-                  </Badge>
-                </TableCell>
-                <TableCell className={`text-right font-medium ${isCommon ? 'text-purple-600' : 'text-blue-600'}`}>
-                  {formatValue(tenant.securityDeposit)}
-                  {isCommon && tenant.fullSecurityDeposit !== undefined && (
-                    <div className="text-xs text-muted-foreground">({formatValue(tenant.fullSecurityDeposit)})</div>
-                  )}
-                </TableCell>
-                <TableCell className="text-right">
-                  {formatValue(tenant.monthlyRent)}
-                  {isCommon && tenant.fullMonthlyRent !== undefined && (
-                    <div className="text-xs text-muted-foreground">({formatValue(tenant.fullMonthlyRent)})</div>
-                  )}
-                </TableCell>
-                <TableCell className={`text-right font-medium ${tenant.currentDues > 0 ? (isCommon ? 'text-orange-600' : 'text-red-600') : 'text-green-600'}`}>
-                  {formatValue(tenant.currentDues)}
-                  {isCommon && tenant.fullCurrentDues !== undefined && (
-                    <div className="text-xs text-muted-foreground">({formatValue(tenant.fullCurrentDues)})</div>
-                  )}
-                </TableCell>
-                <TableCell>
-                  {tenant.lastPaymentDate ? (
-                    <span className="flex items-center gap-1 text-sm">
-                      <Calendar className="h-3 w-3" />
-                      {new Date(tenant.lastPaymentDate).toLocaleDateString()}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground text-sm">No payments</span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <Badge 
-                    variant={tenant.leaseStatus === 'active' ? 'default' : 
-                            tenant.leaseStatus === 'expiring_soon' ? 'secondary' : 'destructive'}
-                  >
-                    {tenant.leaseStatus === 'expiring_soon' ? 'Expiring Soon' : tenant.leaseStatus}
-                  </Badge>
-                </TableCell>
-              </TableRow>
-            ))}
-            {tenants.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                  {isCommon ? 'No common/shared tenants found' : 'No tenants found for this owner'}
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
+            <TableBody>
+              {tenants.map((tenant) => (
+                <TableRow key={tenant.leaseId} className={isCommon ? 'bg-purple-50/30' : ''}>
+                  <TableCell>
+                    <Link href={`/tenants/${tenant.id}`}>
+                      <span className="font-medium text-primary hover:underline cursor-pointer">
+                        {tenant.name}
+                      </span>
+                    </Link>
+                    <div className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Phone className="h-3 w-3" />
+                      {tenant.phone}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={isCommon ? 'secondary' : 'outline'} className={isCommon ? 'bg-purple-100 text-purple-700' : ''}>
+                      {tenant.shopLocation}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className={`text-right font-medium ${isCommon ? 'text-purple-600' : 'text-blue-600'}`}>
+                    {formatValue(tenant.securityDeposit)}
+                    {isCommon && tenant.fullSecurityDeposit !== undefined && (
+                      <div className="text-xs text-muted-foreground">({formatValue(tenant.fullSecurityDeposit)})</div>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {formatValue(tenant.monthlyRent)}
+                    {isCommon && tenant.fullMonthlyRent !== undefined && (
+                      <div className="text-xs text-muted-foreground">({formatValue(tenant.fullMonthlyRent)})</div>
+                    )}
+                  </TableCell>
+                  <TableCell className={`text-right font-medium ${tenant.currentDues > 0 ? (isCommon ? 'text-orange-600' : 'text-red-600') : 'text-green-600'}`}>
+                    {formatValue(tenant.currentDues)}
+                    {isCommon && tenant.fullCurrentDues !== undefined && (
+                      <div className="text-xs text-muted-foreground">({formatValue(tenant.fullCurrentDues)})</div>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {tenant.lastPaymentDate ? (
+                      <span className="flex items-center gap-1 text-sm">
+                        <Calendar className="h-3 w-3" />
+                        {new Date(tenant.lastPaymentDate).toLocaleDateString()}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground text-sm">No payments</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={tenant.leaseStatus === 'active' ? 'default' :
+                        tenant.leaseStatus === 'expiring_soon' ? 'secondary' : 'destructive'}
+                    >
+                      {tenant.leaseStatus === 'expiring_soon' ? 'Expiring Soon' : tenant.leaseStatus}
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {tenants.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                    {isCommon ? 'No common/shared tenants found' : 'No tenants found for this owner'}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
           </Table>
         </div>
       </CardContent>
@@ -684,12 +698,12 @@ function TenantsTab({ tenants, formatValue, ownerName, isCommon = false, totalOw
   );
 }
 
-function BankDepositsTab({ 
-  bankDeposits, 
-  depositsByMonth, 
-  formatValue 
-}: { 
-  bankDeposits: DepositWithMonth[]; 
+function BankDepositsTab({
+  bankDeposits,
+  depositsByMonth,
+  formatValue
+}: {
+  bankDeposits: DepositWithMonth[];
   depositsByMonth: Record<string, DepositWithMonth[]>;
   formatValue: (val: number | string) => string;
 }) {
@@ -1019,7 +1033,7 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
   const [selectedTenantId, setSelectedTenantId] = useState<string>('');
   const [financialStartDate, setFinancialStartDate] = useState<string>('');
   const [financialEndDate, setFinancialEndDate] = useState<string>('');
-  
+
   const formatValue = (val: number) => formatCurrency(val);
   const formatNumber = (val: number) => val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -1083,7 +1097,7 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
     if (!rentData?.data?.length) return;
     const doc = new jsPDF({ orientation: 'landscape' });
     const pageWidth = doc.internal.pageSize.getWidth();
-    
+
     doc.setFillColor(37, 99, 235);
     doc.rect(0, 0, pageWidth, 30, 'F');
     doc.setTextColor(255, 255, 255);
@@ -1132,24 +1146,24 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
               <span className="text-sm font-medium">Report Type:</span>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button 
-                variant={reportType === 'rent' ? 'default' : 'outline'} 
+              <Button
+                variant={reportType === 'rent' ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => setReportType('rent')}
                 className="text-xs md:text-sm"
               >
                 Rent Payments
               </Button>
-              <Button 
-                variant={reportType === 'financial' ? 'default' : 'outline'} 
+              <Button
+                variant={reportType === 'financial' ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => setReportType('financial')}
                 className="text-xs md:text-sm"
               >
                 Financial Transactions
               </Button>
-              <Button 
-                variant={reportType === 'ledger' ? 'default' : 'outline'} 
+              <Button
+                variant={reportType === 'ledger' ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => setReportType('ledger')}
                 className="text-xs md:text-sm"
@@ -1158,7 +1172,7 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
               </Button>
             </div>
           </div>
-          
+
           {reportType === 'rent' && (
             <div className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t">
               <div className="flex items-center gap-2">
@@ -1218,9 +1232,9 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
                 />
               </div>
               {(financialStartDate || financialEndDate) && (
-                <Button 
-                  size="sm" 
-                  variant="ghost" 
+                <Button
+                  size="sm"
+                  variant="ghost"
                   onClick={() => { setFinancialStartDate(''); setFinancialEndDate(''); }}
                   className="h-8 text-xs text-muted-foreground"
                 >
@@ -1335,9 +1349,9 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
               Financial Transactions
               {(financialStartDate || financialEndDate) && (
                 <span className="text-muted-foreground font-normal">
-                  {financialStartDate && financialEndDate 
+                  {financialStartDate && financialEndDate
                     ? ` (${new Date(financialStartDate).toLocaleDateString()} - ${new Date(financialEndDate).toLocaleDateString()})`
-                    : financialStartDate 
+                    : financialStartDate
                       ? ` (From ${new Date(financialStartDate).toLocaleDateString()})`
                       : ` (Until ${new Date(financialEndDate).toLocaleDateString()})`
                   }
@@ -1467,17 +1481,19 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
   );
 }
 
-function IncomeReportsTab({ 
+function IncomeReportsTab({
   ownerName,
-  monthlyReports, 
-  yearlyReports,
-  formatValue 
-}: { 
+  monthlyReports = [],
+  yearlyReports = [],
+  formatValue
+}: {
   ownerName: string;
   monthlyReports: MonthlyReport[];
   yearlyReports: YearlyReport[];
   formatValue: (val: number) => string;
 }) {
+
+
   const formatNumberForPdf = (val: number) => {
     return val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
@@ -1497,10 +1513,10 @@ function IncomeReportsTab({
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(20);
     doc.text('Income & Expense Report', pageWidth / 2, 18, { align: 'center' });
-    
+
     doc.setFontSize(14);
     doc.text(ownerName, pageWidth / 2, 28, { align: 'center' });
-    
+
     doc.setFontSize(10);
     doc.text(`Generated: ${currentDate}`, pageWidth / 2, 38, { align: 'center' });
 
@@ -1526,8 +1542,8 @@ function IncomeReportsTab({
           (report.netIncome >= 0 ? '' : '-') + formatNumberForPdf(Math.abs(report.netIncome))
         ]),
         theme: 'striped',
-        headStyles: { 
-          fillColor: [37, 99, 235], 
+        headStyles: {
+          fillColor: [37, 99, 235],
           textColor: 255,
           fontStyle: 'bold',
           fontSize: 10
@@ -1569,8 +1585,8 @@ function IncomeReportsTab({
           (report.netIncome >= 0 ? '' : '-') + formatNumberForPdf(Math.abs(report.netIncome))
         ]),
         theme: 'striped',
-        headStyles: { 
-          fillColor: [37, 99, 235], 
+        headStyles: {
+          fillColor: [37, 99, 235],
           textColor: 255,
           fontStyle: 'bold',
           fontSize: 10
@@ -1597,30 +1613,32 @@ function IncomeReportsTab({
     const totalExpenses = monthlyReports.reduce((sum, r) => sum + r.expenses, 0);
     const totalNetIncome = monthlyReports.reduce((sum, r) => sum + r.netIncome, 0);
 
+
+
     yPos = (doc as any).lastAutoTable.finalY + 12;
-    
+
     doc.setFillColor(248, 250, 252);
     doc.roundedRect(14, yPos - 4, pageWidth - 28, 38, 3, 3, 'F');
-    
+
     doc.setFontSize(11);
     doc.setTextColor(71, 85, 105);
     doc.text('Summary Totals', 20, yPos + 4);
-    
+
     doc.setFontSize(10);
     doc.setTextColor(0, 0, 0);
     doc.text(`Rent Collection:`, 20, yPos + 14);
     doc.text(formatNumberForPdf(totalRentCollection), pageWidth - 20, yPos + 14, { align: 'right' });
-    
+
     doc.text(`Bank Deposits:`, 20, yPos + 21);
     doc.text(formatNumberForPdf(totalBankDeposits), pageWidth - 20, yPos + 21, { align: 'right' });
-    
+
     doc.text(`Expenses:`, 20, yPos + 28);
     doc.text(formatNumberForPdf(totalExpenses), pageWidth - 20, yPos + 28, { align: 'right' });
-    
+
     yPos += 42;
     doc.setFillColor(37, 99, 235);
     doc.roundedRect(14, yPos - 4, pageWidth - 28, 14, 3, 3, 'F');
-    
+
     doc.setFontSize(11);
     doc.setTextColor(255, 255, 255);
     doc.text('Net Income:', 20, yPos + 5);
@@ -1633,6 +1651,9 @@ function IncomeReportsTab({
 
   return (
     <div className="space-y-6">
+      {/* Monthly Collection Chart */}
+
+
       <div className="flex justify-end">
         <Button onClick={exportPDF} variant="outline" className="gap-2">
           <Download className="h-4 w-4" />
@@ -1727,5 +1748,74 @@ function IncomeReportsTab({
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function MonthlyRentGraph({ monthlyReports, formatValue }: { monthlyReports: MonthlyReport[]; formatValue: (val: number) => string }) {
+  const sortedMonthlyReports = [...(monthlyReports || [])].reverse();
+
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-background border rounded-lg p-3 shadow-lg text-sm">
+          <p className="font-medium mb-2">{label}</p>
+          {payload.map((entry: any, index: number) => (
+            <div key={index} className="flex items-center gap-2 mb-1">
+              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
+              <span className="text-muted-foreground">{entry.name}:</span>
+              <span className="font-medium">{formatValue(entry.value)}</span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return null;
+  };
+
+  if (sortedMonthlyReports.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <BarChart3 className="h-5 w-5 text-blue-600" />
+          Monthly Rent Collection Trend
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="h-[300px] w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={sortedMonthlyReports}
+              margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+              <XAxis
+                dataKey="month"
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                dy={10}
+              />
+              <YAxis
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                tickFormatter={(value) => `\u09F3${value / 1000}k`}
+              />
+              <RechartsTooltip content={<CustomTooltip />} cursor={{ fill: "hsl(var(--muted)/0.4)" }} />
+              <Legend wrapperStyle={{ paddingTop: '20px' }} />
+              <Bar
+                dataKey="rentCollection"
+                name="Rent Collection"
+                fill="hsl(var(--primary))"
+                radius={[4, 4, 0, 0]}
+                barSize={40}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

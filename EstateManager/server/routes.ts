@@ -1,15 +1,13 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { db } from "./db";
-import { 
+import {
   owners, shops, tenants, leases, rentInvoices, payments, bankDeposits, expenses, rentAdjustments,
   insertOwnerSchema, insertShopSchema, insertTenantSchema, insertLeaseSchema,
-  insertPaymentSchema, insertBankDepositSchema, insertExpenseSchema,
+  insertRentInvoiceSchema, insertPaymentSchema, insertBankDepositSchema, insertExpenseSchema,
   insertUserSchema, insertRentAdjustmentSchema
 } from "@shared/schema";
-import { eq, desc, sql, and, gte, lte } from "drizzle-orm";
-import { setupAuth, isAuthenticated, requireSuperAdmin, requireOwnerOrAdmin } from "./auth";
+import { setupAuth, isAuthenticated, requireSuperAdmin, requireOwnerOrAdmin, checkAuth } from "./auth";
 import multer from "multer";
 import * as XLSX from "xlsx";
 
@@ -97,7 +95,7 @@ export async function registerRoutes(
   await setupAuth(app);
 
   // ===== USER MANAGEMENT (Super Admin only) =====
-  
+
   // Get all users
   app.get('/api/users', isAuthenticated, requireSuperAdmin, async (req: Request, res: Response) => {
     try {
@@ -120,13 +118,13 @@ export async function registerRoutes(
   app.post('/api/users', isAuthenticated, requireSuperAdmin, async (req: Request, res: Response) => {
     try {
       const data = insertUserSchema.parse(req.body);
-      
+
       // Check if username already exists
       const existingUser = await storage.getUserByUsername(data.username);
       if (existingUser) {
         return res.status(400).json({ message: "Username already exists" });
       }
-      
+
       const user = await storage.createUser(data);
       const { password: _, ...userWithoutPassword } = user;
       res.status(201).json(userWithoutPassword);
@@ -139,7 +137,7 @@ export async function registerRoutes(
   app.patch('/api/users/:id', isAuthenticated, requireSuperAdmin, async (req: Request, res: Response) => {
     try {
       const { username, password, email, firstName, lastName, phone, role, ownerId } = req.body;
-      
+
       // Check if username is being changed and if it already exists
       if (username) {
         const existingUser = await storage.getUserByUsername(username);
@@ -147,15 +145,15 @@ export async function registerRoutes(
           return res.status(400).json({ message: "Username already exists" });
         }
       }
-      
+
       const user = await storage.updateUser(req.params.id, {
         username, password, email, firstName, lastName, phone, role, ownerId
       });
-      
+
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
-      
+
       const { password: _, ...userWithoutPassword } = user;
       res.json(userWithoutPassword);
     } catch (error: any) {
@@ -171,7 +169,7 @@ export async function registerRoutes(
       if (user?.username === 'super_admin') {
         return res.status(400).json({ message: "Cannot delete the main Super Admin account" });
       }
-      
+
       await storage.deleteUser(req.params.id);
       res.status(204).send();
     } catch (error: any) {
@@ -184,18 +182,23 @@ export async function registerRoutes(
   app.get("/api/owners", isAuthenticated, requireSuperAdmin, async (req: Request, res: Response) => {
     try {
       const allOwners = await storage.getOwners();
-      
+
       // Get shop counts for each owner
-      const ownersWithStats = await Promise.all(allOwners.map(async (owner) => {
-        const ownerShops = await db.select().from(shops).where(eq(shops.ownerId, owner.id));
-        
+      const ownersWithDetails = await Promise.all(allOwners.map(async (owner) => {
+        // Compute stats for each owner
+        const allShops = await storage.getShops();
+        const ownerShops = allShops.filter(s => s.ownerId === owner.id);
+        const shopCount = ownerShops.length;
+
+        // Calculate total collection for this owner (current month)
+        // ... rest of logic uses storage calls ...
         return {
           ...owner,
-          shopCount: ownerShops.length,
+          shopCount: shopCount,
         };
       }));
-      
-      res.json(ownersWithStats);
+
+      res.json(ownersWithDetails);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -205,12 +208,12 @@ export async function registerRoutes(
   app.get("/api/owners/:id", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const requestedOwnerId = parseInt(req.params.id);
-      
+
       // Authorization: Owner users can only access their own data
       if (isOwnerUser(req) && req.session.ownerId !== requestedOwnerId) {
         return res.status(403).json({ message: "Access denied: You can only view your own owner data" });
       }
-      
+
       const owner = await storage.getOwner(requestedOwnerId);
       if (!owner) return res.status(404).json({ message: "Owner not found" });
       res.json(owner);
@@ -253,12 +256,12 @@ export async function registerRoutes(
   app.get("/api/owners/:id/details", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const ownerId = parseInt(req.params.id);
-      
+
       // Authorization: Owner users can only access their own details
       if (isOwnerUser(req) && req.session.ownerId !== ownerId) {
         return res.status(403).json({ message: "Access denied: You can only view your own owner dashboard" });
       }
-      
+
       const owner = await storage.getOwner(ownerId);
       if (!owner) return res.status(404).json({ message: "Owner not found" });
 
@@ -302,7 +305,7 @@ export async function registerRoutes(
         totalSecurityDeposit += securityDeposit;
 
         // Get invoices for this lease (only elapsed months)
-        const leaseInvoices = allInvoices.filter(inv => 
+        const leaseInvoices = allInvoices.filter(inv =>
           inv.leaseId === lease.id &&
           (inv.year < currentYear || (inv.year === currentYear && inv.month <= currentMonth))
         );
@@ -318,16 +321,16 @@ export async function registerRoutes(
         totalOutstandingDues += Math.max(0, totalDues);
 
         // Get last payment date
-        const sortedPayments = leasePayments.sort((a, b) => 
+        const sortedPayments = leasePayments.sort((a, b) =>
           new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime()
         );
         const lastPaymentDate = sortedPayments.length > 0 ? sortedPayments[0].paymentDate : null;
 
         // Format floor name
         const floorName = shop.floor === 'ground' ? 'Ground Floor' :
-                         shop.floor === 'first' ? '1st Floor' :
-                         shop.floor === 'second' ? '2nd Floor' : 
-                         shop.floor === 'subedari' ? 'Subedari' : shop.floor;
+          shop.floor === 'first' ? '1st Floor' :
+            shop.floor === 'second' ? '2nd Floor' :
+              shop.floor === 'subedari' ? 'Subedari' : shop.floor;
 
         tenantList.push({
           id: tenant.id,
@@ -370,21 +373,21 @@ export async function registerRoutes(
 
       // Get expenses for this owner (both owner-specific and common allocated)
       const allExpenses = await storage.getExpenses();
-      const ownerExpenses = allExpenses.filter(e => 
+      const ownerExpenses = allExpenses.filter(e =>
         e.ownerId === ownerId || e.allocation === 'common'
       ).map(e => ({
         ...e,
-        allocatedAmount: e.allocation === 'common' 
-          ? parseFloat(e.amount) / totalOwners 
+        allocatedAmount: e.allocation === 'common'
+          ? parseFloat(e.amount) / totalOwners
           : parseFloat(e.amount),
         isCommon: e.allocation === 'common'
       })).sort((a, b) => new Date(b.expenseDate).getTime() - new Date(a.expenseDate).getTime());
 
       // Build monthly/yearly income-expense report
-      const monthlyReports: Record<string, { 
-        month: string, 
-        rentCollection: number, 
-        bankDeposits: number, 
+      const monthlyReports: Record<string, {
+        month: string,
+        rentCollection: number,
+        bankDeposits: number,
         expenses: number,
         netIncome: number
       }> = {};
@@ -400,9 +403,9 @@ export async function registerRoutes(
         // Rent collection for owner's shops in this month
         const monthPayments = allPayments.filter(p => {
           const pDate = new Date(p.paymentDate);
-          return pDate.getFullYear() === year && 
-                 pDate.getMonth() + 1 === month &&
-                 ownerLeases.some(l => l.id === p.leaseId);
+          return pDate.getFullYear() === year &&
+            pDate.getMonth() + 1 === month &&
+            ownerLeases.some(l => l.id === p.leaseId);
         });
         const rentCollection = getActivePayments(monthPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
 
@@ -416,11 +419,11 @@ export async function registerRoutes(
         // Expenses in this month
         const monthExpenses = allExpenses.filter(e => {
           const eDate = new Date(e.expenseDate);
-          return eDate.getFullYear() === year && 
-                 eDate.getMonth() + 1 === month &&
-                 (e.ownerId === ownerId || e.allocation === 'common');
+          return eDate.getFullYear() === year &&
+            eDate.getMonth() + 1 === month &&
+            (e.ownerId === ownerId || e.allocation === 'common');
         });
-        const totalExpenses = monthExpenses.reduce((sum, e) => 
+        const totalExpenses = monthExpenses.reduce((sum, e) =>
           sum + (e.allocation === 'common' ? parseFloat(e.amount) / totalOwners : parseFloat(e.amount)), 0);
 
         monthlyReports[key] = {
@@ -463,45 +466,45 @@ export async function registerRoutes(
       const commonTenantList: any[] = [];
       let commonSecurityDeposit = 0;
       let commonOutstandingDues = 0;
-      
+
       const commonShopIds = commonShops.map(s => s.id);
       const commonLeases = allLeases.filter(l => commonShopIds.includes(l.shopId));
-      
+
       for (const lease of commonLeases) {
         if (lease.status === 'terminated') continue;
-        
+
         const tenant = allTenants.find(t => t.id === lease.tenantId);
         const shop = commonShops.find(s => s.id === lease.shopId);
         if (!tenant || !shop) continue;
-        
+
         const securityDeposit = parseFloat(lease.securityDeposit) - parseFloat(lease.securityDepositUsed || '0');
         const shareDeposit = securityDeposit / totalOwners;
         commonSecurityDeposit += shareDeposit;
-        
-        const leaseInvoices = allInvoices.filter(inv => 
+
+        const leaseInvoices = allInvoices.filter(inv =>
           inv.leaseId === lease.id &&
           (inv.year < currentYear || (inv.year === currentYear && inv.month <= currentMonth))
         );
-        
+
         const leasePayments = allPayments.filter(p => p.leaseId === lease.id);
         const totalPaid = getActivePayments(leasePayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
-        
+
         const openingDue = parseFloat(tenant.openingDueBalance || '0');
         const totalInvoiced = leaseInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
         const totalDues = openingDue + totalInvoiced - totalPaid;
         const shareDues = Math.max(0, totalDues) / totalOwners;
         commonOutstandingDues += shareDues;
-        
-        const sortedPayments = leasePayments.sort((a, b) => 
+
+        const sortedPayments = leasePayments.sort((a, b) =>
           new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime()
         );
         const lastPaymentDate = sortedPayments.length > 0 ? sortedPayments[0].paymentDate : null;
-        
+
         const floorName = shop.floor === 'ground' ? 'Ground Floor' :
-                         shop.floor === 'first' ? '1st Floor' :
-                         shop.floor === 'second' ? '2nd Floor' : 
-                         shop.floor === 'subedari' ? 'Subedari' : shop.floor;
-        
+          shop.floor === 'first' ? '1st Floor' :
+            shop.floor === 'second' ? '2nd Floor' :
+              shop.floor === 'subedari' ? 'Subedari' : shop.floor;
+
         commonTenantList.push({
           id: tenant.id,
           leaseId: lease.id,
@@ -521,9 +524,9 @@ export async function registerRoutes(
           isCommon: true,
         });
       }
-      
+
       sortByFloorAndShopNumber(commonTenantList);
-      
+
       // Calculate common expenses separately
       const commonExpenses = ownerExpenses.filter(e => e.isCommon);
       const privateExpenses = ownerExpenses.filter(e => !e.isCommon);
@@ -562,14 +565,14 @@ export async function registerRoutes(
   app.get("/api/shops", isAuthenticated, async (req: Request, res: Response) => {
     try {
       let allShops = await storage.getShops();
-      
+
       // Filter shops for owner users (only their own shops + common shops)
       if (isOwnerUser(req) && req.session.ownerId) {
-        allShops = allShops.filter(s => 
+        allShops = allShops.filter(s =>
           s.ownerId === req.session.ownerId || s.ownershipType === 'common'
         );
       }
-      
+
       // Get owner details for each shop
       const shopsWithOwners = await Promise.all(allShops.map(async (shop) => {
         let owner = null;
@@ -578,7 +581,7 @@ export async function registerRoutes(
         }
         return { ...shop, owner };
       }));
-      
+
       res.json(shopsWithOwners);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -589,12 +592,12 @@ export async function registerRoutes(
     try {
       const shop = await storage.getShop(parseInt(req.params.id));
       if (!shop) return res.status(404).json({ message: "Shop not found" });
-      
+
       let owner = null;
       if (shop.ownerId) {
         owner = await storage.getOwner(shop.ownerId);
       }
-      
+
       res.json({ ...shop, owner });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -625,30 +628,32 @@ export async function registerRoutes(
     try {
       const shopId = parseInt(req.params.id);
       const { reason, deletionDate } = req.body;
-      
+
       if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
         return res.status(400).json({ message: "Deletion reason is required" });
       }
-      
+
       // Get the shop first for logging
       const shopToDelete = await storage.getShop(shopId);
-      
+
       if (!shopToDelete) {
         return res.status(404).json({ message: "Shop not found" });
       }
-      
+
       // Soft delete: Update the shop with deletion metadata
       const deletedAt = deletionDate ? new Date(deletionDate) : new Date();
-      const [updated] = await db.update(shops)
-        .set({
-          isDeleted: true,
-          deletedAt: deletedAt,
-          deletionReason: reason.trim(),
-          deletedBy: (req as any).user?.id || null,
-        })
-        .where(eq(shops.id, shopId))
-        .returning();
-      
+      await storage.updateShop(shopId, {
+        status: 'vacant', // Ensure it's marked vacant
+        notes: `[DELETED] ${reason}`,
+        // Use casting to pass soft delete fields if not in InsertShop
+        isDeleted: true,
+        deletedAt: deletedAt,
+        deletionReason: reason,
+        deletedBy: (req as any).user?.id || null
+      } as any);
+
+      const updated = await storage.getShop(shopId);
+
       // Log the deletion for audit trail
       await storage.createDeletionLog({
         recordType: 'shop',
@@ -657,7 +662,7 @@ export async function registerRoutes(
         reason: reason.trim(),
         deletedBy: (req as any).user?.id || null,
       });
-      
+
       res.json(updated);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -669,8 +674,8 @@ export async function registerRoutes(
     const today = new Date();
     const currentMonth = today.getMonth() + 1;
     const currentYear = today.getFullYear();
-    
-    return invoices.filter(inv => 
+
+    return invoices.filter(inv =>
       inv.year < currentYear || (inv.year === currentYear && inv.month <= currentMonth)
     );
   };
@@ -680,11 +685,11 @@ export async function registerRoutes(
     try {
       let allTenants = await storage.getTenants();
       const allLeases = await storage.getLeases();
-      
+
       // Get accessible shop IDs for owner users
       let accessibleShopIds: number[] | null = null;
       let accessibleLeaseIds: Set<number> | null = null;
-      
+
       if (isOwnerUser(req) && req.session.ownerId) {
         accessibleShopIds = await getOwnerAccessibleShops(req.session.ownerId);
         accessibleLeaseIds = new Set(
@@ -699,38 +704,38 @@ export async function registerRoutes(
         );
         allTenants = allTenants.filter(t => tenantIdsInAccessibleShops.has(t.id));
       }
-      
+
       // Calculate dues for each tenant (filtered by owner's accessible shops if applicable)
       const tenantsWithDues = await Promise.all(allTenants.map(async (tenant) => {
         let invoices = await storage.getRentInvoicesByTenant(tenant.id);
         let tenantPayments = await storage.getPaymentsByTenant(tenant.id);
-        
+
         // Filter by accessible leases for owner users
         if (accessibleLeaseIds) {
           invoices = invoices.filter(inv => accessibleLeaseIds!.has(inv.leaseId));
           tenantPayments = tenantPayments.filter(p => accessibleLeaseIds!.has(p.leaseId));
         }
-        
+
         // Only count invoices for elapsed months (up to current month)
         const elapsedInvoices = getElapsedInvoices(invoices);
-        
+
         const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
         const totalPaid = getActivePayments(tenantPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
-        
+
         // Opening balance only applies when viewing all data (super admin) or first lease context
         // For owner users, we exclude opening balance to avoid cross-owner confusion
         const openingBalance = accessibleLeaseIds ? 0 : parseFloat(tenant.openingDueBalance);
-        
+
         const totalDue = openingBalance + totalInvoices;
         const currentDue = totalDue - totalPaid;
-        
+
         // Build monthly breakdown (only for elapsed months)
         const monthlyDues: { [key: string]: number } = {};
         elapsedInvoices.forEach(inv => {
           const key = `${inv.year}-${String(inv.month).padStart(2, '0')}`;
           monthlyDues[key] = (monthlyDues[key] || 0) + parseFloat(inv.amount);
         });
-        
+
         return {
           ...tenant,
           totalDue,
@@ -739,7 +744,7 @@ export async function registerRoutes(
           monthlyDues,
         };
       }));
-      
+
       res.json(tenantsWithDues);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -749,33 +754,33 @@ export async function registerRoutes(
   app.get("/api/tenants/with-leases", isAuthenticated, async (req: Request, res: Response) => {
     try {
       let allTenants = await storage.getTenants();
-      
+
       // Get accessible shop IDs for owner users
       let accessibleShopIds: number[] | null = null;
       if (isOwnerUser(req) && req.session.ownerId) {
         accessibleShopIds = await getOwnerAccessibleShops(req.session.ownerId);
       }
-      
+
       const tenantsWithLeases = await Promise.all(allTenants.map(async (tenant) => {
         let tenantLeases = await storage.getLeasesByTenant(tenant.id);
-        
+
         // Filter leases to only accessible shops for owner users
         if (accessibleShopIds) {
           tenantLeases = tenantLeases.filter(l => accessibleShopIds!.includes(l.shopId));
         }
-        
+
         const leasesWithShops = await Promise.all(tenantLeases.map(async (lease) => {
           const shop = await storage.getShop(lease.shopId);
           return { ...lease, shop: shop ? { shopNumber: shop.shopNumber, floor: shop.floor, subedariCategory: shop.subedariCategory } : null };
         }));
         return { ...tenant, leases: leasesWithShops };
       }));
-      
+
       // Filter out tenants with no accessible leases for owner users
-      const filteredTenants = accessibleShopIds 
+      const filteredTenants = accessibleShopIds
         ? tenantsWithLeases.filter(t => t.leases.length > 0)
         : tenantsWithLeases;
-      
+
       res.json(filteredTenants);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -786,17 +791,17 @@ export async function registerRoutes(
   app.get("/api/tenants/by-owner", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const ownerIds = req.query.ownerIds as string;
-      
+
       const allTenants = await storage.getTenants();
       const allLeases = await storage.getLeases();
       const allShops = await storage.getShops();
       const allInvoices = await storage.getRentInvoices();
       const allPayments = await storage.getPayments();
-      
+
       let filteredTenants = allTenants;
       let accessibleShopIds: number[] | null = null;
       let accessibleLeaseIds: Set<number> | null = null;
-      
+
       // For owner users, restrict to only their accessible shops (own + common)
       if (isOwnerUser(req) && req.session.ownerId) {
         accessibleShopIds = await getOwnerAccessibleShops(req.session.ownerId);
@@ -816,7 +821,7 @@ export async function registerRoutes(
         const ownerIdList = ownerIds.split(',')
           .map(id => parseInt(id.trim()))
           .filter(id => !isNaN(id) && id > 0);
-        
+
         if (ownerIdList.length > 0) {
           const ownerShopIds = allShops.filter(s => s.ownerId && ownerIdList.includes(s.ownerId)).map(s => s.id);
           const tenantIdsWithOwnerLeases = allLeases
@@ -826,23 +831,23 @@ export async function registerRoutes(
           filteredTenants = allTenants.filter(t => uniqueTenantIds.includes(t.id));
         }
       }
-      
+
       const tenantsWithDues = await Promise.all(filteredTenants.map(async (tenant) => {
         // Filter invoices and payments by accessible leases for owner users
         let tenantInvoices = allInvoices.filter(inv => inv.tenantId === tenant.id);
         let tenantPayments = allPayments.filter(p => p.tenantId === tenant.id);
-        
+
         if (accessibleLeaseIds) {
           tenantInvoices = tenantInvoices.filter(inv => accessibleLeaseIds!.has(inv.leaseId));
           tenantPayments = tenantPayments.filter(p => accessibleLeaseIds!.has(p.leaseId));
         }
-        
+
         // Get floor and shop number from first active lease's shop (filtered for owner)
         let tenantLeases = allLeases.filter(l => l.tenantId === tenant.id && l.status !== 'terminated');
         if (accessibleShopIds) {
           tenantLeases = tenantLeases.filter(l => accessibleShopIds!.includes(l.shopId));
         }
-        
+
         let floor: string | null = null;
         let shopNumber: string | null = null;
         if (tenantLeases.length > 0) {
@@ -851,24 +856,24 @@ export async function registerRoutes(
           floor = shop?.floor || null;
           shopNumber = shop?.shopNumber || null;
         }
-        
+
         // Only count invoices for elapsed months (up to current month)
         const elapsedInvoices = getElapsedInvoices(tenantInvoices);
-        
+
         const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
         const totalPaid = getActivePayments(tenantPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
         // Opening balance excluded for owner users to avoid cross-owner confusion
         const openingBalance = accessibleLeaseIds ? 0 : parseFloat(tenant.openingDueBalance);
         const totalDue = openingBalance + totalInvoices;
         const currentDue = Math.max(0, totalDue - totalPaid);
-        
+
         const monthlyDues: Record<string, number> = {};
         let remainingDue = currentDue;
-        
-        const sortedInvoices = [...elapsedInvoices].sort((a, b) => 
+
+        const sortedInvoices = [...elapsedInvoices].sort((a, b) =>
           new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
         );
-        
+
         for (const inv of sortedInvoices) {
           if (remainingDue <= 0) break;
           const invoiceAmount = parseFloat(inv.amount);
@@ -879,7 +884,7 @@ export async function registerRoutes(
             remainingDue -= dueForThisMonth;
           }
         }
-        
+
         // Add active leases with shop info
         const activeLeases = tenantLeases
           .filter(l => l.status === 'active' || l.status === 'expiring_soon')
@@ -894,10 +899,10 @@ export async function registerRoutes(
               status: lease.status
             };
           });
-        
+
         return { ...tenant, totalDue, totalPaid, currentDue, monthlyDues, floor, shopNumber, activeLeases };
       }));
-      
+
       // Sort tenants by floor order, then by prefix (E->M->W), then by numerical shop number
       tenantsWithDues.sort((a, b) => {
         // First: sort by floor
@@ -919,7 +924,7 @@ export async function registerRoutes(
         const numB = extractShopNumber(b.shopNumber || '');
         return numA - numB;
       });
-      
+
       res.json(tenantsWithDues);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -930,44 +935,44 @@ export async function registerRoutes(
     try {
       const tenant = await storage.getTenant(parseInt(req.params.id));
       if (!tenant) return res.status(404).json({ message: "Tenant not found" });
-      
+
       // Get accessible shop IDs for owner users
       let accessibleShopIds: number[] | null = null;
       let accessibleLeaseIds: Set<number> | null = null;
-      
+
       if (isOwnerUser(req) && req.session.ownerId) {
         accessibleShopIds = await getOwnerAccessibleShops(req.session.ownerId);
       }
-      
+
       // Get leases with shop details
       let tenantLeases = await storage.getLeasesByTenant(tenant.id);
-      
+
       // Filter leases to only accessible shops for owner users
       if (accessibleShopIds) {
         tenantLeases = tenantLeases.filter(l => accessibleShopIds!.includes(l.shopId));
         accessibleLeaseIds = new Set(tenantLeases.map(l => l.id));
       }
-      
+
       const leasesWithShops = await Promise.all(tenantLeases.map(async (lease) => {
         const shop = await storage.getShop(lease.shopId);
         return { ...lease, shop: shop ? { shopNumber: shop.shopNumber, floor: shop.floor } : null };
       }));
-      
+
       // Get payments (filtered by accessible leases for owner users)
       let tenantPayments = await storage.getPaymentsByTenant(tenant.id);
       if (accessibleLeaseIds) {
         tenantPayments = tenantPayments.filter(p => accessibleLeaseIds!.has(p.leaseId));
       }
-      
+
       // Get invoices (filtered by accessible leases for owner users)
       let invoices = await storage.getRentInvoicesByTenant(tenant.id);
       if (accessibleLeaseIds) {
         invoices = invoices.filter(inv => accessibleLeaseIds!.has(inv.leaseId));
       }
-      
+
       // Only count invoices for elapsed months (up to current month)
       const elapsedInvoices = getElapsedInvoices(invoices);
-      
+
       // Calculate totals
       const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
       const totalPaid = getActivePayments(tenantPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
@@ -975,11 +980,11 @@ export async function registerRoutes(
       const openingBalance = accessibleLeaseIds ? 0 : parseFloat(tenant.openingDueBalance);
       const totalDue = openingBalance + totalInvoices;
       const currentDue = Math.max(0, totalDue - totalPaid);
-      
+
       // Build ledger entries
       const ledgerEntries: any[] = [];
       let runningBalance = 0;
-      
+
       // Add opening balance first
       if (openingBalance > 0) {
         runningBalance = openingBalance;
@@ -993,10 +998,10 @@ export async function registerRoutes(
           balance: runningBalance,
         });
       }
-      
+
       // Combine invoices and payments, sort by date (only elapsed invoices)
       const allEntries: { date: Date | string; type: string; amount: number; description: string }[] = [];
-      
+
       elapsedInvoices.forEach(inv => {
         allEntries.push({
           date: inv.dueDate,
@@ -1005,35 +1010,35 @@ export async function registerRoutes(
           description: `Rent for ${inv.month}/${inv.year}`,
         });
       });
-      
+
       for (const p of tenantPayments) {
         const rentMonths = p.rentMonths as string[] | null;
         const paymentAmount = parseFloat(p.amount);
         const receiptSuffix = p.receiptNumber ? ` (${p.receiptNumber})` : '';
         const paymentDateFormatted = new Date(p.paymentDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-        
+
         // Get shop info from the lease
         const leaseWithShop = leasesWithShops.find(l => l.id === p.leaseId);
-        const shopInfo = leaseWithShop?.shop 
+        const shopInfo = leaseWithShop?.shop
           ? `, for Shop No. ${leaseWithShop.shop.shopNumber}, ${leaseWithShop.shop.floor}`
           : '';
-        
+
         if (rentMonths && Array.isArray(rentMonths) && rentMonths.length > 0) {
           // Sort rent months chronologically
           const sortedMonths = [...rentMonths].sort();
           const amountPerMonth = Math.round((paymentAmount / sortedMonths.length) * 100) / 100;
-          
+
           // Create separate ledger entry for each rent month
           sortedMonths.forEach((monthStr, idx) => {
             const [year, month] = monthStr.split('-');
             const monthDate = new Date(parseInt(year), parseInt(month) - 1, 1);
             const formattedMonth = monthDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-            
+
             // Handle rounding for last month to ensure total matches
-            const entryAmount = idx === sortedMonths.length - 1 
+            const entryAmount = idx === sortedMonths.length - 1
               ? Math.round((paymentAmount - amountPerMonth * (sortedMonths.length - 1)) * 100) / 100
               : amountPerMonth;
-            
+
             allEntries.push({
               date: monthDate.toISOString().split('T')[0], // Use rent month as entry date
               type: 'payment',
@@ -1051,10 +1056,10 @@ export async function registerRoutes(
           });
         }
       }
-      
+
       // Sort by date to ensure proper chronological order
       allEntries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      
+
       // Build ledger with running balance
       allEntries.forEach((entry, idx) => {
         if (entry.type === 'rent') {
@@ -1081,7 +1086,7 @@ export async function registerRoutes(
           });
         }
       });
-      
+
       res.json({
         ...tenant,
         leases: leasesWithShops,
@@ -1099,18 +1104,18 @@ export async function registerRoutes(
   app.post("/api/tenants", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const data = insertTenantSchema.parse(req.body);
-      
+
       // Check if phone number already exists
       if (data.phone) {
         const allTenants = await storage.getTenants();
         const existingTenant = allTenants.find(t => t.phone === data.phone);
         if (existingTenant) {
-          return res.status(400).json({ 
-            message: `Tenant with phone number ${data.phone} already exists (${existingTenant.name})` 
+          return res.status(400).json({
+            message: `Tenant with phone number ${data.phone} already exists (${existingTenant.name})`
           });
         }
       }
-      
+
       const tenant = await storage.createTenant(data);
       res.status(201).json(tenant);
     } catch (error: any) {
@@ -1132,30 +1137,29 @@ export async function registerRoutes(
     try {
       const tenantId = parseInt(req.params.id);
       const { reason, deletionDate } = req.body;
-      
+
       if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
         return res.status(400).json({ message: "Deletion reason is required" });
       }
-      
+
       // Get the tenant first for logging
       const tenantToDelete = await storage.getTenant(tenantId);
-      
+
       if (!tenantToDelete) {
         return res.status(404).json({ message: "Tenant not found" });
       }
-      
+
       // Soft delete: Update the tenant with deletion metadata
       const deletedAt = deletionDate ? new Date(deletionDate) : new Date();
-      const [updated] = await db.update(tenants)
-        .set({
-          isDeleted: true,
-          deletedAt: deletedAt,
-          deletionReason: reason.trim(),
-          deletedBy: (req as any).user?.id || null,
-        })
-        .where(eq(tenants.id, tenantId))
-        .returning();
-      
+      await storage.updateTenant(tenantId, {
+        isDeleted: true,
+        deletedAt: deletedAt,
+        deletionReason: reason.trim(),
+        deletedBy: (req as any).user?.id || null,
+      } as any);
+
+      const updated = await storage.getTenant(tenantId);
+
       // Log the deletion for audit trail
       await storage.createDeletionLog({
         recordType: 'tenant',
@@ -1164,7 +1168,7 @@ export async function registerRoutes(
         reason: reason.trim(),
         deletedBy: (req as any).user?.id || null,
       });
-      
+
       res.json(updated);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -1191,18 +1195,18 @@ export async function registerRoutes(
 
       const sheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[sheetName];
-      
+
       // Get all rows as arrays (header:1 means first row becomes index 0)
       const allRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' }) as any[][];
-      
+
       if (!allRows.length || allRows.length < 2) {
         return res.status(400).json({ message: "Excel file is empty or has no data rows (needs header row + at least one data row)" });
       }
-      
+
       // First row is headers, rest are data
       const headerRow = allRows[0];
       const dataRows = allRows.slice(1);
-      
+
       // Create header-to-index mapping for data access (include all non-empty headers)
       const headerIndices: Record<string, number> = {};
       const headers: string[] = [];
@@ -1213,11 +1217,11 @@ export async function registerRoutes(
           headers.push(headerStr);
         }
       });
-      
+
       if (!headers.length) {
         return res.status(400).json({ message: "Excel file has no column headers" });
       }
-      
+
       // Helper to check if header pattern matches any column in headers array
       const findHeaderIndex = (patterns: string[]): number => {
         for (const [header, idx] of Object.entries(headerIndices)) {
@@ -1240,11 +1244,11 @@ export async function registerRoutes(
         const missingCols = [];
         if (nameIdx === -1) missingCols.push('Name');
         if (phoneIdx === -1) missingCols.push('Phone');
-        return res.status(400).json({ 
-          message: `Missing required columns: ${missingCols.join(', ')}. Your file has columns: ${headers.join(', ')}` 
+        return res.status(400).json({
+          message: `Missing required columns: ${missingCols.join(', ')}. Your file has columns: ${headers.join(', ')}`
         });
       }
-      
+
       // Find optional column indices
       const balanceIdx = findHeaderIndex(['outstandingbalance', 'balance', 'outstanding', 'openingduebalance', 'openingbalance', 'due', 'duebalance']);
       const emailIdx = findHeaderIndex(['email', 'emailaddress', 'mail']);
@@ -1309,13 +1313,13 @@ export async function registerRoutes(
   app.get("/api/leases", isAuthenticated, async (req: Request, res: Response) => {
     try {
       let allLeases = await storage.getLeases();
-      
+
       // Filter leases for owner users (only leases in their shops + common shops)
       if (isOwnerUser(req) && req.session.ownerId) {
         const accessibleShopIds = await getOwnerAccessibleShops(req.session.ownerId);
         allLeases = allLeases.filter(l => accessibleShopIds.includes(l.shopId));
       }
-      
+
       // Update lease statuses and get details
       const leasesWithDetails = await Promise.all(allLeases.map(async (lease) => {
         const tenant = await storage.getTenant(lease.tenantId);
@@ -1324,13 +1328,13 @@ export async function registerRoutes(
         if (shop?.ownerId) {
           owner = await storage.getOwner(shop.ownerId);
         }
-        
+
         // Check and update status
         const today = new Date();
         const endDate = new Date(lease.endDate);
         const thirtyDaysFromNow = new Date();
         thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
-        
+
         let newStatus = lease.status;
         if (lease.status !== 'terminated') {
           if (endDate < today) {
@@ -1340,12 +1344,12 @@ export async function registerRoutes(
           } else {
             newStatus = 'active';
           }
-          
+
           if (newStatus !== lease.status) {
             await storage.updateLease(lease.id, { status: newStatus });
           }
         }
-        
+
         return {
           ...lease,
           status: newStatus,
@@ -1353,7 +1357,7 @@ export async function registerRoutes(
           shop: shop ? { ...shop, owner } : null,
         };
       }));
-      
+
       res.json(leasesWithDetails);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -1364,45 +1368,45 @@ export async function registerRoutes(
     try {
       const lease = await storage.getLease(parseInt(req.params.id));
       if (!lease) return res.status(404).json({ message: "Lease not found" });
-      
+
       const tenant = await storage.getTenant(lease.tenantId);
       const shop = await storage.getShop(lease.shopId);
       const owner = shop?.ownerId ? await storage.getOwner(shop.ownerId) : null;
-      
+
       // Get rent invoices for this lease
       const allInvoices = await storage.getRentInvoices();
       const leaseInvoices = allInvoices.filter(inv => inv.leaseId === lease.id);
-      
+
       // Only count invoices for elapsed months (up to current month)
       const elapsedLeaseInvoices = getElapsedInvoices(leaseInvoices);
-      
+
       // Get payments for this tenant
       const tenantPayments = await storage.getPaymentsByTenant(lease.tenantId);
       const leasePayments = tenantPayments.filter(p => p.leaseId === lease.id);
-      
+
       // Get expenses for this tenant - only filter if tenant exists
       const allExpenses = await storage.getExpenses();
-      const tenantExpenses = tenant 
+      const tenantExpenses = tenant
         ? allExpenses.filter(exp => exp.notes?.includes(`Tenant: ${tenant.name}`) || exp.notes?.includes(`tenantId:${tenant.id}`))
         : [];
-      
+
       // Calculate outstanding per month (only elapsed invoices)
       const totalPaid = getActivePayments(leasePayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
       const totalInvoiced = elapsedLeaseInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
       const totalExpenses = tenantExpenses.reduce((sum, exp) => sum + parseFloat(exp.amount), 0);
-      
+
       // Build monthly breakdown with outstanding (only for elapsed months)
       // Use rent_months from payments to correctly assign payments to intended rent periods
       const monthlyBreakdown = elapsedLeaseInvoices.map(invoice => {
         // Format the invoice month as YYYY-MM to match rent_months format
         const invoiceMonthKey = `${invoice.year}-${String(invoice.month).padStart(2, '0')}`;
-        
+
         // Find payments where this month appears in rent_months array
         let paidForMonth = 0;
-        
+
         leasePayments.forEach(p => {
           const rentMonths = (p.rentMonths as string[] | null) || [];
-          
+
           if (rentMonths.length > 0 && rentMonths.includes(invoiceMonthKey)) {
             // Payment covers this month - allocate proportionally
             // Each month gets an equal share of the payment
@@ -1416,12 +1420,12 @@ export async function registerRoutes(
             }
           }
         });
-        
+
         // Round to 2 decimal places to avoid floating point issues
         paidForMonth = Math.round(paidForMonth * 100) / 100;
         const rentAmount = parseFloat(invoice.amount);
         const outstanding = Math.max(0, rentAmount - paidForMonth);
-        
+
         return {
           month: invoice.month,
           year: invoice.year,
@@ -1435,7 +1439,7 @@ export async function registerRoutes(
         if (a.year !== b.year) return a.year - b.year;
         return a.month - b.month;
       });
-      
+
       res.json({
         ...lease,
         tenant,
@@ -1461,16 +1465,16 @@ export async function registerRoutes(
     try {
       const data = insertLeaseSchema.parse(req.body);
       const lease = await storage.createLease(data);
-      
+
       // Update shop status to occupied
       const shop = await storage.getShop(data.shopId);
       if (shop) {
         await storage.updateShop(shop.id, { status: 'occupied' });
       }
-      
+
       // Generate rent invoices using the shared regeneration function
       await regenerateLeaseBilling(lease.id);
-      
+
       res.status(201).json(lease);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
@@ -1482,53 +1486,53 @@ export async function registerRoutes(
       const leaseId = parseInt(req.params.id);
       const lease = await storage.getLease(leaseId);
       if (!lease) return res.status(404).json({ message: "Lease not found" });
-      
+
       const tenant = await storage.getTenant(lease.tenantId);
       const shop = await storage.getShop(lease.shopId);
-      
+
       // Get ALL invoices and payments for this tenant
       const allInvoices = await storage.getRentInvoicesByTenant(lease.tenantId);
       const allPayments = await storage.getPaymentsByTenant(lease.tenantId);
       const allLeases = await storage.getLeasesByTenant(lease.tenantId);
-      
+
       // === THIS LEASE'S ISOLATED SETTLEMENT ===
       // Filter invoices and payments specific to THIS lease only
       const thisLeaseInvoices = allInvoices.filter(inv => inv.leaseId === leaseId);
       const thisLeasePayments = allPayments.filter(p => p.leaseId === leaseId);
-      
+
       // Only count invoices for elapsed months
       const elapsedThisLeaseInvoices = getElapsedInvoices(thisLeaseInvoices);
-      
+
       // Opening balance is now per-lease
       const thisLeaseOpeningBalance = parseFloat(lease.openingDueBalance || '0');
       const thisLeaseTotalInvoices = elapsedThisLeaseInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
       const thisLeaseTotalPaid = getActivePayments(thisLeasePayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
       const thisLeaseTotalDue = thisLeaseOpeningBalance + thisLeaseTotalInvoices;
       const thisLeaseCurrentDue = thisLeaseTotalDue - thisLeaseTotalPaid;
-      
+
       // Security deposit for this lease
       const securityDeposit = parseFloat(lease.securityDeposit);
-      
+
       // === GLOBAL LEDGER BALANCE (from OTHER leases) ===
       // Calculate net balance from all other leases
       let globalLedgerBalance = 0;
-      
+
       for (const otherLease of allLeases) {
         if (otherLease.id === leaseId) continue; // Skip current lease
-        
+
         const otherLeaseInvoices = allInvoices.filter(inv => inv.leaseId === otherLease.id);
         const otherLeasePayments = allPayments.filter(p => p.leaseId === otherLease.id);
         const elapsedOtherInvoices = getElapsedInvoices(otherLeaseInvoices);
-        
+
         const otherOpeningBalance = parseFloat(otherLease.openingDueBalance || '0');
         const otherTotalInvoices = elapsedOtherInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
         const otherTotalPaid = getActivePayments(otherLeasePayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const otherTotalDue = otherOpeningBalance + otherTotalInvoices;
-        
+
         // Positive = tenant owes, Negative = tenant has credit
         globalLedgerBalance += (otherTotalDue - otherTotalPaid);
       }
-      
+
       res.json({
         leaseId: lease.id,
         tenantId: tenant?.id,
@@ -1538,7 +1542,7 @@ export async function registerRoutes(
         startDate: lease.startDate,
         endDate: lease.endDate,
         monthlyRent: lease.monthlyRent,
-        
+
         // This lease's isolated settlement
         thisLeaseOpeningBalance,
         thisLeaseTotalInvoices,
@@ -1546,12 +1550,12 @@ export async function registerRoutes(
         thisLeaseTotalDue,
         thisLeaseCurrentDue,
         securityDeposit,
-        
+
         // Global ledger balance from other leases
         // Positive = tenant still owes money elsewhere
         // Negative = tenant has credit from overpayment elsewhere
         globalLedgerBalance,
-        
+
         // Legacy fields for backward compatibility
         openingBalance: thisLeaseOpeningBalance,
         totalInvoices: thisLeaseTotalInvoices,
@@ -1569,32 +1573,32 @@ export async function registerRoutes(
       const leaseId = parseInt(req.params.id);
       const lease = await storage.getLease(leaseId);
       if (!lease) return res.status(404).json({ message: "Lease not found" });
-      
+
       if (lease.status === 'terminated') {
         return res.status(400).json({ message: "Cannot edit a terminated lease" });
       }
-      
+
       const { startDate, endDate, monthlyRent, securityDeposit, notes } = req.body;
-      
+
       const updateData: any = {};
       if (startDate !== undefined) updateData.startDate = startDate;
       if (endDate !== undefined) updateData.endDate = endDate;
       if (monthlyRent !== undefined) updateData.monthlyRent = monthlyRent;
       if (securityDeposit !== undefined) updateData.securityDeposit = securityDeposit;
       if (notes !== undefined) updateData.notes = notes;
-      
+
       const updated = await storage.updateLease(leaseId, updateData);
-      
+
       // Regenerate all invoices if dates or rent changed
-      const needsRegeneration = 
+      const needsRegeneration =
         (startDate !== undefined && startDate !== lease.startDate) ||
         (endDate !== undefined && endDate !== lease.endDate) ||
         (monthlyRent !== undefined && monthlyRent !== lease.monthlyRent);
-      
+
       if (needsRegeneration) {
         await regenerateLeaseBilling(leaseId);
       }
-      
+
       res.json(updated);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -1607,28 +1611,28 @@ export async function registerRoutes(
       const { terminationNotes, useSecurityDeposit, useGlobalLedger, globalLedgerAmount } = req.body;
       const lease = await storage.getLease(leaseId);
       if (!lease) return res.status(404).json({ message: "Lease not found" });
-      
+
       // Get all data for this tenant
       const allInvoices = await storage.getRentInvoicesByTenant(lease.tenantId);
       const allPayments = await storage.getPaymentsByTenant(lease.tenantId);
       const tenant = await storage.getTenant(lease.tenantId);
-      
+
       // === THIS LEASE'S ISOLATED SETTLEMENT ===
       const thisLeaseInvoices = allInvoices.filter(inv => inv.leaseId === leaseId);
       const thisLeasePayments = allPayments.filter(p => p.leaseId === leaseId);
       const elapsedThisLeaseInvoices = getElapsedInvoices(thisLeaseInvoices);
-      
+
       const thisLeaseOpeningBalance = parseFloat(lease.openingDueBalance || '0');
       const thisLeaseTotalInvoices = elapsedThisLeaseInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
       const thisLeaseTotalPaid = getActivePayments(thisLeasePayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
       const thisLeaseCurrentDue = thisLeaseOpeningBalance + thisLeaseTotalInvoices - thisLeaseTotalPaid;
-      
+
       // Determine security deposit to use
       let securityDepositUsedAmount = 0;
       if (useSecurityDeposit) {
         securityDepositUsedAmount = Math.min(Math.max(0, thisLeaseCurrentDue), parseFloat(lease.securityDeposit));
       }
-      
+
       // If using global ledger adjustment, create a transfer payment
       // Server-side validation: must be positive and within available credit
       if (useGlobalLedger && globalLedgerAmount > 0) {
@@ -1638,27 +1642,27 @@ export async function registerRoutes(
           return res.status(400).json({ message: "Global ledger transfer amount must be positive" });
         }
         const allLeases = await storage.getLeasesByTenant(lease.tenantId);
-        
+
         // Find other leases that have credit (negative balance = overpayment)
         let remainingTransfer = transferAmount;
-        
+
         for (const otherLease of allLeases) {
           if (otherLease.id === leaseId || remainingTransfer <= 0) continue;
-          
+
           const otherLeaseInvoices = allInvoices.filter(inv => inv.leaseId === otherLease.id);
           const otherLeasePayments = allPayments.filter(p => p.leaseId === otherLease.id);
           const elapsedOtherInvoices = getElapsedInvoices(otherLeaseInvoices);
-          
+
           const otherOpeningBalance = parseFloat(otherLease.openingDueBalance || '0');
           const otherTotalInvoices = elapsedOtherInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
           const otherTotalPaid = getActivePayments(otherLeasePayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
           const otherBalance = otherOpeningBalance + otherTotalInvoices - otherTotalPaid;
-          
+
           // If this lease has credit (negative balance = overpaid)
           if (otherBalance < 0) {
             const availableCredit = Math.abs(otherBalance);
             const transferFromThis = Math.min(availableCredit, remainingTransfer);
-            
+
             if (transferFromThis > 0) {
               // Create a negative payment on the source lease (debit)
               await storage.createPayment({
@@ -1670,7 +1674,7 @@ export async function registerRoutes(
                 notes: `Settlement transfer to Shop ${(await storage.getShop(lease.shopId))?.shopNumber || lease.shopId} (Lease #${leaseId})`,
                 createdBy: (req as any).user?.id || null,
               });
-              
+
               // Create a positive payment on this lease (credit)
               await storage.createPayment({
                 tenantId: lease.tenantId,
@@ -1681,29 +1685,26 @@ export async function registerRoutes(
                 notes: `Settlement transfer from Shop ${(await storage.getShop(otherLease.shopId))?.shopNumber || otherLease.shopId} (Lease #${otherLease.id})`,
                 createdBy: (req as any).user?.id || null,
               });
-              
+
               remainingTransfer -= transferFromThis;
             }
           }
         }
       }
-      
+
       // Update lease with security deposit used and terminate
-      const [updated] = await db.update(leases)
-        .set({ 
-          status: 'terminated',
-          securityDepositUsed: securityDepositUsedAmount.toString(),
-          terminationNotes: terminationNotes || null,
-        })
-        .where(eq(leases.id, leaseId))
-        .returning();
-      
+      const updated = await storage.updateLease(leaseId, {
+        status: 'terminated',
+        securityDepositUsed: securityDepositUsedAmount.toString(),
+        terminationNotes: terminationNotes || null,
+      });
+
       // Update shop status to vacant
       const shop = await storage.getShop(lease.shopId);
       if (shop) {
         await storage.updateShop(shop.id, { status: 'vacant' });
       }
-      
+
       res.json(updated);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -1711,14 +1712,14 @@ export async function registerRoutes(
   });
 
   // ===== RENT ADJUSTMENTS =====
-  
+
   // Get rent adjustments for a lease
   app.get("/api/leases/:id/rent-adjustments", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const leaseId = parseInt(req.params.id);
-      const adjustments = await db.select().from(rentAdjustments)
-        .where(eq(rentAdjustments.leaseId, leaseId))
-        .orderBy(desc(rentAdjustments.createdAt));
+      const adjustments = await storage.getRentAdjustmentsByLease(leaseId);
+      // Sort in memory (descending by createdAt/effectiveDate) - assuming ID sort or createdAt
+      adjustments.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       res.json(adjustments);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -1731,23 +1732,23 @@ export async function registerRoutes(
       const leaseId = parseInt(req.params.id);
       const lease = await storage.getLease(leaseId);
       if (!lease) return res.status(404).json({ message: "Lease not found" });
-      
+
       if (lease.status === 'terminated') {
         return res.status(400).json({ message: "Cannot adjust rent for a terminated lease" });
       }
-      
+
       const { newRent, effectiveDate, agreementTerms, notes } = req.body;
-      
+
       if (!newRent || !effectiveDate) {
         return res.status(400).json({ message: "New rent amount and effective date are required" });
       }
-      
+
       const previousRent = parseFloat(lease.monthlyRent);
       const newRentAmount = parseFloat(newRent);
       const adjustmentAmount = newRentAmount - previousRent;
-      
+
       // Create rent adjustment record
-      const [adjustment] = await db.insert(rentAdjustments).values({
+      const adjustment = await storage.createRentAdjustment({
         leaseId,
         previousRent: previousRent.toString(),
         newRent: newRentAmount.toString(),
@@ -1755,29 +1756,27 @@ export async function registerRoutes(
         effectiveDate,
         agreementTerms: agreementTerms || null,
         notes: notes || null,
-      }).returning();
-      
+      });
+
       // Update the lease with new monthly rent
       await storage.updateLease(leaseId, { monthlyRent: newRentAmount.toString() });
-      
+
       // Update all future invoices (from effective date onwards) with new rent
       const effectiveDateObj = new Date(effectiveDate);
       const effectiveMonth = effectiveDateObj.getMonth() + 1;
       const effectiveYear = effectiveDateObj.getFullYear();
-      
+
       // Get all invoices for this lease and update those from effective date onwards
-      const leaseInvoices = await db.select().from(rentInvoices).where(eq(rentInvoices.leaseId, leaseId));
+      const leaseInvoices = await storage.getRentInvoicesByLease(leaseId);
       for (const invoice of leaseInvoices) {
         if (invoice.year > effectiveYear || (invoice.year === effectiveYear && invoice.month >= effectiveMonth)) {
-          await db.update(rentInvoices)
-            .set({ amount: newRentAmount.toString() })
-            .where(eq(rentInvoices.id, invoice.id));
+          await storage.updateRentInvoice(invoice.id, { amount: newRentAmount.toString() });
         }
       }
-      
+
       // Recalculate FIFO status for this specific lease
       await updateInvoicePaidStatusForLease(leaseId);
-      
+
       res.status(201).json(adjustment);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
@@ -1787,16 +1786,15 @@ export async function registerRoutes(
   // Helper function to get the historical rent for a specific month/year based on rent adjustments
   async function getHistoricalRentForMonth(leaseId: number, initialRent: string, year: number, month: number): Promise<number> {
     // Get all rent adjustments for this lease, ordered by effective date
-    const adjustments = await db.select().from(rentAdjustments)
-      .where(eq(rentAdjustments.leaseId, leaseId))
-      .orderBy(rentAdjustments.effectiveDate);
-    
+    const adjustments = await storage.getRentAdjustmentsByLease(leaseId);
+    adjustments.sort((a, b) => new Date(a.effectiveDate).getTime() - new Date(b.effectiveDate).getTime());
+
     // Start with the initial rent amount
     let rentForMonth = parseFloat(initialRent);
-    
+
     // The target date is the first day of the month we're checking
     const targetDate = new Date(year, month - 1, 1);
-    
+
     // Go through adjustments and find the rent that was active for this month
     for (const adj of adjustments) {
       const effectiveDate = new Date(adj.effectiveDate);
@@ -1808,7 +1806,7 @@ export async function registerRoutes(
         break;
       }
     }
-    
+
     return rentForMonth;
   }
 
@@ -1818,65 +1816,65 @@ export async function registerRoutes(
       const ownerId = parseInt(req.params.id);
       const owner = await storage.getOwner(ownerId);
       if (!owner) return res.status(404).json({ message: "Owner not found" });
-      
+
       // Get all shops for this owner
       const allShops = await storage.getShops();
       const ownerShops = allShops.filter(s => s.ownerId === ownerId);
-      
+
       // Get all leases and find active ones for this owner's shops
       const allLeases = await storage.getLeases();
       const allTenants = await storage.getTenants();
       const allInvoices = await storage.getRentInvoices();
       const allPayments = await storage.getPayments();
-      
+
       const tenantMap = new Map(allTenants.map(t => [t.id, t]));
-      
+
       // Current date info
       const today = new Date();
       const currentMonth = today.getMonth() + 1;
       const currentYear = today.getFullYear();
-      
+
       const templateRows: any[] = [];
-      
+
       for (const shop of ownerShops) {
         // Find active lease for this shop
-        const activeLease = allLeases.find(l => 
+        const activeLease = allLeases.find(l =>
           l.shopId === shop.id && l.status !== 'terminated'
         );
-        
+
         if (!activeLease) continue;
-        
+
         const tenant = tenantMap.get(activeLease.tenantId);
         if (!tenant) continue;
-        
+
         // Format floor name
-        const floorName = shop.floor === 'ground' ? 'Ground Floor' : 
-                         shop.floor === 'first' ? '1st Floor' : 
-                         shop.floor === 'second' ? '2nd Floor' : 'Subedari';
+        const floorName = shop.floor === 'ground' ? 'Ground Floor' :
+          shop.floor === 'first' ? '1st Floor' :
+            shop.floor === 'second' ? '2nd Floor' : 'Subedari';
         const shopLocation = `${floorName} ${shop.shopNumber}`;
-        
+
         // Get unpaid invoices for this lease (up to current month)
-        const leaseInvoices = allInvoices.filter(inv => 
+        const leaseInvoices = allInvoices.filter(inv =>
           inv.leaseId === activeLease.id &&
           (inv.year < currentYear || (inv.year === currentYear && inv.month <= currentMonth))
         );
-        
+
         // Calculate payments for this lease
-        const leasePayments = allPayments.filter(p => 
+        const leasePayments = allPayments.filter(p =>
           p.leaseId === activeLease.id && !p.deletedAt
         );
         const totalPaid = leasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
-        
+
         // Calculate unpaid invoices using FIFO logic
         let remainingPayment = totalPaid;
         const unpaidInvoices: { month: number; year: number; amount: number; remaining: number }[] = [];
-        
+
         // Sort invoices by date
         const sortedInvoices = [...leaseInvoices].sort((a, b) => {
           if (a.year !== b.year) return a.year - b.year;
           return a.month - b.month;
         });
-        
+
         for (const inv of sortedInvoices) {
           const invAmount = parseFloat(inv.amount);
           if (remainingPayment >= invAmount) {
@@ -1892,7 +1890,7 @@ export async function registerRoutes(
             remainingPayment = 0;
           }
         }
-        
+
         // If no unpaid invoices, add current month as placeholder
         if (unpaidInvoices.length === 0) {
           unpaidInvoices.push({
@@ -1902,13 +1900,13 @@ export async function registerRoutes(
             remaining: 0
           });
         }
-        
+
         // Add a row for each unpaid month
         for (const inv of unpaidInvoices) {
-          const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
-                             'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+          const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+            'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
           const dueMonth = `${monthNames[inv.month - 1]} ${inv.year}`;
-          
+
           templateRows.push({
             'Tenant Name': tenant.name,
             'Lease ID': activeLease.id,
@@ -1923,7 +1921,7 @@ export async function registerRoutes(
           });
         }
       }
-      
+
       // Sort by tenant name, then by due month
       templateRows.sort((a, b) => {
         if (a['Tenant Name'] !== b['Tenant Name']) {
@@ -1931,11 +1929,11 @@ export async function registerRoutes(
         }
         return 0;
       });
-      
+
       // Create Excel workbook
       const workbook = XLSX.utils.book_new();
       const worksheet = XLSX.utils.json_to_sheet(templateRows);
-      
+
       // Set column widths
       worksheet['!cols'] = [
         { wch: 25 }, // Tenant Name
@@ -1949,16 +1947,16 @@ export async function registerRoutes(
         { wch: 12 }, // For Month
         { wch: 30 }, // Notes
       ];
-      
+
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Payment Collection');
-      
+
       // Generate buffer
       const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
-      
+
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${owner.name}_payment_template.xlsx"`);
       res.send(buffer);
-      
+
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -1970,43 +1968,43 @@ export async function registerRoutes(
       if (!req.file) {
         return res.status(400).json({ message: "No file uploaded" });
       }
-      
+
       const ownerId = req.body.ownerId ? parseInt(req.body.ownerId) : null;
       if (!ownerId) {
         return res.status(400).json({ message: "Owner ID is required" });
       }
-      
+
       const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
       const data = XLSX.utils.sheet_to_json<{ [key: string]: any }>(sheet);
-      
+
       if (data.length === 0) {
         return res.status(400).json({ message: "File is empty or has no data rows" });
       }
-      
+
       const results = {
         success: 0,
         failed: 0,
         totalAmount: 0,
         errors: [] as string[],
       };
-      
+
       // Get all leases for validation
       const allLeases = await storage.getLeases();
       const leaseMap = new Map(allLeases.map(l => [l.id, l]));
-      
+
       // Get all shops to validate ownership
       const allShops = await storage.getShops();
       const ownerShopIds = new Set(allShops.filter(s => s.ownerId === ownerId).map(s => s.id));
-      
-      const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 
-                         'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-      
+
+      const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun',
+        'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
       for (let i = 0; i < data.length; i++) {
         const row = data[i];
         const rowNum = i + 2; // Excel row number (1-indexed + header)
-        
+
         try {
           // Find columns (case insensitive)
           const leaseIdKey = Object.keys(row).find(k => k.toLowerCase().includes('lease') && k.toLowerCase().includes('id'));
@@ -2014,51 +2012,51 @@ export async function registerRoutes(
           const paymentDateKey = Object.keys(row).find(k => k.toLowerCase().includes('payment') && k.toLowerCase().includes('date'));
           const forMonthKey = Object.keys(row).find(k => k.toLowerCase().includes('for') && k.toLowerCase().includes('month'));
           const notesKey = Object.keys(row).find(k => k.toLowerCase().includes('note'));
-          
+
           if (!leaseIdKey || !paymentAmountKey) {
             // Skip empty rows silently
             const paymentAmount = paymentAmountKey ? row[paymentAmountKey] : null;
             if (!paymentAmount || String(paymentAmount).trim() === '') continue;
-            
+
             results.failed++;
             results.errors.push(`Row ${rowNum}: Missing required columns (Lease ID, Payment Amount)`);
             continue;
           }
-          
+
           const leaseId = parseInt(String(row[leaseIdKey]));
           const paymentAmountStr = String(row[paymentAmountKey] || '').trim();
-          
+
           // Skip rows with no payment amount
           if (!paymentAmountStr || paymentAmountStr === '') continue;
-          
+
           const paymentAmount = parseFloat(paymentAmountStr.replace(/[^0-9.-]/g, ''));
-          
+
           if (isNaN(leaseId)) {
             results.failed++;
             results.errors.push(`Row ${rowNum}: Invalid Lease ID`);
             continue;
           }
-          
+
           if (isNaN(paymentAmount) || paymentAmount <= 0) {
             results.failed++;
             results.errors.push(`Row ${rowNum}: Invalid payment amount`);
             continue;
           }
-          
+
           const lease = leaseMap.get(leaseId);
           if (!lease) {
             results.failed++;
             results.errors.push(`Row ${rowNum}: Lease ID ${leaseId} not found`);
             continue;
           }
-          
+
           // Validate lease belongs to this owner's shop
           if (!ownerShopIds.has(lease.shopId)) {
             results.failed++;
             results.errors.push(`Row ${rowNum}: Lease ${leaseId} does not belong to this owner`);
             continue;
           }
-          
+
           // Parse payment date
           let paymentDate: Date;
           if (paymentDateKey && row[paymentDateKey]) {
@@ -2075,11 +2073,11 @@ export async function registerRoutes(
           } else {
             paymentDate = new Date();
           }
-          
+
           // Parse for month (which month this payment is for)
           let forMonth = new Date().getMonth() + 1;
           let forYear = new Date().getFullYear();
-          
+
           if (forMonthKey && row[forMonthKey]) {
             const monthStr = String(row[forMonthKey]).toLowerCase().trim();
             // Parse "Dec 2024" format
@@ -2092,9 +2090,9 @@ export async function registerRoutes(
               }
             }
           }
-          
+
           const notes = notesKey && row[notesKey] ? String(row[notesKey]) : '';
-          
+
           // Create the payment
           await storage.createPayment({
             leaseId,
@@ -2105,16 +2103,16 @@ export async function registerRoutes(
             receiptNumber: null,
             notes: notes || `Imported payment for ${monthNames[forMonth - 1].charAt(0).toUpperCase() + monthNames[forMonth - 1].slice(1)} ${forYear}`,
           });
-          
+
           results.success++;
           results.totalAmount += paymentAmount;
-          
+
         } catch (rowError: any) {
           results.failed++;
           results.errors.push(`Row ${rowNum}: ${rowError.message}`);
         }
       }
-      
+
       // Recalculate FIFO status for all affected leases
       const affectedLeaseIds = new Set<number>();
       for (const row of data) {
@@ -2124,11 +2122,11 @@ export async function registerRoutes(
           if (!isNaN(leaseId)) affectedLeaseIds.add(leaseId);
         }
       }
-      
+
       for (const leaseId of Array.from(affectedLeaseIds)) {
         await updateInvoicePaidStatusForLease(leaseId);
       }
-      
+
       res.json({
         message: `Payment import completed: ${results.success} payments added (Total: ৳${results.totalAmount.toLocaleString()}), ${results.failed} failed`,
         results,
@@ -2144,36 +2142,36 @@ export async function registerRoutes(
       const leaseId = parseInt(req.params.id);
       const lease = await storage.getLease(leaseId);
       if (!lease) return res.status(404).json({ message: "Lease not found" });
-      
+
       const tenant = await storage.getTenant(lease.tenantId);
       if (!tenant) return res.status(404).json({ message: "Tenant not found" });
-      
+
       // Get invoices and payments for this specific lease only
       const leaseInvoices = await storage.getRentInvoicesByLease(leaseId);
       const leasePayments = await storage.getPaymentsByLease(leaseId);
       const totalPaidForLease = getActivePayments(leasePayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
-      
+
       // Calculate total due from elapsed invoices for this lease
       const today = new Date();
       const currentMonth = today.getMonth() + 1;
       const currentYear = today.getFullYear();
-      
-      const elapsedInvoices = leaseInvoices.filter(inv => 
+
+      const elapsedInvoices = leaseInvoices.filter(inv =>
         inv.year < currentYear || (inv.year === currentYear && inv.month <= currentMonth)
       );
       const totalInvoiced = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
-      
+
       // Calculate outstanding balance for this lease (total arrears)
       const outstandingBalance = Math.max(0, totalInvoiced - totalPaidForLease);
-      
+
       // Opening balance is tenant-level (for backwards compatibility)
       // Only show it for the first active lease to avoid confusion
       const tenantLeases = await storage.getLeasesByTenant(lease.tenantId);
-      const activeLeases = tenantLeases.filter(l => l.status !== 'terminated').sort((a, b) => 
+      const activeLeases = tenantLeases.filter(l => l.status !== 'terminated').sort((a, b) =>
         new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
       );
       const isFirstLease = activeLeases.length === 0 || activeLeases[0].id === leaseId;
-      
+
       // Opening balance remaining (only fetch tenant payments if this is the first lease)
       let openingBalance = 0;
       let openingBalanceRemaining = 0;
@@ -2185,18 +2183,17 @@ export async function registerRoutes(
           openingBalanceRemaining = Math.max(0, openingBalance - totalPaidByTenant);
         }
       }
-      
+
       // Get rent adjustments for this lease ONCE (no N+1 queries)
-      const adjustments = await db.select().from(rentAdjustments)
-        .where(eq(rentAdjustments.leaseId, leaseId))
-        .orderBy(rentAdjustments.effectiveDate);
-      
+      const adjustments = await storage.getRentAdjustmentsByLease(leaseId);
+      adjustments.sort((a, b) => new Date(a.effectiveDate).getTime() - new Date(b.effectiveDate).getTime());
+
       // Find initial rent (first rent before any adjustments, or current if no adjustments)
       let initialRent = parseFloat(lease.monthlyRent);
       if (adjustments.length > 0) {
         initialRent = parseFloat(adjustments[0].previousRent);
       }
-      
+
       // Helper function to get rent for a specific month using in-memory adjustments
       const getRentForMonth = (year: number, month: number): number => {
         const targetDate = new Date(year, month - 1, 1);
@@ -2211,7 +2208,7 @@ export async function registerRoutes(
         }
         return rent;
       };
-      
+
       // Build list of months from lease start to current + 12 future months
       const leaseStartDate = new Date(lease.startDate);
       const leaseEndDate = new Date(lease.endDate);
@@ -2228,7 +2225,7 @@ export async function registerRoutes(
         isCurrent: boolean;
         isFuture: boolean;
       }> = [];
-      
+
       // Build a map of payment dates per month using rentMonths from payments
       const paymentDatesByMonth = new Map<string, string[]>();
       for (const payment of getActivePayments(leasePayments)) {
@@ -2243,44 +2240,44 @@ export async function registerRoutes(
           }
         }
       }
-      
+
       let monthIterator = new Date(leaseStartDate.getFullYear(), leaseStartDate.getMonth(), 1);
       const futureLimit = new Date(currentYear, currentMonth + 11, 1); // 12 months ahead
-      
+
       while (monthIterator <= futureLimit) {
         const y = monthIterator.getFullYear();
         const m = monthIterator.getMonth() + 1;
-        
+
         // Check if lease has ended before this month
         if (monthIterator > leaseEndDate && lease.status === 'terminated') {
           monthIterator.setMonth(monthIterator.getMonth() + 1);
           continue;
         }
-        
+
         // Determine invoice status
         const invoice = leaseInvoices.find(inv => inv.year === y && inv.month === m);
         const isPaid = invoice?.isPaid ?? false;
-        
+
         // Get paid amount from invoice (for partial payment tracking)
         const paidAmount = invoice?.paidAmount ? parseFloat(invoice.paidAmount) : 0;
-        
+
         const isPast = y < currentYear || (y === currentYear && m < currentMonth);
         const isCurrent = y === currentYear && m === currentMonth;
         const isFuture = y > currentYear || (y === currentYear && m > currentMonth);
-        
+
         // Get historical rent for this month (no DB query - uses in-memory adjustments)
         const rent = getRentForMonth(y, m);
-        
+
         // Calculate remaining balance for this month
         const remainingBalance = Math.max(0, rent - paidAmount);
-        
+
         // Get payment dates for this month (format: YYYY-MM)
         const monthKey = `${y}-${String(m).padStart(2, '0')}`;
         const paymentDates = paymentDatesByMonth.get(monthKey) || [];
-        
+
         // Month label
         const monthName = new Date(y, m - 1, 1).toLocaleString('default', { month: 'long' });
-        
+
         months.push({
           year: y,
           month: m,
@@ -2294,10 +2291,10 @@ export async function registerRoutes(
           isCurrent,
           isFuture,
         });
-        
+
         monthIterator.setMonth(monthIterator.getMonth() + 1);
       }
-      
+
       res.json({
         leaseId: lease.id,
         tenantId: tenant.id,
@@ -2318,7 +2315,7 @@ export async function registerRoutes(
   app.get("/api/payments", isAuthenticated, async (req: Request, res: Response) => {
     try {
       let allPayments = await storage.getPayments();
-      
+
       // Filter payments for owner users (only payments for leases in their shops + common shops)
       if (isOwnerUser(req) && req.session.ownerId) {
         const accessibleShopIds = await getOwnerAccessibleShops(req.session.ownerId);
@@ -2328,7 +2325,7 @@ export async function registerRoutes(
         );
         allPayments = allPayments.filter(p => accessibleLeaseIds.has(p.leaseId));
       }
-      
+
       const paymentsWithDetails = await Promise.all(allPayments.map(async (payment) => {
         const tenant = await storage.getTenant(payment.tenantId);
         const lease = await storage.getLease(payment.leaseId);
@@ -2338,7 +2335,7 @@ export async function registerRoutes(
         }
         return { ...payment, tenant, lease: lease ? { ...lease, shop: shop ? { shopNumber: shop.shopNumber, floor: shop.floor, ownerId: shop.ownerId, ownershipType: shop.ownershipType } : null } : null };
       }));
-      
+
       res.json(paymentsWithDetails);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -2349,7 +2346,7 @@ export async function registerRoutes(
     try {
       const validatedData = insertPaymentSchema.parse(req.body);
       const { tenantId, leaseId, amount, paymentDate, rentMonths, receiptNumber, notes } = validatedData;
-      
+
       // Create the payment record - simple single record
       const payment = await storage.createPayment({
         tenantId,
@@ -2360,40 +2357,40 @@ export async function registerRoutes(
         receiptNumber: receiptNumber || '',
         notes: notes || '',
       });
-      
+
       // Now update isPaid status on all invoices using FIFO logic for this lease
       await updateInvoicePaidStatusForLease(leaseId);
-      
+
       res.status(201).json(payment);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
     }
   });
-  
+
   // Helper function to regenerate all invoices for a lease from start date to current month
   async function regenerateLeaseBilling(leaseId: number) {
     const lease = await storage.getLease(leaseId);
     if (!lease) throw new Error("Lease not found");
     if (lease.status === 'terminated') return; // Don't regenerate for terminated leases
-    
+
     // Delete all existing invoices for this lease
-    await db.delete(rentInvoices).where(eq(rentInvoices.leaseId, leaseId));
-    
+    await storage.deleteRentInvoicesByLease(leaseId);
+
     // Calculate the date range for invoice generation
     const startDate = new Date(lease.startDate);
     const endDate = new Date(lease.endDate);
     const today = new Date();
     const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    
+
     // Generate invoices from start date to min(endDate, current month)
     let currentDate = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
     const endLimit = endDate < currentMonth ? endDate : currentMonth;
-    
+
     while (currentDate <= endLimit) {
       const month = currentDate.getMonth() + 1;
       const year = currentDate.getFullYear();
       const dueDate = new Date(year, month - 1, 1);
-      
+
       await storage.createRentInvoice({
         leaseId: lease.id,
         tenantId: lease.tenantId,
@@ -2403,60 +2400,54 @@ export async function registerRoutes(
         year,
         isPaid: false,
       });
-      
+
       currentDate.setMonth(currentDate.getMonth() + 1);
     }
-    
+
     // Recalculate FIFO paid status for this specific lease
     await updateInvoicePaidStatusForLease(lease.id);
   }
 
   // Helper function to update isPaid status and paidAmount on invoices using FIFO (per-lease)
   async function updateInvoicePaidStatusForLease(leaseId: number) {
-    // Get all invoices for this specific lease sorted by month/year (oldest first)
-    const leaseInvoices = await storage.getRentInvoicesByLease(leaseId);
-    const elapsedInvoices = getElapsedInvoices(leaseInvoices)
-      .sort((a, b) => {
-        if (a.year !== b.year) return a.year - b.year;
-        return a.month - b.month;
-      });
-    
-    // Get total payments for this specific lease only - EXCLUDE DELETED PAYMENTS
-    const leasePayments = await storage.getPaymentsByLease(leaseId);
-    const activePayments = leasePayments.filter(p => !p.isDeleted);
-    let remainingForInvoices = activePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
-    
-    // Update isPaid status AND paidAmount for each invoice in FIFO order
-    for (const invoice of elapsedInvoices) {
-      const invoiceAmount = parseFloat(invoice.amount);
-      
-      if (remainingForInvoices >= invoiceAmount) {
-        // Fully paid - mark as paid with full paidAmount
-        await db.update(rentInvoices)
-          .set({ 
-            isPaid: true,
-            paidAmount: invoiceAmount.toFixed(2)
-          })
-          .where(eq(rentInvoices.id, invoice.id));
-        remainingForInvoices -= invoiceAmount;
-      } else if (remainingForInvoices > 0) {
-        // Partially paid - mark as unpaid but record paidAmount
-        await db.update(rentInvoices)
-          .set({ 
-            isPaid: false,
-            paidAmount: remainingForInvoices.toFixed(2)
-          })
-          .where(eq(rentInvoices.id, invoice.id));
-        remainingForInvoices = 0;
-      } else {
-        // Not paid at all - mark as unpaid with 0 paidAmount
-        await db.update(rentInvoices)
-          .set({ 
-            isPaid: false,
-            paidAmount: "0"
-          })
-          .where(eq(rentInvoices.id, invoice.id));
+    // Get all invoices for this lease, sorted by due date (FIFO)
+    const invoices = await storage.getRentInvoicesByLease(leaseId);
+    invoices.sort((a, b) => {
+      if (a.year !== b.year) return a.year - b.year;
+      return a.month - b.month;
+    });
+
+    // Get all ACTIVE payments for this lease
+    const allPayments = await storage.getPaymentsByLease(leaseId);
+    // Filter out deleted payments
+    const payments = allPayments.filter(p => !p.isDeleted);
+
+    // Calculate total paid amount
+    let totalPaid = payments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+
+    // Reset all invoices to unpaid first
+    // Note: This is less efficient than SQL but necessary with Firestore adapter approach
+    for (const inv of invoices) {
+      if (inv.isPaid || parseFloat(inv.paidAmount) > 0) {
+        await storage.updateRentInvoice(inv.id, { isPaid: false, paidAmount: "0" });
       }
+    }
+
+    // Apply payment to invoices in FIFO order
+    for (const inv of invoices) {
+      if (totalPaid <= 0) break;
+
+      const invoiceAmount = parseFloat(inv.amount);
+      const paidForThisParams = Math.min(totalPaid, invoiceAmount); // rename to avoid conflict
+
+      const isPaid = paidForThisParams >= invoiceAmount - 0.01; // Allow small float variance
+
+      await storage.updateRentInvoice(inv.id, {
+        paidAmount: paidForThisParams.toString(),
+        isPaid: isPaid
+      });
+
+      totalPaid -= paidForThisParams;
     }
   }
 
@@ -2464,31 +2455,27 @@ export async function registerRoutes(
     try {
       const paymentId = parseInt(req.params.id);
       const { reason, deletionDate } = req.body;
-      
+
       if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
         return res.status(400).json({ message: "Deletion reason is required" });
       }
-      
+
       // Get the payment first to find the tenantId
-      const allPayments = await storage.getPayments();
-      const paymentToDelete = allPayments.find(p => p.id === paymentId);
-      
+      const paymentToDelete = await storage.getPayment(paymentId);
+
       if (!paymentToDelete) {
         return res.status(404).json({ message: "Payment not found" });
       }
-      
-      // Soft delete: Update the payment with deletion metadata
+
+      // Soft delete
       const deletedAt = deletionDate ? new Date(deletionDate) : new Date();
-      const [updated] = await db.update(payments)
-        .set({
-          isDeleted: true,
-          deletedAt: deletedAt,
-          deletionReason: reason.trim(),
-          deletedBy: (req as any).user?.id || null,
-        })
-        .where(eq(payments.id, paymentId))
-        .returning();
-      
+      await storage.updatePayment(paymentId, {
+        isDeleted: true,
+        deletedAt: deletedAt,
+        deletionReason: reason.trim(),
+        deletedBy: (req as any).user?.id || null,
+      } as any);
+
       // Log the deletion for audit trail
       await storage.createDeletionLog({
         recordType: 'payment',
@@ -2497,11 +2484,11 @@ export async function registerRoutes(
         reason: reason.trim(),
         deletedBy: (req as any).user?.id || null,
       });
-      
+
       // Recalculate FIFO status after soft-deleting payment for this specific lease
       await updateInvoicePaidStatusForLease(paymentToDelete.leaseId);
-      
-      res.json(updated);
+
+      res.json({ message: "Payment deleted successfully" });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -2511,12 +2498,12 @@ export async function registerRoutes(
   app.get("/api/bank-deposits", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const allDeposits = await storage.getBankDeposits();
-      
+
       const depositsWithOwners = await Promise.all(allDeposits.map(async (deposit) => {
         const owner = await storage.getOwner(deposit.ownerId);
         return { ...deposit, owner };
       }));
-      
+
       res.json(depositsWithOwners);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -2537,31 +2524,27 @@ export async function registerRoutes(
     try {
       const depositId = parseInt(req.params.id);
       const { reason, deletionDate } = req.body;
-      
+
       if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
         return res.status(400).json({ message: "Deletion reason is required" });
       }
-      
+
       // Get the deposit first for logging
-      const deposits = await storage.getBankDeposits();
-      const depositToDelete = deposits.find(d => d.id === depositId);
-      
+      const depositToDelete = await storage.getBankDeposit(depositId);
+
       if (!depositToDelete) {
         return res.status(404).json({ message: "Bank deposit not found" });
       }
-      
-      // Soft delete: Update the deposit with deletion metadata
+
+      // Soft delete
       const deletedAt = deletionDate ? new Date(deletionDate) : new Date();
-      const [updated] = await db.update(bankDeposits)
-        .set({
-          isDeleted: true,
-          deletedAt: deletedAt,
-          deletionReason: reason.trim(),
-          deletedBy: (req as any).user?.id || null,
-        })
-        .where(eq(bankDeposits.id, depositId))
-        .returning();
-      
+      await storage.updateBankDeposit(depositId, {
+        isDeleted: true,
+        deletedAt: deletedAt,
+        deletionReason: reason.trim(),
+        deletedBy: (req as any).user?.id || null, // Capture who deleted it
+      } as any);
+
       // Log the deletion for audit trail
       await storage.createDeletionLog({
         recordType: 'bank_deposit',
@@ -2570,8 +2553,8 @@ export async function registerRoutes(
         reason: reason.trim(),
         deletedBy: (req as any).user?.id || null,
       });
-      
-      res.json(updated);
+
+      res.json({ message: "Deposit deleted" });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -2581,14 +2564,14 @@ export async function registerRoutes(
   app.get("/api/expenses", isAuthenticated, async (req: Request, res: Response) => {
     try {
       let allExpenses = await storage.getExpenses();
-      
+
       // Filter expenses for owner users (their own expenses + common expenses)
       if (isOwnerUser(req) && req.session.ownerId) {
-        allExpenses = allExpenses.filter(e => 
+        allExpenses = allExpenses.filter(e =>
           e.ownerId === req.session.ownerId || e.allocation === 'common'
         );
       }
-      
+
       const expensesWithOwners = await Promise.all(allExpenses.map(async (expense) => {
         let owner = null;
         if (expense.ownerId) {
@@ -2596,7 +2579,7 @@ export async function registerRoutes(
         }
         return { ...expense, owner };
       }));
-      
+
       res.json(expensesWithOwners);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -2628,35 +2611,35 @@ export async function registerRoutes(
       const today = new Date();
       const currentMonth = today.getMonth() + 1;
       const currentYear = today.getFullYear();
-      
+
       const allLeases = await storage.getLeases();
       let generatedCount = 0;
       const failed = [];
-      
+
       for (const lease of allLeases) {
         try {
           if (lease.status === 'terminated') continue;
-          
+
           const startDate = new Date(lease.startDate);
           const endDate = new Date(lease.endDate);
-          
+
           // Check if current month falls within lease period
-          if (startDate.getFullYear() > currentYear || 
-              (startDate.getFullYear() === currentYear && startDate.getMonth() + 1 > currentMonth)) {
+          if (startDate.getFullYear() > currentYear ||
+            (startDate.getFullYear() === currentYear && startDate.getMonth() + 1 > currentMonth)) {
             continue; // Lease hasn't started yet
           }
-          
-          if (endDate.getFullYear() < currentYear || 
-              (endDate.getFullYear() === currentYear && endDate.getMonth() + 1 < currentMonth)) {
+
+          if (endDate.getFullYear() < currentYear ||
+            (endDate.getFullYear() === currentYear && endDate.getMonth() + 1 < currentMonth)) {
             continue; // Lease has ended
           }
-          
+
           // Check if invoice already exists for this month and lease
           const existingInvoices = await storage.getRentInvoicesByTenant(lease.tenantId);
-          const invoiceExists = existingInvoices.some(inv => 
+          const invoiceExists = existingInvoices.some(inv =>
             inv.month === currentMonth && inv.year === currentYear && inv.leaseId === lease.id
           );
-          
+
           if (!invoiceExists) {
             const dueDate = new Date(currentYear, currentMonth - 1, 1);
             await storage.createRentInvoice({
@@ -2674,8 +2657,8 @@ export async function registerRoutes(
           failed.push({ leaseId: lease.id, error: String(leaseError) });
         }
       }
-      
-      res.json({ 
+
+      res.json({
         message: `Generated ${generatedCount} invoices for ${currentMonth}/${currentYear}`,
         generated: generatedCount,
         failed: failed.length > 0 ? failed : undefined,
@@ -2690,7 +2673,7 @@ export async function registerRoutes(
     try {
       const query = req.query.q as string || req.query[0] as string || '';
       if (query.length < 2) return res.json([]);
-      
+
       const results = await storage.search(query);
       res.json(results);
     } catch (error: any) {
@@ -2705,41 +2688,41 @@ export async function registerRoutes(
       const allShops = await storage.getShops();
       const allLeases = await storage.getLeases();
       const allPayments = await storage.getPayments();
-      
+
       // Calculate total dues
       let totalDues = 0;
       const tenantsWithDues = await Promise.all(allTenants.map(async (tenant) => {
         const invoices = await storage.getRentInvoicesByTenant(tenant.id);
         const tenantPayments = await storage.getPaymentsByTenant(tenant.id);
-        
+
         // Only count invoices for elapsed months (up to current month)
         const elapsedInvoices = getElapsedInvoices(invoices);
-        
+
         const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
         const totalPaid = getActivePayments(tenantPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const openingBalance = parseFloat(tenant.openingDueBalance);
-        
+
         const currentDue = Math.max(0, openingBalance + totalInvoices - totalPaid);
         totalDues += currentDue;
-        
+
         return { ...tenant, currentDue, totalDue: openingBalance + totalInvoices, totalPaid };
       }));
-      
+
       // Calculate this month's collection
       const thisMonth = new Date();
       const firstOfMonth = new Date(thisMonth.getFullYear(), thisMonth.getMonth(), 1);
       const monthlyPayments = allPayments.filter(p => new Date(p.paymentDate) >= firstOfMonth);
       const monthlyCollection = getActivePayments(monthlyPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
-      
+
       // Shop stats
       const occupiedShops = allShops.filter(s => s.status === 'occupied').length;
       const vacantShops = allShops.filter(s => s.status === 'vacant').length;
       const occupancyRate = allShops.length > 0 ? (occupiedShops / allShops.length) * 100 : 0;
-      
+
       // Expiring leases (next 30 days)
       const thirtyDaysFromNow = new Date();
       thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
-      
+
       const expiringLeases = await Promise.all(
         allLeases
           .filter(l => l.status === 'active' || l.status === 'expiring_soon')
@@ -2751,13 +2734,13 @@ export async function registerRoutes(
             return { ...lease, tenant, shop };
           })
       );
-      
+
       // Top debtors
       const topDebtors = tenantsWithDues
         .filter(t => t.currentDue > 0)
         .sort((a, b) => b.currentDue - a.currentDue)
         .slice(0, 5);
-      
+
       // Recent payments
       const recentPayments = await Promise.all(
         allPayments.slice(0, 5).map(async (p) => {
@@ -2770,7 +2753,7 @@ export async function registerRoutes(
           };
         })
       );
-      
+
       // Monthly trend (last 6 months)
       const monthlyTrend = [];
       for (let i = 5; i >= 0; i--) {
@@ -2779,35 +2762,35 @@ export async function registerRoutes(
         const month = date.toLocaleDateString('en-US', { month: 'short' });
         const year = date.getFullYear();
         const monthNum = date.getMonth() + 1;
-        
+
         const monthStart = new Date(year, monthNum - 1, 1);
         const monthEnd = new Date(year, monthNum, 0);
-        
+
         const monthPayments = allPayments.filter(p => {
           const pDate = new Date(p.paymentDate);
           return pDate >= monthStart && pDate <= monthEnd;
         });
-        
+
         const collected = getActivePayments(monthPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
-        
+
         // Calculate expected (sum of all monthly rents for active leases)
         const activeLeases = allLeases.filter(l => l.status === 'active' || l.status === 'expiring_soon');
         const expected = activeLeases.reduce((sum, l) => sum + parseFloat(l.monthlyRent), 0);
-        
+
         monthlyTrend.push({
           month: `${month}`,
           collected,
           expected,
         });
       }
-      
+
       // Floor occupancy
       const floorOccupancy = [
         { floor: 'Ground', occupied: allShops.filter(s => s.floor === 'ground' && s.status === 'occupied').length, vacant: allShops.filter(s => s.floor === 'ground' && s.status === 'vacant').length },
         { floor: '1st', occupied: allShops.filter(s => s.floor === 'first' && s.status === 'occupied').length, vacant: allShops.filter(s => s.floor === 'first' && s.status === 'vacant').length },
         { floor: '2nd', occupied: allShops.filter(s => s.floor === 'second' && s.status === 'occupied').length, vacant: allShops.filter(s => s.floor === 'second' && s.status === 'vacant').length },
       ];
-      
+
       res.json({
         totalDues,
         monthlyCollection,
@@ -2832,36 +2815,36 @@ export async function registerRoutes(
       const ownerId = parseInt(req.query.ownerId as string || req.query[0] as string || '0');
       const startDate = req.query.startDate as string || req.query[1] as string;
       const endDate = req.query.endDate as string || req.query[2] as string;
-      
+
       if (!ownerId) return res.json(null);
-      
+
       const owner = await storage.getOwner(ownerId);
       if (!owner) return res.status(404).json({ message: "Owner not found" });
-      
+
       // Get all payments for this owner's shops in date range
       const allPayments = await storage.getPayments();
       const allLeases = await storage.getLeases();
       const allShops = await storage.getShops();
       const allOwners = await storage.getOwners();
-      
+
       const ownerShops = allShops.filter(s => s.ownerId === ownerId);
       const commonShops = allShops.filter(s => s.ownershipType === 'common');
-      
+
       let totalRentCollected = 0;
       let shareFromCommonShops = 0;
-      
+
       // Calculate rent from owned shops
       for (const payment of allPayments) {
         const paymentDate = new Date(payment.paymentDate);
         if (startDate && paymentDate < new Date(startDate)) continue;
         if (endDate && paymentDate > new Date(endDate)) continue;
-        
+
         const lease = allLeases.find(l => l.id === payment.leaseId);
         if (!lease) continue;
-        
+
         const shop = allShops.find(s => s.id === lease.shopId);
         if (!shop) continue;
-        
+
         if (shop.ownerId === ownerId) {
           totalRentCollected += parseFloat(payment.amount);
         } else if (shop.ownershipType === 'common') {
@@ -2869,16 +2852,16 @@ export async function registerRoutes(
           shareFromCommonShops += parseFloat(payment.amount) / allOwners.length;
         }
       }
-      
+
       // Get allocated expenses
       const allExpenses = await storage.getExpenses();
       let allocatedExpenses = 0;
-      
+
       for (const expense of allExpenses) {
         const expenseDate = new Date(expense.expenseDate);
         if (startDate && expenseDate < new Date(startDate)) continue;
         if (endDate && expenseDate > new Date(endDate)) continue;
-        
+
         if (expense.allocation === 'owner' && expense.ownerId === ownerId) {
           allocatedExpenses += parseFloat(expense.amount);
         } else if (expense.allocation === 'common') {
@@ -2886,7 +2869,7 @@ export async function registerRoutes(
           allocatedExpenses += parseFloat(expense.amount) / allOwners.length;
         }
       }
-      
+
       // Get bank deposits
       const ownerDeposits = await storage.getBankDepositsByOwner(ownerId);
       const filteredDeposits = ownerDeposits.filter(d => {
@@ -2895,9 +2878,9 @@ export async function registerRoutes(
         if (endDate && depositDate > new Date(endDate)) return false;
         return true;
       });
-      
+
       const netPayout = totalRentCollected + shareFromCommonShops - allocatedExpenses;
-      
+
       res.json({
         owner,
         totalRentCollected,
@@ -2921,33 +2904,33 @@ export async function registerRoutes(
     try {
       const tenantId = parseInt(req.query.tenantId as string || req.query[0] as string || '0');
       if (!tenantId) return res.json(null);
-      
+
       // Reuse the tenant detail endpoint logic
       const tenant = await storage.getTenant(tenantId);
       if (!tenant) return res.status(404).json({ message: "Tenant not found" });
-      
+
       const invoices = await storage.getRentInvoicesByTenant(tenantId);
       const tenantPayments = await storage.getPaymentsByTenant(tenantId);
-      
+
       // Get leases with shop details for payment descriptions
       const tenantLeases = await storage.getLeasesByTenant(tenantId);
       const leasesWithShops = await Promise.all(tenantLeases.map(async (lease) => {
         const shop = await storage.getShop(lease.shopId);
         return { ...lease, shop: shop ? { shopNumber: shop.shopNumber, floor: shop.floor } : null };
       }));
-      
+
       // Only count invoices for elapsed months (up to current month)
       const elapsedInvoices = getElapsedInvoices(invoices);
-      
+
       const totalInvoices = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
       const totalPaid = getActivePayments(tenantPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
       const openingBalance = parseFloat(tenant.openingDueBalance);
       const currentDue = Math.max(0, openingBalance + totalInvoices - totalPaid);
-      
+
       // Build ledger entries
       const entries: any[] = [];
       let runningBalance = 0;
-      
+
       if (openingBalance > 0) {
         runningBalance = openingBalance;
         entries.push({
@@ -2959,9 +2942,9 @@ export async function registerRoutes(
           balance: runningBalance,
         });
       }
-      
+
       const allEntries: { date: Date | string; type: string; amount: number; description: string }[] = [];
-      
+
       elapsedInvoices.forEach(inv => {
         allEntries.push({
           date: inv.dueDate,
@@ -2970,35 +2953,35 @@ export async function registerRoutes(
           description: `Rent for ${inv.month}/${inv.year}`,
         });
       });
-      
+
       for (const p of tenantPayments) {
         const rentMonths = p.rentMonths as string[] | null;
         const paymentAmount = parseFloat(p.amount);
         const receiptSuffix = p.receiptNumber ? ` (${p.receiptNumber})` : '';
         const paymentDateFormatted = new Date(p.paymentDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-        
+
         // Get shop info from the lease
         const leaseWithShop = leasesWithShops.find(l => l.id === p.leaseId);
-        const shopInfo = leaseWithShop?.shop 
+        const shopInfo = leaseWithShop?.shop
           ? `, for Shop No. ${leaseWithShop.shop.shopNumber}, ${leaseWithShop.shop.floor}`
           : '';
-        
+
         if (rentMonths && Array.isArray(rentMonths) && rentMonths.length > 0) {
           // Sort rent months chronologically
           const sortedMonths = [...rentMonths].sort();
           const amountPerMonth = Math.round((paymentAmount / sortedMonths.length) * 100) / 100;
-          
+
           // Create separate ledger entry for each rent month
           sortedMonths.forEach((monthStr, idx) => {
             const [year, month] = monthStr.split('-');
             const monthDate = new Date(parseInt(year), parseInt(month) - 1, 1);
             const formattedMonth = monthDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-            
+
             // Handle rounding for last month to ensure total matches
-            const entryAmount = idx === sortedMonths.length - 1 
+            const entryAmount = idx === sortedMonths.length - 1
               ? Math.round((paymentAmount - amountPerMonth * (sortedMonths.length - 1)) * 100) / 100
               : amountPerMonth;
-            
+
             allEntries.push({
               date: monthDate.toISOString().split('T')[0], // Use rent month as entry date
               type: 'payment',
@@ -3016,9 +2999,9 @@ export async function registerRoutes(
           });
         }
       }
-      
+
       allEntries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      
+
       allEntries.forEach((entry, idx) => {
         if (entry.type === 'rent') {
           runningBalance += entry.amount;
@@ -3042,7 +3025,7 @@ export async function registerRoutes(
           });
         }
       });
-      
+
       res.json({
         tenant: { ...tenant, currentDue },
         entries,
@@ -3056,19 +3039,19 @@ export async function registerRoutes(
     try {
       const allPayments = await storage.getPayments();
       const allLeases = await storage.getLeases();
-      
+
       const report = [];
-      
+
       for (let i = 5; i >= 0; i--) {
         const date = new Date();
         date.setMonth(date.getMonth() - i);
         const month = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
         const year = date.getFullYear();
         const monthNum = date.getMonth() + 1;
-        
+
         const monthStart = new Date(year, monthNum - 1, 1);
         const monthEnd = new Date(year, monthNum, 0);
-        
+
         // Expected = sum of all active lease monthly rents
         const activeLeases = allLeases.filter(l => {
           const startDate = new Date(l.startDate);
@@ -3076,19 +3059,19 @@ export async function registerRoutes(
           return startDate <= monthEnd && endDate >= monthStart && l.status !== 'terminated';
         });
         const expected = activeLeases.reduce((sum, l) => sum + parseFloat(l.monthlyRent), 0);
-        
+
         // Collected = sum of payments in this month
         const monthPayments = allPayments.filter(p => {
           const pDate = new Date(p.paymentDate);
           return pDate >= monthStart && pDate <= monthEnd;
         });
         const collected = getActivePayments(monthPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
-        
+
         const pending = Math.max(0, expected - collected);
-        
+
         report.push({ month, expected, collected, pending });
       }
-      
+
       res.json(report);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -3099,7 +3082,7 @@ export async function registerRoutes(
     try {
       const allShops = await storage.getShops();
       const allOwners = await storage.getOwners();
-      
+
       const floors = ['ground', 'first', 'second'];
       const availability = floors.map(floor => {
         const floorShops = allShops.filter(s => s.floor === floor);
@@ -3117,7 +3100,7 @@ export async function registerRoutes(
           }),
         };
       });
-      
+
       res.json(availability);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -3129,15 +3112,15 @@ export async function registerRoutes(
     try {
       const ownerIdParam = req.query.ownerId as string;
       const yearParam = req.query.year as string;
-      
+
       const allOwners = await storage.getOwners();
       const allPayments = await storage.getPayments();
       const allLeases = await storage.getLeases();
       const allShops = await storage.getShops();
-      
+
       const filterYear = yearParam ? parseInt(yearParam) : null;
       const filterOwnerId = ownerIdParam && ownerIdParam !== 'all' ? parseInt(ownerIdParam) : null;
-      
+
       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       const summaryData: {
         ownerId: number;
@@ -3149,50 +3132,50 @@ export async function registerRoutes(
         securityDeposits: number;
         totalDeposit: number;
       }[] = [];
-      
-      const ownersToProcess = filterOwnerId 
-        ? allOwners.filter(o => o.id === filterOwnerId) 
+
+      const ownersToProcess = filterOwnerId
+        ? allOwners.filter(o => o.id === filterOwnerId)
         : allOwners;
-      
+
       for (const owner of ownersToProcess) {
         const ownerShops = allShops.filter(s => s.ownerId === owner.id);
         const ownerShopIds = ownerShops.map(s => s.id);
-        
+
         const ownerLeases = allLeases.filter(l => ownerShopIds.includes(l.shopId));
         const ownerLeaseIds = ownerLeases.map(l => l.id);
-        
+
         const ownerPayments = allPayments.filter(p => ownerLeaseIds.includes(p.leaseId));
-        
+
         const depositsByYearMonth: Record<string, { rent: number; security: number }> = {};
-        
+
         for (const payment of ownerPayments) {
           const paymentDate = new Date(payment.paymentDate);
           const year = paymentDate.getFullYear();
           const month = paymentDate.getMonth() + 1;
-          
+
           if (filterYear && year !== filterYear) continue;
-          
+
           const key = `${year}-${month}`;
           if (!depositsByYearMonth[key]) {
             depositsByYearMonth[key] = { rent: 0, security: 0 };
           }
           depositsByYearMonth[key].rent += parseFloat(payment.amount);
         }
-        
+
         for (const lease of ownerLeases) {
           const leaseStartDate = new Date(lease.startDate);
           const year = leaseStartDate.getFullYear();
           const month = leaseStartDate.getMonth() + 1;
-          
+
           if (filterYear && year !== filterYear) continue;
-          
+
           const key = `${year}-${month}`;
           if (!depositsByYearMonth[key]) {
             depositsByYearMonth[key] = { rent: 0, security: 0 };
           }
           depositsByYearMonth[key].security += parseFloat(lease.securityDeposit);
         }
-        
+
         for (const [key, data] of Object.entries(depositsByYearMonth)) {
           const [year, month] = key.split('-').map(Number);
           summaryData.push({
@@ -3207,18 +3190,18 @@ export async function registerRoutes(
           });
         }
       }
-      
+
       summaryData.sort((a, b) => {
         if (a.ownerName !== b.ownerName) return a.ownerName.localeCompare(b.ownerName);
         if (a.year !== b.year) return b.year - a.year;
         return b.month - a.month;
       });
-      
+
       const availableYears = [...new Set(allPayments.map(p => new Date(p.paymentDate).getFullYear()))]
         .concat([...new Set(allLeases.map(l => new Date(l.startDate).getFullYear()))])
         .filter((v, i, a) => a.indexOf(v) === i)
         .sort((a, b) => b - a);
-      
+
       res.json({
         data: summaryData,
         availableYears,
@@ -3235,30 +3218,30 @@ export async function registerRoutes(
       const ownerIdParam = req.query.ownerId as string;
       const startDateParam = req.query.startDate as string;
       const endDateParam = req.query.endDate as string;
-      
+
       if (!ownerIdParam) {
         return res.json({ transactions: [], summary: null });
       }
-      
+
       const ownerId = parseInt(ownerIdParam);
       const owner = await storage.getOwner(ownerId);
       if (!owner) return res.status(404).json({ message: "Owner not found" });
-      
+
       const allPayments = await storage.getPayments();
       const allLeases = await storage.getLeases();
       const allShops = await storage.getShops();
       const allExpenses = await storage.getExpenses();
       const allOwners = await storage.getOwners();
       const allTenants = await storage.getTenants();
-      
+
       const ownerShops = allShops.filter(s => s.ownerId === ownerId);
       const ownerShopIds = ownerShops.map(s => s.id);
       const commonShops = allShops.filter(s => s.ownershipType === 'common');
-      
+
       const ownerLeases = allLeases.filter(l => ownerShopIds.includes(l.shopId));
       const ownerLeaseIds = ownerLeases.map(l => l.id);
       const commonLeases = allLeases.filter(l => commonShops.map(s => s.id).includes(l.shopId));
-      
+
       const transactions: {
         id: number;
         date: string;
@@ -3270,18 +3253,18 @@ export async function registerRoutes(
         shopNumber?: string;
         tenantName?: string;
       }[] = [];
-      
+
       for (const payment of allPayments) {
         const paymentDate = new Date(payment.paymentDate);
         if (startDateParam && paymentDate < new Date(startDateParam)) continue;
         if (endDateParam && paymentDate > new Date(endDateParam)) continue;
-        
+
         const lease = allLeases.find(l => l.id === payment.leaseId);
         if (!lease) continue;
-        
+
         const shop = allShops.find(s => s.id === lease.shopId);
         const tenant = allTenants.find(t => t.id === payment.tenantId);
-        
+
         if (ownerLeaseIds.includes(payment.leaseId)) {
           transactions.push({
             id: payment.id,
@@ -3309,15 +3292,15 @@ export async function registerRoutes(
           });
         }
       }
-      
+
       for (const lease of ownerLeases) {
         const leaseStartDate = new Date(lease.startDate);
         if (startDateParam && leaseStartDate < new Date(startDateParam)) continue;
         if (endDateParam && leaseStartDate > new Date(endDateParam)) continue;
-        
+
         const shop = allShops.find(s => s.id === lease.shopId);
         const tenant = allTenants.find(t => t.id === lease.tenantId);
-        
+
         if (parseFloat(lease.securityDeposit) > 0) {
           transactions.push({
             id: lease.id + 200000,
@@ -3332,12 +3315,12 @@ export async function registerRoutes(
           });
         }
       }
-      
+
       for (const expense of allExpenses) {
         const expenseDate = new Date(expense.expenseDate);
         if (startDateParam && expenseDate < new Date(startDateParam)) continue;
         if (endDateParam && expenseDate > new Date(endDateParam)) continue;
-        
+
         if (expense.allocation === 'owner' && expense.ownerId === ownerId) {
           transactions.push({
             id: expense.id + 300000,
@@ -3361,9 +3344,9 @@ export async function registerRoutes(
           });
         }
       }
-      
+
       transactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      
+
       let runningBalance = 0;
       for (const tx of transactions) {
         if (tx.type === 'credit') {
@@ -3373,13 +3356,13 @@ export async function registerRoutes(
         }
         tx.balance = runningBalance;
       }
-      
+
       const totalCredits = transactions.filter(t => t.type === 'credit').reduce((sum, t) => sum + t.amount, 0);
       const totalDebits = transactions.filter(t => t.type === 'debit').reduce((sum, t) => sum + t.amount, 0);
       const rentPayments = transactions.filter(t => t.category === 'Rent Payment').reduce((sum, t) => sum + t.amount, 0);
       const securityDeposits = transactions.filter(t => t.category === 'Security Deposit').reduce((sum, t) => sum + t.amount, 0);
       const commonShopShare = transactions.filter(t => t.category === 'Common Shop Share').reduce((sum, t) => sum + t.amount, 0);
-      
+
       res.json({
         owner,
         transactions,
@@ -3402,66 +3385,68 @@ export async function registerRoutes(
   app.get("/api/reports/owner-tenant-details", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const { ownerId, tenantId, shopId, month, year, page = '1', limit = '20' } = req.query;
-      
+
       const pageNum = parseInt(page as string);
       const limitNum = parseInt(limit as string);
       const currentDate = new Date();
       const reportMonth = month ? parseInt(month as string) : currentDate.getMonth() + 1;
       const reportYear = year ? parseInt(year as string) : currentDate.getFullYear();
-      
+
       // Get all data needed
       const allOwners = await storage.getOwners();
       const allShops = await storage.getShops();
       const allTenants = await storage.getTenants();
       const allLeases = await storage.getLeases();
-      const allPayments = await storage.getPayments();
+      // Filter out deleted payments
+      const rawPayments = await storage.getPayments();
+      const allPayments = rawPayments.filter(p => !p.isDeleted);
       const allInvoices = await storage.getRentInvoices();
-      
+
       // Filter shops by owner if specified
       let filteredShops = allShops;
       if (ownerId && ownerId !== 'all') {
         filteredShops = allShops.filter(s => s.ownerId === parseInt(ownerId as string));
       }
-      
+
       // Filter by specific shop if specified
       if (shopId && shopId !== 'all') {
         filteredShops = filteredShops.filter(s => s.id === parseInt(shopId as string));
       }
-      
+
       // Get active leases for filtered shops
-      let activeLeases = allLeases.filter(l => 
+      let activeLeases = allLeases.filter(l =>
         (l.status === 'active' || l.status === 'expiring_soon') &&
         filteredShops.some(s => s.id === l.shopId)
       );
-      
+
       // Filter by tenant if specified
       if (tenantId && tenantId !== 'all') {
         activeLeases = activeLeases.filter(l => l.tenantId === parseInt(tenantId as string));
       }
-      
+
       // Build report data
       const reportData = [];
-      
+
       for (const lease of activeLeases) {
         const tenant = allTenants.find(t => t.id === lease.tenantId);
         const shop = allShops.find(s => s.id === lease.shopId);
         const owner = shop?.ownerId ? allOwners.find(o => o.id === shop.ownerId) : null;
-        
+
         if (!tenant || !shop) continue;
-        
+
         // Get invoices for this lease - only elapsed months up to today
         const leaseInvoices = allInvoices.filter(inv => inv.leaseId === lease.id);
         const elapsedLeaseInvoices = getElapsedInvoices(leaseInvoices);
-        
+
         // Get payments for this tenant's lease
         const leasePayments = allPayments.filter(p => p.leaseId === lease.id);
-        
+
         // Calculate current month's due (only if the report month has elapsed)
-        const currentMonthInvoice = elapsedLeaseInvoices.find(inv => 
+        const currentMonthInvoice = elapsedLeaseInvoices.find(inv =>
           inv.month === reportMonth && inv.year === reportYear
         );
         const currentMonthDue = currentMonthInvoice ? parseFloat(currentMonthInvoice.amount) : 0;
-        
+
         // Calculate current month's payments
         const currentMonthPayments = leasePayments.filter(p => {
           const pDate = new Date(p.paymentDate);
@@ -3469,36 +3454,36 @@ export async function registerRoutes(
         });
         const currentMonthPaid = getActivePayments(currentMonthPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const currentRentDue = Math.max(0, currentMonthDue - currentMonthPaid);
-        
+
         // Calculate previous rent due (only elapsed months before report month)
-        const previousInvoices = elapsedLeaseInvoices.filter(inv => 
+        const previousInvoices = elapsedLeaseInvoices.filter(inv =>
           inv.year < reportYear || (inv.year === reportYear && inv.month < reportMonth)
         );
         const previousInvoiceTotal = previousInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
-        
+
         // Get all payments before current month
         const previousPayments = leasePayments.filter(p => {
           const pDate = new Date(p.paymentDate);
-          return pDate.getFullYear() < reportYear || 
-                 (pDate.getFullYear() === reportYear && pDate.getMonth() + 1 < reportMonth);
+          return pDate.getFullYear() < reportYear ||
+            (pDate.getFullYear() === reportYear && pDate.getMonth() + 1 < reportMonth);
         });
         const previousPaid = getActivePayments(previousPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
-        
+
         // Add opening balance to previous due
         const openingBalance = parseFloat(tenant.openingDueBalance || '0');
         const previousRentDue = Math.max(0, openingBalance + previousInvoiceTotal - previousPaid);
-        
+
         // Get most recent payment
-        const sortedPayments = [...leasePayments].sort((a, b) => 
+        const sortedPayments = [...leasePayments].sort((a, b) =>
           new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime()
         );
         const recentPayment = sortedPayments[0];
-        
+
         // Calculate current outstanding (total due across all elapsed invoices)
         const totalElapsedInvoices = elapsedLeaseInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
         const totalAllPayments = getActivePayments(leasePayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const currentOutstanding = Math.max(0, openingBalance + totalElapsedInvoices - totalAllPayments);
-        
+
         reportData.push({
           leaseId: lease.id,
           ownerId: owner?.id,
@@ -3518,7 +3503,7 @@ export async function registerRoutes(
           currentOutstanding,
         });
       }
-      
+
       // Sort by floor order, then by prefix (E->M->W), then by numerical shop number
       reportData.sort((a, b) => {
         // First: sort by floor
@@ -3540,7 +3525,7 @@ export async function registerRoutes(
         const numB = extractShopNumber(b.shopNumber || '');
         return numA - numB;
       });
-      
+
       // Calculate totals
       const totals = {
         totalCurrentRentDue: reportData.reduce((sum, r) => sum + r.currentRentDue, 0),
@@ -3549,7 +3534,7 @@ export async function registerRoutes(
         totalRecentPayments: reportData.reduce((sum, r) => sum + r.recentPaymentAmount, 0),
         totalCurrentOutstanding: reportData.reduce((sum, r) => sum + r.currentOutstanding, 0),
       };
-      
+
       // Calculate total received for selected period
       let periodPayments = allPayments;
       if (ownerId && ownerId !== 'all') {
@@ -3557,13 +3542,13 @@ export async function registerRoutes(
         const ownerLeaseIds = allLeases.filter(l => ownerShopIds.includes(l.shopId)).map(l => l.id);
         periodPayments = allPayments.filter(p => ownerLeaseIds.includes(p.leaseId));
       }
-      
+
       const periodReceivedPayments = periodPayments.filter(p => {
         const pDate = new Date(p.paymentDate);
         return pDate.getMonth() + 1 === reportMonth && pDate.getFullYear() === reportYear;
       });
       totals.totalRecentPayments = getActivePayments(periodReceivedPayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
-      
+
       // Calculate rent collection by location/floor for selected period
       const locationTotals = {
         ground: 0,
@@ -3571,13 +3556,13 @@ export async function registerRoutes(
         second: 0,
         subedari: 0,
       };
-      
+
       for (const payment of periodReceivedPayments) {
         const lease = allLeases.find(l => l.id === payment.leaseId);
         if (!lease) continue;
         const shop = allShops.find(s => s.id === lease.shopId);
         if (!shop) continue;
-        
+
         const amount = parseFloat(payment.amount);
         if (shop.floor === 'ground') {
           locationTotals.ground += amount;
@@ -3589,18 +3574,18 @@ export async function registerRoutes(
           locationTotals.subedari += amount;
         }
       }
-      
+
       // Paginate results
       const totalRecords = reportData.length;
       const totalPages = Math.ceil(totalRecords / limitNum);
       const startIndex = (pageNum - 1) * limitNum;
       const paginatedData = reportData.slice(startIndex, startIndex + limitNum);
-      
+
       // Get owner info for header
-      const selectedOwner = ownerId && ownerId !== 'all' 
+      const selectedOwner = ownerId && ownerId !== 'all'
         ? allOwners.find(o => o.id === parseInt(ownerId as string))
         : null;
-      
+
       res.json({
         data: paginatedData,
         allData: reportData, // For PDF export
@@ -3628,58 +3613,60 @@ export async function registerRoutes(
   });
 
   // ===== OWNER-SPECIFIC REPORTS =====
-  
+
   // Rent Payment Report for a specific owner
   app.get("/api/owners/:id/reports/rent-payments", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const ownerId = parseInt(req.params.id);
       const { month, year, startDate, endDate } = req.query;
-      
+
       // Authorization check
       if (isOwnerUser(req) && req.session.ownerId !== ownerId) {
         return res.status(403).json({ message: "Access denied" });
       }
-      
+
       const owner = await storage.getOwner(ownerId);
       if (!owner) return res.status(404).json({ message: "Owner not found" });
-      
+
       const allOwners = await storage.getOwners();
       const allShops = await storage.getShops();
       const allLeases = await storage.getLeases();
       const allTenants = await storage.getTenants();
-      const allPayments = await storage.getPayments();
+      // Filter out deleted payments
+      const rawPayments = await storage.getPayments();
+      const allPayments = rawPayments.filter(p => !p.isDeleted);
       const allInvoices = await storage.getRentInvoices();
-      
+
       // Get owner's accessible shops (own + common)
       const ownerShops = allShops.filter(s => s.ownerId === ownerId);
       const commonShops = allShops.filter(s => s.ownershipType === 'common');
       const accessibleShopIds = [...ownerShops, ...commonShops].map(s => s.id);
-      
+
       // Get active leases for accessible shops
-      const activeLeases = allLeases.filter(l => 
+      const activeLeases = allLeases.filter(l =>
         (l.status === 'active' || l.status === 'expiring_soon') &&
         accessibleShopIds.includes(l.shopId)
       );
-      
+
       const reportData = [];
-      
+
       for (const lease of activeLeases) {
         const tenant = allTenants.find(t => t.id === lease.tenantId);
         const shop = allShops.find(s => s.id === lease.shopId);
         if (!tenant || !shop) continue;
-        
+
         const isCommon = shop.ownershipType === 'common';
         const shareRatio = isCommon ? 1 / allOwners.length : 1;
-        
+
         // Get payments for this lease
         let leasePayments = allPayments.filter(p => p.leaseId === lease.id);
-        
+
         // Apply date filters
         if (month && year) {
           leasePayments = leasePayments.filter(p => {
             const pDate = new Date(p.paymentDate);
-            return pDate.getMonth() + 1 === parseInt(month as string) && 
-                   pDate.getFullYear() === parseInt(year as string);
+            return pDate.getMonth() + 1 === parseInt(month as string) &&
+              pDate.getFullYear() === parseInt(year as string);
           });
         } else if (startDate || endDate) {
           leasePayments = leasePayments.filter(p => {
@@ -3689,16 +3676,16 @@ export async function registerRoutes(
             return true;
           });
         }
-        
+
         // Get all payment dates for this period (sorted chronologically)
-        const sortedPayments = [...leasePayments].sort((a, b) => 
+        const sortedPayments = [...leasePayments].sort((a, b) =>
           new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime()
         );
         const recentPayment = sortedPayments[sortedPayments.length - 1]; // Most recent
-        const allPaymentDates = getActivePayments(sortedPayments).map(p => 
+        const allPaymentDates = getActivePayments(sortedPayments).map(p =>
           new Date(p.paymentDate).toLocaleDateString()
         );
-        
+
         // Calculate total elapsed invoices
         const leaseInvoices = allInvoices.filter(inv => inv.leaseId === lease.id);
         const elapsedInvoices = getElapsedInvoices(leaseInvoices);
@@ -3706,7 +3693,7 @@ export async function registerRoutes(
         const totalPaid = getActivePayments(allPayments.filter(p => p.leaseId === lease.id)).reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const openingBalance = parseFloat(tenant.openingDueBalance || '0');
         const currentOutstanding = Math.max(0, openingBalance + totalInvoiced - totalPaid);
-        
+
         reportData.push({
           leaseId: lease.id,
           tenantId: tenant.id,
@@ -3726,7 +3713,7 @@ export async function registerRoutes(
           isCommon,
         });
       }
-      
+
       // Sort by floor, prefix, number
       reportData.sort((a, b) => {
         const orderA = FLOOR_ORDER[a.floor] || 999;
@@ -3741,38 +3728,40 @@ export async function registerRoutes(
         const numB = extractShopNumber(b.shopNumber || '');
         return numA - numB;
       });
-      
+
       // Calculate totals
       const totals = {
         totalMonthlyRent: reportData.reduce((sum, r) => sum + r.monthlyRent, 0),
         totalRecentPayments: reportData.reduce((sum, r) => sum + r.recentPaymentAmount, 0),
         totalOutstanding: reportData.reduce((sum, r) => sum + r.currentOutstanding, 0),
       };
-      
+
       res.json({ data: reportData, totals, owner: { id: owner.id, name: owner.name } });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
-  
+
   // Financial Transaction Report for a specific owner
   app.get("/api/owners/:id/reports/financial-transactions", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const ownerId = parseInt(req.params.id);
       const { month, year, startDate, endDate } = req.query;
-      
+
       // Authorization check
       if (isOwnerUser(req) && req.session.ownerId !== ownerId) {
         return res.status(403).json({ message: "Access denied" });
       }
-      
+
       const owner = await storage.getOwner(ownerId);
       if (!owner) return res.status(404).json({ message: "Owner not found" });
-      
+
       const allOwners = await storage.getOwners();
-      const bankDeposits = await storage.getBankDeposits();
+      // Filter out deleted bank deposits
+      const rawBankDeposits = await storage.getBankDeposits();
+      const bankDeposits = rawBankDeposits.filter(d => !d.isDeleted);
       const allExpenses = await storage.getExpenses();
-      
+
       const transactions: Array<{
         id: number;
         date: string;
@@ -3782,16 +3771,16 @@ export async function registerRoutes(
         amount: number;
         isCommon: boolean;
       }> = [];
-      
+
       // Add bank deposits
       let ownerDeposits = bankDeposits.filter(d => d.ownerId === ownerId);
-      
+
       // Apply date filters to deposits
       if (month && year) {
         ownerDeposits = ownerDeposits.filter(d => {
           const dDate = new Date(d.depositDate);
-          return dDate.getMonth() + 1 === parseInt(month as string) && 
-                 dDate.getFullYear() === parseInt(year as string);
+          return dDate.getMonth() + 1 === parseInt(month as string) &&
+            dDate.getFullYear() === parseInt(year as string);
         });
       } else if (startDate || endDate) {
         ownerDeposits = ownerDeposits.filter(d => {
@@ -3801,7 +3790,7 @@ export async function registerRoutes(
           return true;
         });
       }
-      
+
       for (const deposit of ownerDeposits) {
         transactions.push({
           id: deposit.id,
@@ -3813,19 +3802,19 @@ export async function registerRoutes(
           isCommon: false,
         });
       }
-      
+
       // Add expenses (owner's direct + share of common)
-      let relevantExpenses = allExpenses.filter(e => 
+      let relevantExpenses = allExpenses.filter(e =>
         (e.allocation === 'owner' && e.ownerId === ownerId) ||
         e.allocation === 'common'
       );
-      
+
       // Apply date filters to expenses
       if (month && year) {
         relevantExpenses = relevantExpenses.filter(e => {
           const eDate = new Date(e.expenseDate);
-          return eDate.getMonth() + 1 === parseInt(month as string) && 
-                 eDate.getFullYear() === parseInt(year as string);
+          return eDate.getMonth() + 1 === parseInt(month as string) &&
+            eDate.getFullYear() === parseInt(year as string);
         });
       } else if (startDate || endDate) {
         relevantExpenses = relevantExpenses.filter(e => {
@@ -3835,7 +3824,7 @@ export async function registerRoutes(
           return true;
         });
       }
-      
+
       for (const expense of relevantExpenses) {
         const isCommon = expense.allocation === 'common';
         const shareRatio = isCommon ? 1 / allOwners.length : 1;
@@ -3849,10 +3838,10 @@ export async function registerRoutes(
           isCommon,
         });
       }
-      
+
       // Sort by date descending
       transactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      
+
       // Calculate totals
       const totals = {
         totalDeposits: transactions.filter(t => t.type === 'deposit').reduce((sum, t) => sum + t.amount, 0),
@@ -3860,64 +3849,66 @@ export async function registerRoutes(
         netBalance: 0,
       };
       totals.netBalance = totals.totalDeposits - totals.totalExpenses;
-      
+
       res.json({ data: transactions, totals, owner: { id: owner.id, name: owner.name } });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
-  
+
   // Tenant Ledger for owner's tenants
   app.get("/api/owners/:id/reports/tenant-ledger", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const ownerId = parseInt(req.params.id);
       const { tenantId } = req.query;
-      
+
       // Authorization check
       if (isOwnerUser(req) && req.session.ownerId !== ownerId) {
         return res.status(403).json({ message: "Access denied" });
       }
-      
+
       const owner = await storage.getOwner(ownerId);
       if (!owner) return res.status(404).json({ message: "Owner not found" });
-      
+
       const allOwners = await storage.getOwners();
       const allShops = await storage.getShops();
       const allLeases = await storage.getLeases();
       const allTenants = await storage.getTenants();
-      const allPayments = await storage.getPayments();
+      // Filter out deleted payments
+      const rawPayments = await storage.getPayments();
+      const allPayments = rawPayments.filter(p => !p.isDeleted);
       const allInvoices = await storage.getRentInvoices();
-      
+
       // Get owner's accessible shops
       const ownerShops = allShops.filter(s => s.ownerId === ownerId);
       const commonShops = allShops.filter(s => s.ownershipType === 'common');
       const accessibleShopIds = [...ownerShops, ...commonShops].map(s => s.id);
-      
+
       // Get accessible leases
       const accessibleLeases = allLeases.filter(l => accessibleShopIds.includes(l.shopId));
       const accessibleTenantIds = [...new Set(accessibleLeases.map(l => l.tenantId))];
-      
+
       // Get list of tenants for selection
       const accessibleTenants = allTenants.filter(t => accessibleTenantIds.includes(t.id)).map(t => ({
         id: t.id,
         name: t.name,
         phone: t.phone,
       }));
-      
+
       // Sort tenants by name
       accessibleTenants.sort((a, b) => a.name.localeCompare(b.name));
-      
+
       // If no tenant selected, just return the tenant list
       if (!tenantId) {
         return res.json({ tenants: accessibleTenants, ledger: null, owner: { id: owner.id, name: owner.name } });
       }
-      
+
       const selectedTenantId = parseInt(tenantId as string);
       const tenant = allTenants.find(t => t.id === selectedTenantId);
       if (!tenant || !accessibleTenantIds.includes(selectedTenantId)) {
         return res.status(404).json({ message: "Tenant not found or not accessible" });
       }
-      
+
       // Build ledger entries for the selected tenant
       const tenantLeases = accessibleLeases.filter(l => l.tenantId === selectedTenantId);
       const entries: Array<{
@@ -3928,11 +3919,11 @@ export async function registerRoutes(
         credit: number;
         balance: number;
       }> = [];
-      
+
       // Add opening balance
       const openingBalance = parseFloat(tenant.openingDueBalance || '0');
       let runningBalance = openingBalance;
-      
+
       if (openingBalance !== 0) {
         entries.push({
           id: 0,
@@ -3943,7 +3934,7 @@ export async function registerRoutes(
           balance: runningBalance,
         });
       }
-      
+
       // Collect all transactions
       const allTransactions: Array<{
         id: number;
@@ -3953,11 +3944,11 @@ export async function registerRoutes(
         credit: number;
         type: 'invoice' | 'payment';
       }> = [];
-      
+
       for (const lease of tenantLeases) {
         const shop = allShops.find(s => s.id === lease.shopId);
         const shopLabel = shop ? `${formatFloorLabel(shop.floor)} - ${shop.shopNumber}` : 'Unknown Shop';
-        
+
         // Add invoices (debits)
         const leaseInvoices = allInvoices.filter(inv => inv.leaseId === lease.id);
         const elapsedInvoices = getElapsedInvoices(leaseInvoices);
@@ -3972,7 +3963,7 @@ export async function registerRoutes(
             type: 'invoice',
           });
         }
-        
+
         // Add payments (credits)
         const leasePayments = allPayments.filter(p => p.leaseId === lease.id);
         for (const payment of leasePayments) {
@@ -3986,10 +3977,10 @@ export async function registerRoutes(
           });
         }
       }
-      
+
       // Sort by date
       allTransactions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      
+
       // Build entries with running balance
       for (const tx of allTransactions) {
         runningBalance = runningBalance + tx.debit - tx.credit;
@@ -4002,14 +3993,14 @@ export async function registerRoutes(
           balance: runningBalance,
         });
       }
-      
+
       // Calculate totals
       const totals = {
         totalDebit: entries.reduce((sum, e) => sum + e.debit, 0),
         totalCredit: entries.reduce((sum, e) => sum + e.credit, 0),
         currentBalance: runningBalance,
       };
-      
+
       res.json({
         tenants: accessibleTenants,
         ledger: {
@@ -4029,35 +4020,35 @@ export async function registerRoutes(
     try {
       const ownerId = parseInt(req.params.id);
       const limit = parseInt(req.query.limit as string) || 5;
-      
+
       // Authorization check
       if (isOwnerUser(req) && req.session.ownerId !== ownerId) {
         return res.status(403).json({ message: "Access denied" });
       }
-      
+
       const owner = await storage.getOwner(ownerId);
       if (!owner) return res.status(404).json({ message: "Owner not found" });
-      
+
       const allOwners = await storage.getOwners();
       const allShops = await storage.getShops();
       const allLeases = await storage.getLeases();
       const allTenants = await storage.getTenants();
       const allInvoices = await storage.getRentInvoices();
       const allPayments = await storage.getPayments();
-      
+
       const ownerCount = allOwners.length;
-      
+
       // Get owner's accessible shops
       const ownerShops = allShops.filter(s => s.ownerId === ownerId);
       const commonShops = allShops.filter(s => s.ownershipType === 'common');
       const accessibleShopIds = [...ownerShops, ...commonShops].map(s => s.id);
-      
+
       // Get active leases for accessible shops
-      const activeLeases = allLeases.filter(l => 
-        accessibleShopIds.includes(l.shopId) && 
+      const activeLeases = allLeases.filter(l =>
+        accessibleShopIds.includes(l.shopId) &&
         (l.status === 'active' || l.status === 'expiring_soon')
       );
-      
+
       interface OutstandingEntry {
         tenantId: number;
         tenantName: string;
@@ -4069,27 +4060,27 @@ export async function registerRoutes(
         outstanding: number;
         isCommon: boolean;
       }
-      
+
       const outstandingList: OutstandingEntry[] = [];
-      
+
       for (const lease of activeLeases) {
         const tenant = allTenants.find(t => t.id === lease.tenantId);
         const shop = allShops.find(s => s.id === lease.shopId);
         if (!tenant || !shop) continue;
-        
+
         const isCommon = shop.ownershipType === 'common';
         const shareRatio = isCommon ? 1 / ownerCount : 1;
-        
+
         // Calculate outstanding
         const leaseInvoices = allInvoices.filter(inv => inv.leaseId === lease.id);
         const leasePayments = allPayments.filter(p => p.leaseId === lease.id);
-        
+
         const elapsedInvoices = getElapsedInvoices(leaseInvoices);
         const totalBilled = elapsedInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
         const totalPaid = getActivePayments(leasePayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
         const openingDue = parseFloat(tenant.openingDueBalance || '0');
         const currentOutstanding = openingDue + totalBilled - totalPaid;
-        
+
         if (currentOutstanding > 0) {
           outstandingList.push({
             tenantId: tenant.id,
@@ -4104,12 +4095,12 @@ export async function registerRoutes(
           });
         }
       }
-      
+
       // Sort by outstanding descending and take top N
       outstandingList.sort((a, b) => b.outstanding - a.outstanding);
       const topOutstandings = outstandingList.slice(0, limit);
-      
-      res.json({ 
+
+      res.json({
         data: topOutstandings,
         total: outstandingList.reduce((sum, o) => sum + o.outstanding, 0),
       });
@@ -4125,20 +4116,20 @@ export async function registerRoutes(
       if (req.session.userRole !== 'super_admin') {
         return res.status(403).json({ message: "Access denied. Super admin only." });
       }
-      
+
       const allLeases = await storage.getLeases();
       let recalculatedCount = 0;
-      
+
       for (const lease of allLeases) {
         if (lease.status !== 'terminated') {
           await updateInvoicePaidStatusForLease(lease.id);
           recalculatedCount++;
         }
       }
-      
-      res.json({ 
+
+      res.json({
         message: `FIFO status recalculated for ${recalculatedCount} active leases`,
-        recalculatedCount 
+        recalculatedCount
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message });

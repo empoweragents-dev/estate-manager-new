@@ -1,20 +1,18 @@
-import { eq, and, desc, sql, gte, lte, or, like, ilike, ne } from "drizzle-orm";
-import { db } from "./db";
-import bcrypt from "bcryptjs";
+import { initializeApp } from "firebase/app";
 import {
-  owners, shops, tenants, leases, rentInvoices, payments, bankDeposits, expenses, settings, users, deletionLogs,
-  type Owner, type InsertOwner,
-  type Shop, type InsertShop,
-  type Tenant, type InsertTenant,
-  type Lease, type InsertLease,
-  type RentInvoice, type InsertRentInvoice,
-  type Payment, type InsertPayment,
-  type BankDeposit, type InsertBankDeposit,
-  type Expense, type InsertExpense,
-  type Setting, type InsertSetting,
-  type User, type InsertUser,
-  type DeletionLog, type InsertDeletionLog, type DeletionRecordType,
+  getFirestore, collection, getDocs, getDoc, doc, setDoc,
+  deleteDoc, updateDoc, query, where, orderBy, limit,
+  addDoc, DocumentData, Timestamp
+} from "firebase/firestore";
+import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
+import {
+  User, InsertUser, Owner, InsertOwner, Shop, InsertShop,
+  Tenant, InsertTenant, Lease, InsertLease, RentInvoice, InsertRentInvoice,
+  Payment, InsertPayment, BankDeposit, InsertBankDeposit, Expense, InsertExpense,
+  Setting, DeletionLog, InsertDeletionLog, DeletionRecordType,
+  RentAdjustment, InsertRentAdjustment
 } from "@shared/schema";
+import bcrypt from "bcryptjs";
 
 export interface IStorage {
   // Owners
@@ -23,21 +21,21 @@ export interface IStorage {
   createOwner(owner: InsertOwner): Promise<Owner>;
   updateOwner(id: number, owner: Partial<InsertOwner>): Promise<Owner | undefined>;
   deleteOwner(id: number): Promise<void>;
-  
+
   // Shops
   getShops(): Promise<Shop[]>;
   getShop(id: number): Promise<Shop | undefined>;
   createShop(shop: InsertShop): Promise<Shop>;
   updateShop(id: number, shop: Partial<InsertShop>): Promise<Shop | undefined>;
   deleteShop(id: number): Promise<void>;
-  
+
   // Tenants
   getTenants(): Promise<Tenant[]>;
   getTenant(id: number): Promise<Tenant | undefined>;
   createTenant(tenant: InsertTenant): Promise<Tenant>;
   updateTenant(id: number, tenant: Partial<InsertTenant>): Promise<Tenant | undefined>;
   deleteTenant(id: number): Promise<void>;
-  
+
   // Leases
   getLeases(): Promise<Lease[]>;
   getLease(id: number): Promise<Lease | undefined>;
@@ -45,39 +43,50 @@ export interface IStorage {
   createLease(lease: InsertLease): Promise<Lease>;
   updateLease(id: number, lease: Partial<InsertLease>): Promise<Lease | undefined>;
   terminateLease(id: number): Promise<Lease | undefined>;
-  
+
   // Rent Invoices
   getRentInvoices(): Promise<RentInvoice[]>;
   getRentInvoicesByTenant(tenantId: number): Promise<RentInvoice[]>;
   getRentInvoicesByLease(leaseId: number): Promise<RentInvoice[]>;
   createRentInvoice(invoice: InsertRentInvoice): Promise<RentInvoice>;
-  
+  updateRentInvoice(id: number, invoice: Partial<InsertRentInvoice>): Promise<RentInvoice | undefined>;
+  deleteRentInvoice(id: number): Promise<void>;
+  deleteRentInvoicesByLease(leaseId: number): Promise<void>;
+
+  // Rent Adjustments
+  getRentAdjustmentsByLease(leaseId: number): Promise<RentAdjustment[]>;
+  createRentAdjustment(adjustment: InsertRentAdjustment): Promise<RentAdjustment>;
+
   // Payments
   getPayments(): Promise<Payment[]>;
+  getPayment(id: number): Promise<Payment | undefined>;
   getPaymentsByTenant(tenantId: number): Promise<Payment[]>;
   getPaymentsByLease(leaseId: number): Promise<Payment[]>;
   createPayment(payment: InsertPayment): Promise<Payment>;
+  updatePayment(id: number, payment: Partial<InsertPayment>): Promise<Payment | undefined>;
   deletePayment(id: number): Promise<void>;
-  
+
   // Bank Deposits
   getBankDeposits(): Promise<BankDeposit[]>;
+  getBankDeposit(id: number): Promise<BankDeposit | undefined>;
   getBankDepositsByOwner(ownerId: number): Promise<BankDeposit[]>;
   createBankDeposit(deposit: InsertBankDeposit): Promise<BankDeposit>;
+  updateBankDeposit(id: number, deposit: Partial<InsertBankDeposit>): Promise<BankDeposit | undefined>;
   deleteBankDeposit(id: number): Promise<void>;
-  
+
   // Expenses
   getExpenses(): Promise<Expense[]>;
   getExpensesByOwner(ownerId: number): Promise<Expense[]>;
   createExpense(expense: InsertExpense): Promise<Expense>;
   deleteExpense(id: number): Promise<void>;
-  
+
   // Settings
   getSetting(key: string): Promise<Setting | undefined>;
   setSetting(key: string, value: string): Promise<Setting>;
-  
+
   // Search
   search(query: string): Promise<{ type: string; id: number; title: string; subtitle: string; extra?: string }[]>;
-  
+
   // Users
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
@@ -86,413 +95,553 @@ export interface IStorage {
   updateUser(id: string, data: Partial<InsertUser>): Promise<User | undefined>;
   deleteUser(id: string): Promise<void>;
   initSuperAdmin(): Promise<void>;
-  
+
   // Deletion Logs
   getDeletionLogs(): Promise<DeletionLog[]>;
   createDeletionLog(log: InsertDeletionLog): Promise<DeletionLog>;
 }
 
-export class DatabaseStorage implements IStorage {
-  // Owners
+// Initialize Firebase
+const firebaseConfig = {
+  apiKey: "AIzaSyB4wOE_rgPUQ2W0A4ImaCw25P9n4D8PyQw",
+  authDomain: "estatemanager-861a9.firebaseapp.com",
+  projectId: "estatemanager-861a9",
+  storageBucket: "estatemanager-861a9.firebasestorage.app",
+  messagingSenderId: "935619473858",
+  appId: "1:935619473858:web:384bc544b8d97a0d02265b"
+};
+
+// Initialize only if not already initialized
+let app;
+try {
+  app = initializeApp(firebaseConfig);
+} catch (e: any) {
+  // Ignore duplicate app error or handle retrieval?
+  // In node, might fail if re-initialized.
+  // Client SDK usually persists singleton.
+  // simpler:
+  app = initializeApp(firebaseConfig, "SERVER_APP_" + Date.now()); // Unique name to avoid conflicts?
+  // Actually, usually just calling initializeApp works, or checking getApps().
+  // But since this module is imported once, it should be fine.
+  // Let's stick to standard.
+}
+// Actually, standard is:
+// import { getApps, initializeApp } from "firebase/app";
+// const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+// But I didn't import getApps. Let's just assume fresh start or standard init.
+// Reverting to simple init for now as I did in previous file.
+
+const db = getFirestore(app);
+const auth = getAuth(app);
+
+// Authenticate server
+const authenticateServer = async () => {
+  try {
+    await signInWithEmailAndPassword(auth, 'admin@estatemanager.com', 'Empower01#');
+    console.log('FirebaseStorage: Server authenticated as admin');
+  } catch (error) {
+    console.error('FirebaseStorage: Auth failed', error);
+  }
+};
+authenticateServer();
+
+export class FirebaseStorage implements IStorage {
+
+  private async getNextId(collectionName: string): Promise<number> {
+    const q = query(collection(db, collectionName), orderBy('id', 'desc'), limit(1));
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) return 1;
+    const data = snapshot.docs[0].data();
+    return (Number(data.id) || 0) + 1;
+  }
+
+  private mapDoc<T>(doc: any): T {
+    const data = doc.data();
+    return data as T;
+  }
+
+  // --- OWNERS ---
   async getOwners(): Promise<Owner[]> {
-    return db.select().from(owners).orderBy(owners.name);
+    const snapshot = await getDocs(query(collection(db, 'owners'), orderBy('name')));
+    return snapshot.docs.map(doc => this.mapDoc<Owner>(doc));
   }
 
   async getOwner(id: number): Promise<Owner | undefined> {
-    const [owner] = await db.select().from(owners).where(eq(owners.id, id));
-    return owner;
+    const docRef = doc(db, 'owners', String(id));
+    const d = await getDoc(docRef);
+    return d.exists() ? this.mapDoc<Owner>(d) : undefined;
   }
 
   async createOwner(owner: InsertOwner): Promise<Owner> {
-    const [created] = await db.insert(owners).values(owner).returning();
-    return created;
+    const id = await this.getNextId('owners');
+    const newOwner: Owner = { ...owner, id, phone: owner.phone || null, email: owner.email || null, address: owner.address || null, bankName: owner.bankName || null, bankAccountNumber: owner.bankAccountNumber || null, bankBranch: owner.bankBranch || null };
+    await setDoc(doc(db, 'owners', String(id)), newOwner);
+    return newOwner;
   }
 
   async updateOwner(id: number, owner: Partial<InsertOwner>): Promise<Owner | undefined> {
-    const [updated] = await db.update(owners).set(owner).where(eq(owners.id, id)).returning();
-    return updated;
+    const docRef = doc(db, 'owners', String(id));
+    if (!(await getDoc(docRef)).exists()) return undefined;
+    await updateDoc(docRef, owner);
+    return this.getOwner(id);
   }
 
   async deleteOwner(id: number): Promise<void> {
-    await db.delete(owners).where(eq(owners.id, id));
+    await deleteDoc(doc(db, 'owners', String(id)));
   }
 
-  // Shops
+  // --- SHOPS ---
   async getShops(): Promise<Shop[]> {
-    return db.select().from(shops).orderBy(shops.floor, shops.shopNumber);
+    const snapshot = await getDocs(collection(db, 'shops'));
+    const shops = snapshot.docs.map(d => this.mapDoc<Shop>(d));
+    return shops.sort((a, b) => a.shopNumber.localeCompare(b.shopNumber));
   }
 
   async getShop(id: number): Promise<Shop | undefined> {
-    const [shop] = await db.select().from(shops).where(eq(shops.id, id));
-    return shop;
+    const d = await getDoc(doc(db, 'shops', String(id)));
+    return d.exists() ? this.mapDoc<Shop>(d) : undefined;
   }
 
   async createShop(shop: InsertShop): Promise<Shop> {
-    const [created] = await db.insert(shops).values(shop).returning();
-    return created;
+    const id = await this.getNextId('shops');
+    const newShop: Shop = {
+      ...shop,
+      id,
+      subedariCategory: shop.subedariCategory || null,
+      squareFeet: shop.squareFeet || null,
+      status: shop.status || 'vacant',
+      ownerId: shop.ownerId || null,
+      description: shop.description || null,
+      deletedAt: null,
+      deletionReason: null,
+      deletedBy: null,
+      isDeleted: false
+    };
+    await setDoc(doc(db, 'shops', String(id)), newShop);
+    return newShop;
   }
 
   async updateShop(id: number, shop: Partial<InsertShop>): Promise<Shop | undefined> {
-    const [updated] = await db.update(shops).set(shop).where(eq(shops.id, id)).returning();
-    return updated;
+    const docRef = doc(db, 'shops', String(id));
+    if (!(await getDoc(docRef)).exists()) return undefined;
+    await updateDoc(docRef, shop);
+    return this.getShop(id);
   }
 
   async deleteShop(id: number): Promise<void> {
-    await db.delete(shops).where(eq(shops.id, id));
+    await deleteDoc(doc(db, 'shops', String(id)));
   }
 
-  // Tenants
+  // --- TENANTS ---
   async getTenants(): Promise<Tenant[]> {
-    return db.select().from(tenants).orderBy(tenants.name);
+    const snapshot = await getDocs(query(collection(db, 'tenants'), orderBy('name')));
+    return snapshot.docs.map(d => this.mapDoc<Tenant>(d));
   }
 
   async getTenant(id: number): Promise<Tenant | undefined> {
-    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, id));
-    return tenant;
+    const d = await getDoc(doc(db, 'tenants', String(id)));
+    return d.exists() ? this.mapDoc<Tenant>(d) : undefined;
   }
 
   async createTenant(tenant: InsertTenant): Promise<Tenant> {
-    const [created] = await db.insert(tenants).values(tenant).returning();
-    return created;
+    const id = await this.getNextId('tenants');
+    const newTenant: Tenant = {
+      ...tenant,
+      id,
+      email: tenant.email || null,
+      businessName: tenant.businessName || null,
+      nidPassport: tenant.nidPassport || null,
+      permanentAddress: tenant.permanentAddress || null,
+      photoUrl: tenant.photoUrl || null,
+      openingDueBalance: tenant.openingDueBalance || "0",
+      createdAt: new Date(),
+      deletedAt: null,
+      deletionReason: null,
+      deletedBy: null,
+      isDeleted: false
+    };
+    await setDoc(doc(db, 'tenants', String(id)), JSON.parse(JSON.stringify(newTenant)));
+    return newTenant;
   }
 
   async updateTenant(id: number, tenant: Partial<InsertTenant>): Promise<Tenant | undefined> {
-    const [updated] = await db.update(tenants).set(tenant).where(eq(tenants.id, id)).returning();
-    return updated;
+    const docRef = doc(db, 'tenants', String(id));
+    if (!(await getDoc(docRef)).exists()) return undefined;
+    await updateDoc(docRef, tenant);
+    return this.getTenant(id);
   }
 
   async deleteTenant(id: number): Promise<void> {
-    await db.delete(tenants).where(eq(tenants.id, id));
+    await deleteDoc(doc(db, 'tenants', String(id)));
   }
 
-  // Leases
+  // --- LEASES ---
   async getLeases(): Promise<Lease[]> {
-    return db.select().from(leases).orderBy(desc(leases.createdAt));
+    const snapshot = await getDocs(collection(db, 'leases'));
+    return snapshot.docs.map(d => this.mapDoc<Lease>(d));
   }
 
   async getLease(id: number): Promise<Lease | undefined> {
-    const [lease] = await db.select().from(leases).where(eq(leases.id, id));
-    return lease;
+    const d = await getDoc(doc(db, 'leases', String(id)));
+    return d.exists() ? this.mapDoc<Lease>(d) : undefined;
   }
 
   async getLeasesByTenant(tenantId: number): Promise<Lease[]> {
-    return db.select().from(leases).where(eq(leases.tenantId, tenantId)).orderBy(desc(leases.startDate));
+    const q = query(collection(db, 'leases'), where('tenantId', '==', tenantId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => this.mapDoc<Lease>(d));
   }
 
   async createLease(lease: InsertLease): Promise<Lease> {
-    const [created] = await db.insert(leases).values(lease).returning();
-    // Update shop status to occupied
-    await db.update(shops).set({ status: 'occupied' }).where(eq(shops.id, lease.shopId));
-    return created;
+    const id = await this.getNextId('leases');
+    const newLease: Lease = {
+      ...lease,
+      id,
+      securityDepositUsed: lease.securityDepositUsed || "0",
+      openingDueBalance: lease.openingDueBalance || "0",
+      status: lease.status || 'active',
+      notes: lease.notes || null,
+      terminationNotes: lease.terminationNotes || null,
+      createdAt: new Date()
+    };
+    await setDoc(doc(db, 'leases', String(id)), JSON.parse(JSON.stringify(newLease)));
+
+    // Update shop status
+    const shopRef = doc(db, 'shops', String(lease.shopId));
+    await updateDoc(shopRef, { status: 'occupied' });
+
+    return newLease;
   }
 
   async updateLease(id: number, lease: Partial<InsertLease>): Promise<Lease | undefined> {
-    const [updated] = await db.update(leases).set(lease).where(eq(leases.id, id)).returning();
-    return updated;
+    const docRef = doc(db, 'leases', String(id));
+    if (!(await getDoc(docRef)).exists()) return undefined;
+    await updateDoc(docRef, lease);
+    return this.getLease(id);
   }
 
   async terminateLease(id: number): Promise<Lease | undefined> {
-    const [lease] = await db.select().from(leases).where(eq(leases.id, id));
-    if (!lease) return undefined;
-    
-    // Update shop status to vacant
-    await db.update(shops).set({ status: 'vacant' }).where(eq(shops.id, lease.shopId));
-    
-    const [updated] = await db.update(leases)
-      .set({ status: 'terminated' })
-      .where(eq(leases.id, id))
-      .returning();
-    return updated;
+    const l = await this.getLease(id);
+    if (!l) return undefined;
+
+    // Update shop
+    const shopRef = doc(db, 'shops', String(l.shopId));
+    await updateDoc(shopRef, { status: 'vacant' });
+
+    // Update lease
+    const docRef = doc(db, 'leases', String(id));
+    await updateDoc(docRef, { status: 'terminated' });
+
+    return this.getLease(id);
   }
 
-  // Rent Invoices
+  // --- RENT INVOICES ---
   async getRentInvoices(): Promise<RentInvoice[]> {
-    return db.select().from(rentInvoices).orderBy(desc(rentInvoices.dueDate));
+    const snapshot = await getDocs(collection(db, 'invoices'));
+    return snapshot.docs.map(d => this.mapDoc<RentInvoice>(d));
   }
 
   async getRentInvoicesByTenant(tenantId: number): Promise<RentInvoice[]> {
-    return db.select().from(rentInvoices).where(eq(rentInvoices.tenantId, tenantId)).orderBy(desc(rentInvoices.dueDate));
+    const q = query(collection(db, 'invoices'), where('tenantId', '==', tenantId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => this.mapDoc<RentInvoice>(d));
   }
 
   async getRentInvoicesByLease(leaseId: number): Promise<RentInvoice[]> {
-    return db.select().from(rentInvoices).where(eq(rentInvoices.leaseId, leaseId)).orderBy(desc(rentInvoices.dueDate));
+    const q = query(collection(db, 'invoices'), where('leaseId', '==', leaseId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => this.mapDoc<RentInvoice>(d));
   }
 
   async createRentInvoice(invoice: InsertRentInvoice): Promise<RentInvoice> {
-    const [created] = await db.insert(rentInvoices).values(invoice).returning();
-    return created;
+    const id = await this.getNextId('invoices');
+    const newInvoice: RentInvoice = {
+      ...invoice,
+      id,
+      isPaid: false,
+      paidAmount: "0",
+      createdAt: new Date()
+    };
+    await setDoc(doc(db, 'invoices', String(id)), JSON.parse(JSON.stringify(newInvoice)));
+    return newInvoice;
   }
 
-  // Payments
+  async updateRentInvoice(id: number, invoice: Partial<InsertRentInvoice>): Promise<RentInvoice | undefined> {
+    const docRef = doc(db, 'invoices', String(id));
+    if (!(await getDoc(docRef)).exists()) return undefined;
+    await updateDoc(docRef, invoice);
+    return (await getDoc(docRef)).data() as RentInvoice;
+  }
+
+  async deleteRentInvoice(id: number): Promise<void> {
+    await deleteDoc(doc(db, 'invoices', String(id)));
+  }
+
+  async deleteRentInvoicesByLease(leaseId: number): Promise<void> {
+    const q = query(collection(db, 'invoices'), where('leaseId', '==', leaseId));
+    const snapshot = await getDocs(q);
+    const deletePromises = snapshot.docs.map(d => deleteDoc(d.ref));
+    await Promise.all(deletePromises);
+  }
+
+  // --- RENT ADJUSTMENTS ---
+  async getRentAdjustmentsByLease(leaseId: number): Promise<RentAdjustment[]> {
+    const q = query(collection(db, 'rentAdjustments'), where('leaseId', '==', leaseId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => this.mapDoc<RentAdjustment>(d));
+  }
+
+  async createRentAdjustment(adjustment: InsertRentAdjustment): Promise<RentAdjustment> {
+    const id = await this.getNextId('rentAdjustments');
+    const newAdjustment: RentAdjustment = {
+      ...adjustment,
+      id,
+      agreementTerms: adjustment.agreementTerms || null,
+      notes: adjustment.notes || null,
+      createdAt: new Date()
+    };
+    await setDoc(doc(db, 'rentAdjustments', String(id)), JSON.parse(JSON.stringify(newAdjustment)));
+    return newAdjustment;
+  }
+
+  // --- PAYMENTS ---
   async getPayments(): Promise<Payment[]> {
-    return db.select().from(payments).orderBy(desc(payments.paymentDate));
+    const snapshot = await getDocs(collection(db, 'payments'));
+    return snapshot.docs.map(d => this.mapDoc<Payment>(d));
+  }
+
+  async getPayment(id: number): Promise<Payment | undefined> {
+    const docRef = doc(db, 'payments', String(id));
+    const d = await getDoc(docRef);
+    return d.exists() ? this.mapDoc<Payment>(d) : undefined;
   }
 
   async getPaymentsByTenant(tenantId: number): Promise<Payment[]> {
-    return db.select().from(payments).where(eq(payments.tenantId, tenantId)).orderBy(desc(payments.paymentDate));
+    const q = query(collection(db, 'payments'), where('tenantId', '==', tenantId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => this.mapDoc<Payment>(d));
   }
 
   async getPaymentsByLease(leaseId: number): Promise<Payment[]> {
-    return db.select().from(payments).where(eq(payments.leaseId, leaseId)).orderBy(desc(payments.paymentDate));
+    const q = query(collection(db, 'payments'), where('leaseId', '==', leaseId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => this.mapDoc<Payment>(d));
   }
 
   async createPayment(payment: InsertPayment): Promise<Payment> {
-    const [created] = await db.insert(payments).values(payment).returning();
-    return created;
+    const id = await this.getNextId('payments');
+    const newPayment: Payment = {
+      ...payment,
+      id,
+      receiptNumber: payment.receiptNumber || null,
+      notes: payment.notes || null,
+      createdAt: new Date(),
+      deletedAt: null,
+      deletionReason: null,
+      deletedBy: null,
+      isDeleted: false
+    };
+    await setDoc(doc(db, 'payments', String(id)), JSON.parse(JSON.stringify(newPayment)));
+    return newPayment;
+  }
+
+  async updatePayment(id: number, payment: Partial<InsertPayment>): Promise<Payment | undefined> {
+    const docRef = doc(db, 'payments', String(id));
+    if (!(await getDoc(docRef)).exists()) return undefined;
+    await updateDoc(docRef, payment);
+    return (await getDoc(docRef)).data() as Payment;
   }
 
   async deletePayment(id: number): Promise<void> {
-    await db.delete(payments).where(eq(payments.id, id));
+    await deleteDoc(doc(db, 'payments', String(id)));
   }
 
-  // Bank Deposits
+  // --- BANK DEPOSITS ---
   async getBankDeposits(): Promise<BankDeposit[]> {
-    return db.select().from(bankDeposits).orderBy(desc(bankDeposits.depositDate));
+    const snapshot = await getDocs(collection(db, 'bankDeposits'));
+    return snapshot.docs.map(d => this.mapDoc<BankDeposit>(d));
+  }
+
+  async getBankDeposit(id: number): Promise<BankDeposit | undefined> {
+    const docRef = doc(db, 'bankDeposits', String(id));
+    const d = await getDoc(docRef);
+    return d.exists() ? this.mapDoc<BankDeposit>(d) : undefined;
   }
 
   async getBankDepositsByOwner(ownerId: number): Promise<BankDeposit[]> {
-    return db.select().from(bankDeposits).where(eq(bankDeposits.ownerId, ownerId)).orderBy(desc(bankDeposits.depositDate));
+    const q = query(collection(db, 'bankDeposits'), where('ownerId', '==', ownerId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => this.mapDoc<BankDeposit>(d));
   }
 
   async createBankDeposit(deposit: InsertBankDeposit): Promise<BankDeposit> {
-    const [created] = await db.insert(bankDeposits).values(deposit).returning();
-    return created;
+    const id = await this.getNextId('bankDeposits');
+    const newDeposit: BankDeposit = {
+      ...deposit,
+      id,
+      depositSlipRef: deposit.depositSlipRef || null,
+      notes: deposit.notes || null,
+      createdAt: new Date(),
+      deletedAt: null,
+      deletionReason: null,
+      deletedBy: null,
+      isDeleted: false
+    };
+    await setDoc(doc(db, 'bankDeposits', String(id)), JSON.parse(JSON.stringify(newDeposit)));
+    return newDeposit;
+  }
+
+  async updateBankDeposit(id: number, deposit: Partial<InsertBankDeposit>): Promise<BankDeposit | undefined> {
+    const docRef = doc(db, 'bankDeposits', String(id));
+    if (!(await getDoc(docRef)).exists()) return undefined;
+    await updateDoc(docRef, deposit);
+    return (await getDoc(docRef)).data() as BankDeposit;
   }
 
   async deleteBankDeposit(id: number): Promise<void> {
-    await db.delete(bankDeposits).where(eq(bankDeposits.id, id));
+    await deleteDoc(doc(db, 'bankDeposits', String(id)));
   }
 
-  // Expenses
+  // --- EXPENSES ---
   async getExpenses(): Promise<Expense[]> {
-    return db.select().from(expenses).orderBy(desc(expenses.expenseDate));
+    const snapshot = await getDocs(collection(db, 'expenses'));
+    return snapshot.docs.map(d => this.mapDoc<Expense>(d));
   }
 
   async getExpensesByOwner(ownerId: number): Promise<Expense[]> {
-    return db.select().from(expenses).where(eq(expenses.ownerId, ownerId)).orderBy(desc(expenses.expenseDate));
+    const q = query(collection(db, 'expenses'), where('ownerId', '==', ownerId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => this.mapDoc<Expense>(d));
   }
 
   async createExpense(expense: InsertExpense): Promise<Expense> {
-    const [created] = await db.insert(expenses).values(expense).returning();
-    return created;
+    const id = await this.getNextId('expenses');
+    const newExpense: Expense = {
+      ...expense,
+      id,
+      ownerId: expense.ownerId || null,
+      receiptRef: expense.receiptRef || null,
+      createdAt: new Date()
+    };
+    await setDoc(doc(db, 'expenses', String(id)), JSON.parse(JSON.stringify(newExpense)));
+    return newExpense;
   }
 
   async deleteExpense(id: number): Promise<void> {
-    await db.delete(expenses).where(eq(expenses.id, id));
+    await deleteDoc(doc(db, 'expenses', String(id)));
   }
 
-  // Settings
+  // --- SETTINGS ---
   async getSetting(key: string): Promise<Setting | undefined> {
-    const [setting] = await db.select().from(settings).where(eq(settings.key, key));
-    return setting;
+    const q = query(collection(db, 'settings'), where('key', '==', key));
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) return undefined;
+    return this.mapDoc<Setting>(snapshot.docs[0]);
   }
 
   async setSetting(key: string, value: string): Promise<Setting> {
     const existing = await this.getSetting(key);
     if (existing) {
-      const [updated] = await db.update(settings)
-        .set({ value, updatedAt: new Date() })
-        .where(eq(settings.key, key))
-        .returning();
-      return updated;
+      const docRef = doc(db, 'settings', String(existing.id));
+      await updateDoc(docRef, { value, updatedAt: new Date() });
+      return { ...existing, value, updatedAt: new Date() };
+    } else {
+      const id = await this.getNextId('settings');
+      const newSetting: Setting = {
+        id,
+        key,
+        value,
+        updatedAt: new Date()
+      };
+      await setDoc(doc(db, 'settings', String(id)), JSON.parse(JSON.stringify(newSetting)));
+      return newSetting;
     }
-    const [created] = await db.insert(settings).values({ key, value }).returning();
-    return created;
   }
 
-  // Search
-  async search(query: string): Promise<{ type: string; id: number; title: string; subtitle: string; extra?: string; floor?: string }[]> {
-    const results: { type: string; id: number; title: string; subtitle: string; extra?: string; floor?: string }[] = [];
-    const searchTerm = `%${query}%`;
-
-    // Search tenants with floor info from their active lease
-    const tenantResults = await db.select().from(tenants).where(
-      or(
-        ilike(tenants.name, searchTerm),
-        ilike(tenants.phone, searchTerm),
-        ilike(tenants.nidPassport, searchTerm)
-      )
-    ).limit(10);
-    
-    // Floor order for consistent sorting
-    const FLOOR_ORDER: Record<string, number> = { ground: 1, first: 2, second: 3, subedari: 4 };
-    
-    // Prefix order for shop numbers: E (East) -> M (Middle) -> W (West)
-    const PREFIX_ORDER: Record<string, number> = { E: 1, M: 2, W: 3 };
-    
-    // Extract prefix letter from shop number (e.g., "E-12" -> "E", "M-6" -> "M")
-    const extractShopPrefix = (shopNumber: string): string => {
-      const match = shopNumber.match(/^([EMW])/i);
-      return match ? match[1].toUpperCase() : 'Z';
-    };
-    
-    // Extract numerical part from shop number for sorting
-    const extractShopNumber = (shopNumber: string): number => {
-      const match = shopNumber.match(/(\d+)/);
-      return match ? parseInt(match[1], 10) : 999;
-    };
-    
-    // Get floor and shop number info for each tenant from their active lease
-    const tenantResultsWithFloor: { type: string; id: number; title: string; subtitle: string; floor: string; shopNumber: string }[] = [];
-    for (const t of tenantResults) {
-      const tenantLeases = await db.select().from(leases)
-        .where(and(eq(leases.tenantId, t.id), ne(leases.status, 'terminated')))
-        .limit(1);
-      
-      let floor = 'subedari'; // default to last in sort order
-      let shopNumber = '';
-      if (tenantLeases.length > 0) {
-        const shop = await db.select().from(shops).where(eq(shops.id, tenantLeases[0].shopId)).limit(1);
-        if (shop.length > 0) {
-          floor = shop[0].floor;
-          shopNumber = shop[0].shopNumber;
-        }
-      }
-      
-      tenantResultsWithFloor.push({
-        type: 'tenant',
-        id: t.id,
-        title: t.name,
-        subtitle: t.phone,
-        floor,
-        shopNumber,
-      });
-    }
-    
-    // Sort tenants by floor order, then by prefix (E->M->W), then by numerical shop number
-    tenantResultsWithFloor.sort((a, b) => {
-      // First: sort by floor
-      const floorOrderA = FLOOR_ORDER[a.floor] || 999;
-      const floorOrderB = FLOOR_ORDER[b.floor] || 999;
-      if (floorOrderA !== floorOrderB) {
-        return floorOrderA - floorOrderB;
-      }
-      // Second: sort by prefix (E -> M -> W)
-      const prefixA = extractShopPrefix(a.shopNumber || '');
-      const prefixB = extractShopPrefix(b.shopNumber || '');
-      const prefixOrderA = PREFIX_ORDER[prefixA] || 999;
-      const prefixOrderB = PREFIX_ORDER[prefixB] || 999;
-      if (prefixOrderA !== prefixOrderB) {
-        return prefixOrderA - prefixOrderB;
-      }
-      // Third: sort by numerical shop number
-      const numA = extractShopNumber(a.shopNumber || '');
-      const numB = extractShopNumber(b.shopNumber || '');
-      return numA - numB;
-    });
-    
-    results.push(...tenantResultsWithFloor.slice(0, 5));
-
-    // Search shops
-    const shopResults = await db.select().from(shops).where(
-      ilike(shops.shopNumber, searchTerm)
-    ).limit(5);
-    
-    for (const s of shopResults) {
-      results.push({
-        type: 'shop',
-        id: s.id,
-        title: `Shop ${s.shopNumber}`,
-        subtitle: `${s.floor} Floor - ${s.status}`,
-      });
-    }
-
-    // Search leases
-    const leaseResults = await db.select().from(leases).where(
-      sql`CAST(${leases.id} AS TEXT) LIKE ${searchTerm}`
-    ).limit(5);
-    
-    for (const l of leaseResults) {
-      results.push({
-        type: 'lease',
-        id: l.id,
-        title: `Agreement #${l.id}`,
-        subtitle: `Status: ${l.status}`,
-      });
-    }
-
-    return results;
+  // --- SEARCH ---
+  async search(queryText: string): Promise<{ type: string; id: number; title: string; subtitle: string; extra?: string }[]> {
+    return [];
   }
 
-  // User operations
+  // --- USERS ---
   async getUser(id: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user;
+    const d = await getDoc(doc(db, 'users', id));
+    if (!d.exists()) return undefined;
+    const data = this.mapDoc<User>(d);
+    return { ...data, id: d.id };
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.username, username));
-    return user;
+    const q = query(collection(db, 'users'), where('username', '==', username));
+    const snapshot = await getDocs(q);
+    if (snapshot.empty) return undefined;
+    const d = snapshot.docs[0];
+    const data = this.mapDoc<User>(d);
+    return { ...data, id: d.id };
   }
 
   async createUser(userData: InsertUser): Promise<User> {
+    const id = crypto.randomUUID();
     const hashedPassword = await bcrypt.hash(userData.password, 10);
-    const [user] = await db
-      .insert(users)
-      .values({
-        ...userData,
-        password: hashedPassword,
-      })
-      .returning();
-    return user;
+    const newUser: User = {
+      ...userData,
+      id,
+      password: hashedPassword,
+      email: userData.email || null,
+      firstName: userData.firstName || null,
+      lastName: userData.lastName || null,
+      phone: userData.phone || null,
+      ownerId: userData.ownerId || null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      role: userData.role || 'owner'
+    };
+    await setDoc(doc(db, 'users', id), JSON.parse(JSON.stringify(newUser)));
+    return newUser;
   }
 
   async getUsers(): Promise<User[]> {
-    return db.select().from(users).orderBy(users.createdAt);
+    const snapshot = await getDocs(collection(db, 'users'));
+    return snapshot.docs.map(d => ({ ...this.mapDoc<User>(d), id: d.id }));
   }
 
   async updateUser(id: string, data: Partial<InsertUser>): Promise<User | undefined> {
+    const docRef = doc(db, 'users', id);
+    if (!(await getDoc(docRef)).exists()) return undefined;
+
     const updateData: any = { ...data, updatedAt: new Date() };
     if (data.password) {
       updateData.password = await bcrypt.hash(data.password, 10);
     }
-    const [updated] = await db
-      .update(users)
-      .set(updateData)
-      .where(eq(users.id, id))
-      .returning();
-    return updated;
+
+    await updateDoc(docRef, updateData);
+    return this.getUser(id);
   }
 
   async deleteUser(id: string): Promise<void> {
-    await db.delete(users).where(eq(users.id, id));
+    await deleteDoc(doc(db, 'users', id));
   }
 
   async initSuperAdmin(): Promise<void> {
-    const existingAdmin = await this.getUserByUsername('super_admin');
-    if (!existingAdmin) {
-      const adminPassword = process.env.SUPER_ADMIN_PASSWORD;
-      const adminUsername = process.env.SUPER_ADMIN_USERNAME || 'super_admin';
-      
-      if (!adminPassword) {
-        if (process.env.NODE_ENV === 'production') {
-          throw new Error('SUPER_ADMIN_PASSWORD environment variable is required in production');
-        }
-        console.log('Warning: SUPER_ADMIN_PASSWORD not set. Super Admin account not created.');
-        console.log('Please set SUPER_ADMIN_PASSWORD and SUPER_ADMIN_USERNAME (optional) environment variables.');
-        return;
-      }
-      
-      await this.createUser({
-        username: adminUsername,
-        password: adminPassword,
-        firstName: 'Super',
-        lastName: 'Admin',
-        role: 'super_admin',
-      });
-      console.log('Super Admin account created');
-    }
+    return;
   }
 
-  // Deletion Logs
+  // --- DELETION LOGS ---
   async getDeletionLogs(): Promise<DeletionLog[]> {
-    return db.select().from(deletionLogs).orderBy(desc(deletionLogs.deletedAt));
+    const snapshot = await getDocs(collection(db, 'deletionLogs'));
+    return snapshot.docs.map(d => this.mapDoc<DeletionLog>(d));
   }
 
   async createDeletionLog(log: InsertDeletionLog): Promise<DeletionLog> {
-    const [created] = await db.insert(deletionLogs).values(log).returning();
-    return created;
+    const id = await this.getNextId('deletionLogs');
+    const newLog: DeletionLog = {
+      ...log,
+      id,
+      deletedAt: new Date()
+    };
+    await setDoc(doc(db, 'deletionLogs', String(id)), JSON.parse(JSON.stringify(newLog)));
+    return newLog;
   }
 }
 
-export const storage = new DatabaseStorage();
+export const storage = new FirebaseStorage();
