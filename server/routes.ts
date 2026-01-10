@@ -1404,7 +1404,8 @@ export async function registerRoutes(
 
       // Get payments for this tenant
       const tenantPayments = await storage.getPaymentsByTenant(lease.tenantId);
-      const leasePayments = tenantPayments.filter(p => p.leaseId === lease.id);
+      // Filter to this lease AND exclude deleted payments
+      const leasePayments = tenantPayments.filter(p => p.leaseId === lease.id && !p.isDeleted);
 
       // Get expenses for this tenant - only filter if tenant exists
       const allExpenses = await storage.getExpenses();
@@ -1413,7 +1414,7 @@ export async function registerRoutes(
         : [];
 
       // Calculate outstanding per month (only elapsed invoices)
-      const totalPaid = getActivePayments(leasePayments).reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      const totalPaid = leasePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
       const totalInvoiced = elapsedLeaseInvoices.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
       const totalExpenses = tenantExpenses.reduce((sum, exp) => sum + parseFloat(exp.amount), 0);
 
@@ -2384,6 +2385,35 @@ export async function registerRoutes(
       await updateInvoicePaidStatusForLease(leaseId);
 
       res.status(201).json(payment);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // Update a payment
+  app.patch("/api/payments/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const paymentId = parseInt(req.params.id);
+      const existingPayment = await storage.getPayment(paymentId);
+      if (!existingPayment) return res.status(404).json({ message: "Payment not found" });
+
+      const validatedData = insertPaymentSchema.partial().parse(req.body);
+      const { amount, paymentDate, rentMonths, notes, receiptNumber } = validatedData;
+
+      const updatePayload: Record<string, any> = {
+        ...(amount && { amount: amount.toString() }),
+        ...(paymentDate && { paymentDate }),
+        ...(rentMonths !== undefined && { rentMonths: rentMonths || null }),
+        ...(notes !== undefined && { notes: notes }), // Allow empty string
+        ...(receiptNumber !== undefined && { receiptNumber: receiptNumber }),
+      };
+
+      const updatedPayment = await storage.updatePayment(paymentId, updatePayload);
+
+      // Recalculate invoice statuses for the lease
+      await updateInvoicePaidStatusForLease(existingPayment.leaseId);
+
+      res.json(updatedPayment);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
     }
@@ -3879,6 +3909,141 @@ export async function registerRoutes(
     }
   });
 
+  // Bank Statement Report for a specific owner
+  app.get("/api/owners/:id/reports/bank-statement", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const ownerId = parseInt(req.params.id);
+      const { month, year, startDate, endDate } = req.query;
+
+      // Authorization check
+      if (isOwnerUser(req) && req.session.ownerId !== ownerId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const owner = await storage.getOwner(ownerId);
+      if (!owner) return res.status(404).json({ message: "Owner not found" });
+
+      const allOwners = await storage.getOwners();
+      const allShops = await storage.getShops();
+      const allLeases = await storage.getLeases();
+      const allTenants = await storage.getTenants();
+
+      // Get owner's shops (sole + common ownership)
+      const ownerShops = allShops.filter(s => !s.isDeleted && (s.ownerId === ownerId || s.ownershipType === 'common'));
+      const ownerShopIds = ownerShops.map(s => s.id);
+
+      // Get leases for owner's shops
+      const ownerLeases = allLeases.filter(l => ownerShopIds.includes(l.shopId));
+      const ownerLeaseIds = ownerLeases.map(l => l.id);
+
+      // Get all payments for owner's leases (excluding deleted)
+      const allPayments = await storage.getPayments();
+      let ownerPayments = allPayments.filter(p => !p.isDeleted && ownerLeaseIds.includes(p.leaseId));
+
+      // Get bank deposits for this owner (excluding deleted)
+      const allBankDeposits = await storage.getBankDeposits();
+      let ownerDeposits = allBankDeposits.filter(d => !d.isDeleted && d.ownerId === ownerId);
+
+      // Get expenses (owner's direct + share of common)
+      const allExpenses = await storage.getExpenses();
+      let relevantExpenses = allExpenses.filter(e =>
+        (e.allocation === 'owner' && e.ownerId === ownerId) ||
+        e.allocation === 'common'
+      );
+
+      // Apply date filters
+      const filterByDate = (dateStr: string): boolean => {
+        const itemDate = new Date(dateStr);
+        if (month && year) {
+          return itemDate.getMonth() + 1 === parseInt(month as string) &&
+            itemDate.getFullYear() === parseInt(year as string);
+        } else if (startDate || endDate) {
+          if (startDate && itemDate < new Date(startDate as string)) return false;
+          if (endDate && itemDate > new Date(endDate as string)) return false;
+        }
+        return true;
+      };
+
+      ownerPayments = ownerPayments.filter(p => filterByDate(p.paymentDate));
+      ownerDeposits = ownerDeposits.filter(d => filterByDate(d.depositDate));
+      relevantExpenses = relevantExpenses.filter(e => filterByDate(e.expenseDate));
+
+      // Build transactions array
+      type BankStatementTransaction = {
+        id: number;
+        date: string;
+        type: 'rent_collection' | 'bank_deposit' | 'expense';
+        description: string;
+        amount: number;
+        tenantName?: string;
+        shopNumber?: string;
+      };
+
+      const transactions: BankStatementTransaction[] = [];
+
+      // Add rent collections (payments)
+      for (const payment of ownerPayments) {
+        const lease = ownerLeases.find(l => l.id === payment.leaseId);
+        const tenant = allTenants.find(t => t.id === payment.tenantId);
+        const shop = lease ? allShops.find(s => s.id === lease.shopId) : null;
+
+        transactions.push({
+          id: payment.id,
+          date: payment.paymentDate,
+          type: 'rent_collection',
+          description: `Rent from ${tenant?.name || 'Unknown'} - Shop ${shop?.shopNumber || 'N/A'}`,
+          amount: parseFloat(payment.amount),
+          tenantName: tenant?.name || 'Unknown',
+          shopNumber: shop?.shopNumber || 'N/A',
+        });
+      }
+
+      // Add bank deposits
+      for (const deposit of ownerDeposits) {
+        transactions.push({
+          id: deposit.id + 200000, // Offset to avoid ID collision
+          date: deposit.depositDate,
+          type: 'bank_deposit',
+          description: `Deposited to ${deposit.bankName}${deposit.depositSlipRef ? ` (Ref: ${deposit.depositSlipRef})` : ''}`,
+          amount: parseFloat(deposit.amount),
+        });
+      }
+
+      // Add expenses
+      for (const expense of relevantExpenses) {
+        const isCommon = expense.allocation === 'common';
+        const shareRatio = isCommon ? 1 / allOwners.length : 1;
+        transactions.push({
+          id: expense.id + 300000, // Offset to avoid ID collision
+          date: expense.expenseDate,
+          type: 'expense',
+          description: `${expense.expenseType.charAt(0).toUpperCase() + expense.expenseType.slice(1)}: ${expense.description}${isCommon ? ' (Common)' : ''}`,
+          amount: parseFloat(expense.amount) * shareRatio,
+        });
+      }
+
+      // Sort by date descending
+      transactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+      // Calculate totals
+      const totals = {
+        totalRentCollections: transactions.filter(t => t.type === 'rent_collection').reduce((sum, t) => sum + t.amount, 0),
+        totalBankDeposits: transactions.filter(t => t.type === 'bank_deposit').reduce((sum, t) => sum + t.amount, 0),
+        totalExpenses: transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0),
+        netBalance: 0,
+      };
+      totals.netBalance = totals.totalRentCollections - totals.totalBankDeposits - totals.totalExpenses;
+
+      res.json({
+        data: transactions,
+        totals,
+        owner: { id: owner.id, name: owner.name }
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Tenant Ledger for owner's tenants
   app.get("/api/owners/:id/reports/tenant-ledger", isAuthenticated, async (req: Request, res: Response) => {
     try {
@@ -3966,6 +4131,10 @@ export async function registerRoutes(
         debit: number;
         credit: number;
         type: 'invoice' | 'payment';
+        paymentId?: number;
+        rentMonths?: string[] | null;
+        notes?: string;
+        receiptNumber?: string;
       }> = [];
 
       for (const lease of tenantLeases) {
@@ -3997,6 +4166,10 @@ export async function registerRoutes(
             debit: 0,
             credit: parseFloat(payment.amount),
             type: 'payment',
+            paymentId: payment.id,
+            rentMonths: payment.rentMonths,
+            notes: payment.notes || undefined,
+            receiptNumber: payment.receiptNumber || undefined,
           });
         }
       }

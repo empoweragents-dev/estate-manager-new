@@ -34,6 +34,7 @@ import {
 } from 'recharts';
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { EditPaymentDialog } from "@/components/edit-payment-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -63,6 +64,31 @@ import {
 import { formatCurrency } from "@/lib/currency";
 import { useState, useMemo } from "react";
 import type { Owner, BankDeposit, Expense } from "@shared/schema";
+
+interface FinancialTransaction {
+  id: number;
+  date: string;
+  type: 'deposit' | 'expense';
+  category: string;
+  description: string;
+  amount: number;
+  isCommon: boolean;
+  rentMonths?: string[] | null;
+}
+
+interface TenantLedgerEntry {
+  id: number;
+  date: string;
+  description: string;
+  debit: number;
+  credit: number;
+  balance: number;
+  type?: 'invoice' | 'payment';
+  paymentId?: number;
+  rentMonths?: string[] | null;
+  notes?: string;
+  receiptNumber?: string;
+}
 
 interface TenantInfo {
   id: number;
@@ -203,23 +229,33 @@ export default function OwnerDetailPage() {
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6">
-      <div className="flex items-center gap-3 md:gap-4">
-        <Link href="/owners">
-          <Button variant="ghost" size="icon" className="shrink-0">
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-        </Link>
-        <div className="min-w-0">
-          <h1 className="text-xl md:text-2xl font-semibold truncate">{owner.name}</h1>
-          <div className="flex flex-wrap items-center gap-2 md:gap-4 text-muted-foreground text-xs md:text-sm">
-            {owner.phone && (
-              <span className="flex items-center gap-1">
-                <Phone className="h-3 w-3" />
-                {owner.phone}
-              </span>
-            )}
-            {owner.email && <span className="truncate">{owner.email}</span>}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3 md:gap-4">
+          <Link href="/owners">
+            <Button variant="ghost" size="icon" className="shrink-0">
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+          </Link>
+          <div className="min-w-0">
+            <h1 className="text-xl md:text-2xl font-semibold truncate">{owner.name}</h1>
+            <div className="flex flex-wrap items-center gap-2 md:gap-4 text-muted-foreground text-xs md:text-sm">
+              {owner.phone && (
+                <span className="flex items-center gap-1">
+                  <Phone className="h-3 w-3" />
+                  {owner.phone}
+                </span>
+              )}
+              {owner.email && <span className="truncate">{owner.email}</span>}
+            </div>
           </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link href={`/owners/${ownerId}/bank-statement`}>
+            <Button variant="outline" size="sm" className="gap-2">
+              <FileText className="h-4 w-4" />
+              <span className="hidden sm:inline">Financial Statement</span>
+            </Button>
+          </Link>
         </div>
       </div>
 
@@ -1387,7 +1423,20 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
                         <TableCell>{tx.category}</TableCell>
                         <TableCell className="max-w-[200px] truncate">{tx.description}</TableCell>
                         <TableCell className={`text-right font-medium ${tx.type === 'deposit' ? 'text-green-600' : 'text-red-600'}`}>
-                          {tx.type === 'deposit' ? '+' : '-'}{formatValue(tx.amount)}
+                          <div className="flex items-center justify-end gap-2">
+                            {tx.type === 'deposit' ? '+' : '-'}{formatValue(tx.amount)}
+                            {tx.type === 'deposit' && (
+                              <EditPaymentDialog
+                                payment={{
+                                  id: tx.id,
+                                  amount: tx.amount,
+                                  paymentDate: tx.date,
+                                  rentMonths: tx.rentMonths || null,
+                                  notes: tx.description, // Passing description as notes might be close enough, or fetch specific notes if needed
+                                }}
+                              />
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -1442,6 +1491,7 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
                       <TableHead className="text-right whitespace-nowrap">Debit</TableHead>
                       <TableHead className="text-right whitespace-nowrap">Credit</TableHead>
                       <TableHead className="text-right whitespace-nowrap">Balance</TableHead>
+                      <TableHead className="w-[50px]"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1453,6 +1503,20 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
                         <TableCell className="text-right text-green-600">{entry.credit > 0 ? formatValue(entry.credit) : '-'}</TableCell>
                         <TableCell className={`text-right font-medium ${entry.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
                           {formatValue(entry.balance)}
+                        </TableCell>
+                        <TableCell>
+                          {entry.type === 'payment' && entry.paymentId && (
+                            <EditPaymentDialog
+                              payment={{
+                                id: entry.paymentId,
+                                amount: entry.credit, // Payment amount is in credit column
+                                paymentDate: entry.date,
+                                rentMonths: entry.rentMonths || null,
+                                notes: entry.notes || "",
+                                receiptNumber: entry.receiptNumber || "",
+                              }}
+                            />
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}

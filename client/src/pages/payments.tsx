@@ -29,6 +29,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { EditPaymentDialog } from "@/components/edit-payment-dialog";
 import {
   Select,
   SelectContent,
@@ -56,7 +57,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, CreditCard, User, Store, Calendar, Receipt, Trash2, Search, Building2, CheckCircle2, Circle, X, Filter, ChevronDown, ChevronUp, AlertCircle, Info } from "lucide-react";
+import { Plus, CreditCard, User, Store, Calendar, Receipt, Trash2, Search, Building2, CheckCircle2, Circle, X, Filter, ChevronDown, ChevronUp, AlertCircle, Info, Pencil } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -135,7 +136,7 @@ export function PaymentForm({
   onSuccess: () => void;
 }) {
   const { toast } = useToast();
-  const { currency, exchangeRate } = useCurrencyStore();
+  const { currency } = useCurrencyStore();
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [selectedItem, setSelectedItem] = useState<SearchableItem | null>(null);
@@ -348,7 +349,7 @@ export function PaymentForm({
 
   const formatValue = (val: number | string) => {
     const num = typeof val === 'string' ? parseFloat(val) || 0 : val;
-    return formatCurrency(num, currency, exchangeRate);
+    return formatCurrency(num);
   };
 
   const floorLabels: Record<string, string> = {
@@ -544,8 +545,8 @@ export function PaymentForm({
                               type="button"
                               onClick={() => toggleMonth(monthValue)}
                               className={`flex items-center justify-between gap-2 p-2 rounded-lg border transition-all text-left ${isSelected
-                                  ? 'border-primary bg-primary/10 text-primary'
-                                  : 'border-transparent hover:border-muted-foreground/20 hover:bg-muted/50'
+                                ? 'border-primary bg-primary/10 text-primary'
+                                : 'border-transparent hover:border-muted-foreground/20 hover:bg-muted/50'
                                 }`}
                             >
                               <div className="flex items-center gap-2">
@@ -747,12 +748,13 @@ export default function PaymentsPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [selectedOwnerId, setSelectedOwnerId] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [paymentToDelete, setPaymentToDelete] = useState<PaymentWithDetails | null>(null);
   const [deleteReason, setDeleteReason] = useState("");
   const [deletionDate, setDeletionDate] = useState(new Date().toISOString().split("T")[0]);
   const { toast } = useToast();
-  const { currency, exchangeRate } = useCurrencyStore();
+  const { currency } = useCurrencyStore();
 
   const { data: payments = [], isLoading } = useQuery<PaymentWithDetails[]>({
     queryKey: ["/api/payments"],
@@ -838,20 +840,30 @@ export default function PaymentsPage() {
 
   const formatValue = (val: number | string) => {
     const num = typeof val === "string" ? parseFloat(val) || 0 : val;
-    return formatCurrency(num, currency, exchangeRate);
+    return formatCurrency(num);
   };
 
   const clearFilters = () => {
     setStartDate("");
     setEndDate("");
     setSelectedOwnerId("all");
+    setSearchQuery("");
   };
 
-  const hasActiveFilters = startDate || endDate || selectedOwnerId !== "all";
+  const hasActiveFilters = startDate || endDate || selectedOwnerId !== "all" || searchQuery;
 
   const filteredPayments = useMemo(() => {
     return payments.filter((payment) => {
       const paymentDate = new Date(payment.paymentDate);
+
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        const tenantName = payment.tenant?.name?.toLowerCase() || "";
+        const shopNumber = payment.lease?.shop?.shopNumber?.toLowerCase() || "";
+        if (!tenantName.includes(query) && !shopNumber.includes(query)) {
+          return false;
+        }
+      }
 
       if (startDate) {
         const start = new Date(startDate);
@@ -909,6 +921,17 @@ export default function PaymentsPage() {
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="flex bg-background border rounded-md overflow-hidden max-w-sm w-full md:w-auto">
+          <div className="pl-3 flex items-center justify-center text-muted-foreground">
+            <Search className="h-4 w-4" />
+          </div>
+          <Input
+            placeholder="Search payments..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="border-0 focus-visible:ring-0"
+          />
+        </div>
         <div>
           <h1 className="text-2xl font-semibold">Payments</h1>
           <p className="text-muted-foreground">Record and track rent payments from tenants</p>
@@ -1110,6 +1133,25 @@ export default function PaymentsPage() {
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
+                        )}
+                        {!isDeleted && (
+                          <div className="inline-block">
+                            <EditPaymentDialog
+                              payment={{
+                                id: payment.id,
+                                amount: parseFloat(payment.amount),
+                                paymentDate: payment.paymentDate,
+                                rentMonths: payment.rentMonths || null,
+                                notes: payment.notes || "",
+                                receiptNumber: payment.receiptNumber || "",
+                              }}
+                              trigger={
+                                <Button variant="ghost" size="icon">
+                                  <Pencil className="h-4 w-4 text-primary" />
+                                </Button>
+                              }
+                            />
+                          </div>
                         )}
                       </TableCell>
                     </TableRow>

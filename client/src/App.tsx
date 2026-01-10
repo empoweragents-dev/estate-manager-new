@@ -30,7 +30,7 @@ interface OwnerViewContextType {
 
 const OwnerViewContext = createContext<OwnerViewContextType>({
   selectedOwnerId: null,
-  setSelectedOwnerId: () => {},
+  setSelectedOwnerId: () => { },
 });
 
 export function useOwnerView() {
@@ -61,13 +61,14 @@ import ReportsPage from "@/pages/reports";
 import OwnerTenantReportPage from "@/pages/owner-tenant-report";
 import LandingPage from "@/pages/landing";
 import UserManagementPage from "@/pages/admin/users";
+import BankStatementPage from "@/pages/bank-statement";
 
 function UserMenu() {
   const { user, isSuperAdmin } = useAuth();
 
   if (!user) return null;
 
-  const initials = user.firstName && user.lastName 
+  const initials = user.firstName && user.lastName
     ? `${user.firstName[0]}${user.lastName[0]}`.toUpperCase()
     : user.email?.[0]?.toUpperCase() || 'U';
 
@@ -122,7 +123,7 @@ function UserMenu() {
 function OwnerViewSelector() {
   const { isSuperAdmin } = useAuth();
   const { selectedOwnerId, setSelectedOwnerId } = useOwnerView();
-  
+
   const { data: owners = [] } = useQuery<Owner[]>({
     queryKey: ["/api/owners"],
     enabled: isSuperAdmin,
@@ -152,8 +153,8 @@ function OwnerViewSelector() {
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         {owners.map(owner => (
-          <DropdownMenuItem 
-            key={owner.id} 
+          <DropdownMenuItem
+            key={owner.id}
             onClick={() => setSelectedOwnerId(owner.id)}
             className={selectedOwnerId === owner.id ? "bg-accent" : ""}
           >
@@ -168,7 +169,7 @@ function OwnerViewSelector() {
 
 function ReceivePaymentButton() {
   const [isOpen, setIsOpen] = useState(false);
-  
+
   const { data: tenants = [] } = useQuery<TenantWithLeases[]>({
     queryKey: ["/api/tenants/with-leases"],
     enabled: isOpen,
@@ -176,7 +177,7 @@ function ReceivePaymentButton() {
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
-      <Button 
+      <Button
         onClick={() => setIsOpen(true)}
         className="hidden sm:flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full px-4 py-2 shadow-md hover:shadow-lg transition-all duration-200 hover:scale-105"
         size="sm"
@@ -203,23 +204,24 @@ function ReceivePaymentButton() {
 function OwnerDashboardRedirect() {
   const { user, isOwner } = useAuth();
   const [location] = useLocation();
-  
+
   if (isOwner && user?.ownerId && location === '/') {
     return <Redirect to={`/owners/${user.ownerId}`} />;
   }
-  
+
   return <Dashboard />;
 }
 
 function Router() {
   const { isSuperAdmin } = useAuth();
-  
+
   return (
     <Switch>
       <Route path="/" component={OwnerDashboardRedirect} />
       {isSuperAdmin && <Route path="/admin/users" component={UserManagementPage} />}
       {isSuperAdmin && <Route path="/owners" component={OwnersPage} />}
       <Route path="/owners/:id" component={OwnerDetailPage} />
+      <Route path="/owners/:id/bank-statement" component={BankStatementPage} />
       <Route path="/shops" component={ShopsPage} />
       <Route path="/tenants" component={TenantsPage} />
       <Route path="/tenants/:id" component={TenantDetailPage} />

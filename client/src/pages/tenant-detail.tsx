@@ -43,6 +43,8 @@ import {
   Store,
   AlertCircle,
   LogOut,
+  StickyNote,
+  Save,
 } from "lucide-react";
 import type { TenantWithDues, Lease, Payment } from "@shared/schema";
 import { formatCurrency, useCurrencyStore, getLeaseStatusColor, formatFloor } from "@/lib/currency";
@@ -83,20 +85,20 @@ const monthNames = [
 
 function getLeaseRentMonths(startDate: string | undefined) {
   if (!startDate) return [];
-  
+
   const months: { value: string; label: string }[] = [];
   const start = new Date(startDate);
   const currentDate = new Date();
-  
+
   let date = new Date(start.getFullYear(), start.getMonth(), 1);
-  
+
   while (date <= currentDate) {
     const monthValue = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
     const label = `${monthNames[date.getMonth()]} ${date.getFullYear()}`;
     months.push({ value: monthValue, label });
     date.setMonth(date.getMonth() + 1);
   }
-  
+
   return months;
 }
 
@@ -202,103 +204,103 @@ function TerminateLeaseDialog({
                 Lease Settlement & Termination
               </DialogTitle>
             </DialogHeader>
-          <div className="space-y-6">
-            <div className="bg-muted p-4 rounded-lg">
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Tenant:</span>
-                  <span className="font-medium">{settlement.tenantName}</span>
+            <div className="space-y-6">
+              <div className="bg-muted p-4 rounded-lg">
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Tenant:</span>
+                    <span className="font-medium">{settlement.tenantName}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Shop:</span>
+                    <span className="font-medium">{settlement.shopNumber} - {settlement.floor}</span>
+                  </div>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Shop:</span>
-                  <span className="font-medium">{settlement.shopNumber} - {settlement.floor}</span>
+              </div>
+
+              <div className="border rounded-lg p-4 space-y-3">
+                <h3 className="font-semibold mb-4">Settlement Calculation</h3>
+
+                <div className="space-y-2">
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Opening Balance</span>
+                    <span className="font-medium tabular-nums">{formatValue(settlement.openingBalance)}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Total Rent Invoices</span>
+                    <span className="font-medium tabular-nums">{formatValue(settlement.totalInvoices)}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Total Paid</span>
+                    <span className="font-medium text-emerald-600 dark:text-emerald-400 tabular-nums">-{formatValue(settlement.totalPaid)}</span>
+                  </div>
                 </div>
+
+                <div className="bg-amber-50 dark:bg-amber-950/20 p-3 rounded-md my-4">
+                  <div className="flex justify-between items-center">
+                    <span className="font-semibold">Outstanding Due</span>
+                    <span className={`text-lg font-bold tabular-nums ${settlement.currentDue > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                      {formatValue(settlement.currentDue)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-2 bg-blue-50 dark:bg-blue-950/20 p-3 rounded-md">
+                  <h4 className="font-semibold text-sm flex items-center gap-2">
+                    <CreditCard className="h-4 w-4" />
+                    Security Deposit Adjustment
+                  </h4>
+                  <div className="flex justify-between py-1 text-sm">
+                    <span className="text-muted-foreground">Security Deposit</span>
+                    <span className="tabular-nums">{formatValue(settlement.securityDeposit)}</span>
+                  </div>
+                  <div className="flex justify-between py-1 text-sm border-t pt-1">
+                    <span className="text-muted-foreground">Amount to Deduct</span>
+                    <span className="font-semibold text-amber-600 dark:text-amber-400 tabular-nums">-{formatValue(settlement.securityDepositUsed)}</span>
+                  </div>
+                  <div className="flex justify-between py-1 text-sm">
+                    <span className="text-muted-foreground">Remaining Deposit</span>
+                    <span className="font-medium tabular-nums">{formatValue(settlement.remainingSecurityDeposit)}</span>
+                  </div>
+                </div>
+
+                <div className="bg-green-50 dark:bg-green-950/20 p-3 rounded-md">
+                  <div className="flex justify-between items-center">
+                    <span className="font-semibold">Final Settlement Amount</span>
+                    <span className={`text-lg font-bold tabular-nums ${settlement.finalSettledAmount > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                      {formatValue(settlement.finalSettledAmount)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Settlement Notes</label>
+                  <Textarea
+                    value={terminationNotes}
+                    onChange={(e) => setTerminationNotes(e.target.value)}
+                    placeholder="Document how both parties agreed to settle the amount (e.g., security deposit adjustment, waiver of dues, payment plan, etc.)"
+                    rows={3}
+                    className="resize-none"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Record details of any agreements made between owner and tenant regarding final settlement.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4">
+                <Button variant="outline" onClick={() => setIsOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => terminateMutation.mutate()}
+                  disabled={terminateMutation.isPending}
+                >
+                  {terminateMutation.isPending ? "Terminating..." : "Confirm Termination"}
+                </Button>
               </div>
             </div>
-
-            <div className="border rounded-lg p-4 space-y-3">
-              <h3 className="font-semibold mb-4">Settlement Calculation</h3>
-              
-              <div className="space-y-2">
-                <div className="flex justify-between py-2 border-b">
-                  <span className="text-muted-foreground">Opening Balance</span>
-                  <span className="font-medium tabular-nums">{formatValue(settlement.openingBalance)}</span>
-                </div>
-                <div className="flex justify-between py-2 border-b">
-                  <span className="text-muted-foreground">Total Rent Invoices</span>
-                  <span className="font-medium tabular-nums">{formatValue(settlement.totalInvoices)}</span>
-                </div>
-                <div className="flex justify-between py-2 border-b">
-                  <span className="text-muted-foreground">Total Paid</span>
-                  <span className="font-medium text-emerald-600 dark:text-emerald-400 tabular-nums">-{formatValue(settlement.totalPaid)}</span>
-                </div>
-              </div>
-
-              <div className="bg-amber-50 dark:bg-amber-950/20 p-3 rounded-md my-4">
-                <div className="flex justify-between items-center">
-                  <span className="font-semibold">Outstanding Due</span>
-                  <span className={`text-lg font-bold tabular-nums ${settlement.currentDue > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                    {formatValue(settlement.currentDue)}
-                  </span>
-                </div>
-              </div>
-
-              <div className="space-y-2 bg-blue-50 dark:bg-blue-950/20 p-3 rounded-md">
-                <h4 className="font-semibold text-sm flex items-center gap-2">
-                  <CreditCard className="h-4 w-4" />
-                  Security Deposit Adjustment
-                </h4>
-                <div className="flex justify-between py-1 text-sm">
-                  <span className="text-muted-foreground">Security Deposit</span>
-                  <span className="tabular-nums">{formatValue(settlement.securityDeposit)}</span>
-                </div>
-                <div className="flex justify-between py-1 text-sm border-t pt-1">
-                  <span className="text-muted-foreground">Amount to Deduct</span>
-                  <span className="font-semibold text-amber-600 dark:text-amber-400 tabular-nums">-{formatValue(settlement.securityDepositUsed)}</span>
-                </div>
-                <div className="flex justify-between py-1 text-sm">
-                  <span className="text-muted-foreground">Remaining Deposit</span>
-                  <span className="font-medium tabular-nums">{formatValue(settlement.remainingSecurityDeposit)}</span>
-                </div>
-              </div>
-
-              <div className="bg-green-50 dark:bg-green-950/20 p-3 rounded-md">
-                <div className="flex justify-between items-center">
-                  <span className="font-semibold">Final Settlement Amount</span>
-                  <span className={`text-lg font-bold tabular-nums ${settlement.finalSettledAmount > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                    {formatValue(settlement.finalSettledAmount)}
-                  </span>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Settlement Notes</label>
-                <Textarea
-                  value={terminationNotes}
-                  onChange={(e) => setTerminationNotes(e.target.value)}
-                  placeholder="Document how both parties agreed to settle the amount (e.g., security deposit adjustment, waiver of dues, payment plan, etc.)"
-                  rows={3}
-                  className="resize-none"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Record details of any agreements made between owner and tenant regarding final settlement.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-4">
-              <Button variant="outline" onClick={() => setIsOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={() => terminateMutation.mutate()}
-                disabled={terminateMutation.isPending}
-              >
-                {terminateMutation.isPending ? "Terminating..." : "Confirm Termination"}
-              </Button>
-            </div>
-          </div>
           </>
         )}
       </DialogContent>
@@ -321,13 +323,13 @@ function ReceivePaymentDialog({
   const [selectedRentMonths, setSelectedRentMonths] = useState<string[]>([]);
 
   const activeLeases = leases.filter((l) => l.status === 'active' || l.status === 'expiring_soon');
-  
+
   const defaultLeaseId = activeLeases.length === 1 ? activeLeases[0].id.toString() : "";
   const [currentLeaseId, setCurrentLeaseId] = useState(defaultLeaseId);
-  
+
   const selectedLease = activeLeases.find(l => l.id.toString() === currentLeaseId);
   const availableRentMonths = getLeaseRentMonths(selectedLease?.startDate);
-  
+
   const monthlyRent = selectedLease ? parseFloat(selectedLease.monthlyRent) : 0;
   const currentDue = tenant.currentDue || 0;
   const selectedMonthsCount = selectedRentMonths.length;
@@ -349,7 +351,7 @@ function ReceivePaymentDialog({
   const updateAmountToSuggested = () => {
     form.setValue("amount", suggestedAmount.toString());
   };
-  
+
   const toggleMonth = (monthValue: string) => {
     setSelectedRentMonths(prev => {
       const newMonths = prev.includes(monthValue)
@@ -359,13 +361,13 @@ function ReceivePaymentDialog({
       return newMonths;
     });
   };
-  
+
   const selectAllMonths = () => {
     const allMonths = availableRentMonths.map(m => m.value);
     setSelectedRentMonths(allMonths);
     form.setValue("rentMonths", allMonths);
   };
-  
+
   const clearAllMonths = () => {
     setSelectedRentMonths([]);
     form.setValue("rentMonths", []);
@@ -467,20 +469,20 @@ function ReceivePaymentDialog({
               <div className="flex items-center justify-between">
                 <label className="text-sm font-medium">Select Rent Month(s) *</label>
                 <div className="flex gap-2">
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    size="sm" 
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
                     className="h-7 text-xs"
                     onClick={selectAllMonths}
                     disabled={!selectedLease}
                   >
                     Select All
                   </Button>
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    size="sm" 
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
                     className="h-7 text-xs"
                     onClick={clearAllMonths}
                   >
@@ -488,7 +490,7 @@ function ReceivePaymentDialog({
                   </Button>
                 </div>
               </div>
-              
+
               <div className="border rounded-lg max-h-[160px] overflow-y-auto">
                 {!selectedLease ? (
                   <div className="p-4 text-center text-muted-foreground text-sm">
@@ -507,15 +509,13 @@ function ReceivePaymentDialog({
                           key={month.value}
                           type="button"
                           onClick={() => toggleMonth(month.value)}
-                          className={`flex items-center gap-2 p-2 rounded-lg border transition-all text-left text-sm ${
-                            isSelected 
-                              ? 'border-primary bg-primary/10 text-primary' 
-                              : 'border-transparent hover:border-muted-foreground/20 hover:bg-muted/50'
-                          }`}
+                          className={`flex items-center gap-2 p-2 rounded-lg border transition-all text-left text-sm ${isSelected
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-transparent hover:border-muted-foreground/20 hover:bg-muted/50'
+                            }`}
                         >
-                          <span className={`h-4 w-4 rounded-full border flex items-center justify-center flex-shrink-0 ${
-                            isSelected ? 'bg-primary border-primary' : 'border-muted-foreground/30'
-                          }`}>
+                          <span className={`h-4 w-4 rounded-full border flex items-center justify-center flex-shrink-0 ${isSelected ? 'bg-primary border-primary' : 'border-muted-foreground/30'
+                            }`}>
                             {isSelected && <span className="text-white text-xs">✓</span>}
                           </span>
                           <span className="font-medium truncate">{month.label}</span>
@@ -525,7 +525,7 @@ function ReceivePaymentDialog({
                   </div>
                 )}
               </div>
-              
+
               {selectedMonthsCount > 0 && (
                 <div className="text-sm text-muted-foreground text-center">
                   {selectedMonthsCount} month(s) selected
@@ -553,9 +553,9 @@ function ReceivePaymentDialog({
                     <span className="font-bold text-lg tabular-nums text-primary">
                       {formatValue(suggestedAmount)}
                     </span>
-                    <Button 
-                      type="button" 
-                      variant="secondary" 
+                    <Button
+                      type="button"
+                      variant="secondary"
                       size="sm"
                       onClick={updateAmountToSuggested}
                       className="text-xs"
@@ -642,6 +642,68 @@ function ReceivePaymentDialog({
   );
 }
 
+// Tenant Notes Card Component
+function TenantNotesCard({ tenantId, initialNotes }: { tenantId: number; initialNotes: string }) {
+  const { toast } = useToast();
+  const [notes, setNotes] = useState(initialNotes);
+  const [hasChanges, setHasChanges] = useState(false);
+
+  useEffect(() => {
+    setNotes(initialNotes);
+    setHasChanges(false);
+  }, [initialNotes]);
+
+  const handleNotesChange = (value: string) => {
+    setNotes(value);
+    setHasChanges(value !== initialNotes);
+  };
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("PATCH", `/api/tenants/${tenantId}`, { notes });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tenants", tenantId.toString()] });
+      setHasChanges(false);
+      toast({ title: "Notes saved successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error saving notes", description: error.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <StickyNote className="h-4 w-4" />
+          Notes
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Textarea
+          value={notes}
+          onChange={(e) => handleNotesChange(e.target.value)}
+          placeholder="Add notes about this tenant..."
+          rows={4}
+          className="resize-none text-sm"
+        />
+        {hasChanges && (
+          <Button
+            size="sm"
+            onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending}
+            className="w-full"
+          >
+            <Save className="h-4 w-4 mr-2" />
+            {saveMutation.isPending ? "Saving..." : "Save Notes"}
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function TenantDetailPage() {
   const [, params] = useRoute("/tenants/:id");
   const tenantId = params?.id;
@@ -713,7 +775,7 @@ export default function TenantDetailPage() {
         <ReceivePaymentDialog
           tenant={tenant}
           leases={tenant.leases}
-          onSuccess={() => {}}
+          onSuccess={() => { }}
         />
       </div>
 
@@ -791,23 +853,23 @@ export default function TenantDetailPage() {
                 if (yearA !== yearB) return yearA - yearB;
                 return monthA - monthB;
               });
-            
+
             if (sortedMonths.length === 0) return null;
-            
+
             const openingBalance = parseFloat(tenant.openingDueBalance || '0');
             let remainingPayment = tenant.totalPaid;
-            
+
             remainingPayment -= openingBalance;
             if (remainingPayment < 0) remainingPayment = 0;
-            
+
             const monthsWithStatus = sortedMonths.map(([monthKey, amount]) => {
               const [year, month] = monthKey.split('-').map(Number);
               const monthAmount = amount as number;
               const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'short', year: 'numeric' });
-              
+
               let status: 'paid' | 'partial' | 'unpaid' = 'unpaid';
               let paidAmount = 0;
-              
+
               if (remainingPayment >= monthAmount) {
                 status = 'paid';
                 paidAmount = monthAmount;
@@ -817,10 +879,10 @@ export default function TenantDetailPage() {
                 paidAmount = remainingPayment;
                 remainingPayment = 0;
               }
-              
+
               return { monthKey, monthName, amount: monthAmount, status, paidAmount, dueAmount: monthAmount - paidAmount };
             });
-            
+
             return (
               <Card>
                 <CardHeader>
@@ -894,7 +956,7 @@ export default function TenantDetailPage() {
                         </div>
                         {(lease.status === 'active' || lease.status === 'expiring_soon' || lease.status === 'expired') && (
                           <div className="mt-3 pt-3 border-t flex justify-end" onClick={(e) => e.preventDefault()}>
-                            <TerminateLeaseDialog lease={lease} tenant={tenant} onSuccess={() => {}} />
+                            <TerminateLeaseDialog lease={lease} tenant={tenant} onSuccess={() => { }} />
                           </div>
                         )}
                       </div>
@@ -906,6 +968,9 @@ export default function TenantDetailPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Notes Section */}
+          <TenantNotesCard tenantId={tenant.id} initialNotes={tenant.notes || ''} />
         </div>
 
         <div className="lg:col-span-2">

@@ -100,6 +100,7 @@ export const tenants = pgTable("tenants", {
   nidPassport: text("nid_passport"),
   permanentAddress: text("permanent_address"),
   photoUrl: text("photo_url"),
+  notes: text("notes"), // Admin notes about tenant
   openingDueBalance: decimal("opening_due_balance", { precision: 12, scale: 2 }).notNull().default('0'),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   isDeleted: boolean("is_deleted").notNull().default(false),
@@ -345,8 +346,8 @@ export type DeletionRecordType = 'payment' | 'bank_deposit' | 'tenant' | 'shop' 
 // Extended types for frontend use with relations
 export type ShopWithOwner = Shop & { owner?: Owner };
 export type LeaseWithDetails = Lease & { tenant: Tenant; shop: ShopWithOwner };
-export type TenantWithDues = Tenant & { 
-  totalDue: number; 
+export type TenantWithDues = Tenant & {
+  totalDue: number;
   totalPaid: number;
   currentDue: number;
 };
