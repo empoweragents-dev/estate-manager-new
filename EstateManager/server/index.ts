@@ -67,8 +67,8 @@ async function generateMonthlyInvoices() {
     const currentYear = today.getFullYear();
     const dayOfMonth = today.getDate();
 
-    // Only generate on the 1st of the month
-    if (dayOfMonth !== 1) return;
+    // Check for missing invoices regardless of the day (catch-up logic)
+    // if (dayOfMonth !== 1) return;
 
     const { storage } = await import("./storage");
     const allLeases = await storage.getLeases();
