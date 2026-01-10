@@ -146,7 +146,7 @@ export function PaymentForm({
   const searchableItems: SearchableItem[] = useMemo(() => {
     const items: SearchableItem[] = [];
     tenants.forEach(tenant => {
-      const activeLeases = tenant.leases?.filter(l => l.status === 'active' || l.status === 'expiring_soon') ?? [];
+      const activeLeases = tenant.leases?.filter(l => l.status === 'active' || l.status === 'expiring_soon' || l.status === 'expired') ?? [];
       activeLeases.forEach(lease => {
         items.push({
           id: `${tenant.id}-${lease.id}`,
@@ -214,11 +214,11 @@ export function PaymentForm({
   const visibleMonths = useMemo(() => {
     if (!paymentFormData?.months) return [];
     const months = paymentFormData.months;
-    
+
     if (showFutureMonths) {
       return months.filter(m => !m.isPaid);
     }
-    
+
     return months.filter(m => {
       if (m.isPaid) return false;
       if (m.isFuture) return false;
@@ -244,7 +244,7 @@ export function PaymentForm({
   const openingBalanceRemaining = paymentFormData?.openingBalanceRemaining || 0;
   const arrearsAmount = includeArrears ? openingBalanceRemaining : 0;
   const suggestedAmount = selectedMonthsRent + arrearsAmount;
-  
+
   // Check if any selected months have partial payments
   const hasPartialPayments = useMemo(() => {
     if (!paymentFormData?.months) return false;
@@ -268,11 +268,11 @@ export function PaymentForm({
       includeArrears: false,
     },
   });
-  
+
   const updateAmountToSuggested = () => {
     form.setValue("amount", suggestedAmount.toString());
   };
-  
+
   const toggleMonth = (monthValue: string) => {
     setSelectedRentMonths(prev => {
       const newMonths = prev.includes(monthValue)
@@ -282,13 +282,13 @@ export function PaymentForm({
       return newMonths;
     });
   };
-  
+
   const selectAllVisibleMonths = () => {
     const allMonths = visibleMonths.map(m => `${m.year}-${String(m.month).padStart(2, '0')}`);
     setSelectedRentMonths(allMonths);
     form.setValue("rentMonths", allMonths);
   };
-  
+
   const clearAllMonths = () => {
     setSelectedRentMonths([]);
     form.setValue("rentMonths", []);
@@ -370,7 +370,7 @@ export function PaymentForm({
               <h3 className="font-semibold text-lg">Find Tenant or Shop</h3>
               <p className="text-sm text-muted-foreground">Search by tenant name, phone, or shop number</p>
             </div>
-            
+
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -507,19 +507,19 @@ export function PaymentForm({
                   <div className="flex items-center justify-between">
                     <label className="text-sm font-medium">Select Rent Month(s)</label>
                     <div className="flex gap-2">
-                      <Button 
-                        type="button" 
-                        variant="outline" 
-                        size="sm" 
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
                         className="h-7 text-xs"
                         onClick={selectAllVisibleMonths}
                       >
                         Select All
                       </Button>
-                      <Button 
-                        type="button" 
-                        variant="outline" 
-                        size="sm" 
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
                         className="h-7 text-xs"
                         onClick={clearAllMonths}
                       >
@@ -527,7 +527,7 @@ export function PaymentForm({
                       </Button>
                     </div>
                   </div>
-                  
+
                   <div className="border rounded-lg max-h-[200px] overflow-y-auto">
                     {visibleMonths.length === 0 ? (
                       <div className="p-4 text-center text-muted-foreground">
@@ -543,11 +543,10 @@ export function PaymentForm({
                               key={monthValue}
                               type="button"
                               onClick={() => toggleMonth(monthValue)}
-                              className={`flex items-center justify-between gap-2 p-2 rounded-lg border transition-all text-left ${
-                                isSelected 
-                                  ? 'border-primary bg-primary/10 text-primary' 
+                              className={`flex items-center justify-between gap-2 p-2 rounded-lg border transition-all text-left ${isSelected
+                                  ? 'border-primary bg-primary/10 text-primary'
                                   : 'border-transparent hover:border-muted-foreground/20 hover:bg-muted/50'
-                              }`}
+                                }`}
                             >
                               <div className="flex items-center gap-2">
                                 {isSelected ? (
@@ -607,7 +606,7 @@ export function PaymentForm({
                       )}
                     </Button>
                   )}
-                  
+
                   {selectedRentMonths.length > 0 && (
                     <div className="text-sm text-muted-foreground text-center">
                       {selectedRentMonths.length} month(s) selected
@@ -623,7 +622,7 @@ export function PaymentForm({
                         {selectedRentMonths.length > 0 && (
                           <div className="flex justify-between text-sm">
                             <span>
-                              {hasPartialPayments 
+                              {hasPartialPayments
                                 ? `Remaining balance for ${selectedRentMonths.length} month(s)`
                                 : `Rent for ${selectedRentMonths.length} month(s)`
                               }
@@ -644,9 +643,9 @@ export function PaymentForm({
                             <span className="font-bold text-xl tabular-nums text-primary">
                               {formatValue(suggestedAmount)}
                             </span>
-                            <Button 
-                              type="button" 
-                              variant="secondary" 
+                            <Button
+                              type="button"
+                              variant="secondary"
                               size="sm"
                               onClick={updateAmountToSuggested}
                               className="text-xs"
@@ -728,9 +727,9 @@ export function PaymentForm({
               />
             </div>
 
-            <Button 
-              type="submit" 
-              disabled={mutation.isPending || (selectedRentMonths.length === 0 && !includeArrears)} 
+            <Button
+              type="submit"
+              disabled={mutation.isPending || (selectedRentMonths.length === 0 && !includeArrears)}
               className="w-full h-12 text-base"
             >
               <CreditCard className="h-5 w-5 mr-2" />
@@ -779,31 +778,31 @@ export default function PaymentsPage() {
         // Match both "/api/owners" and "/api/owners/..." style keys
         return firstKey === basePath || firstKey.startsWith(basePath + '/');
       };
-      
+
       // Force immediate refetch with refetchType: 'all' since staleTime is Infinity
       // Invalidate all payment-related queries
       queryClient.invalidateQueries({ queryKey: ["/api/payments"], refetchType: 'all' });
       queryClient.invalidateQueries({ queryKey: ["/api/rent-invoices"], refetchType: 'all' });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"], refetchType: 'all' });
-      
+
       // Invalidate all owner-related queries (list, detail, top-outstandings, etc.)
       queryClient.invalidateQueries({
         predicate: (query) => queryKeyMatchesPath(query.queryKey, '/api/owners'),
         refetchType: 'all'
       });
-      
+
       // Invalidate all tenant-related queries (list, detail, ledger, etc.)
       queryClient.invalidateQueries({
         predicate: (query) => queryKeyMatchesPath(query.queryKey, '/api/tenants'),
         refetchType: 'all'
       });
-      
+
       // Invalidate all lease-related queries (list, detail, breakdown, etc.)
       queryClient.invalidateQueries({
         predicate: (query) => queryKeyMatchesPath(query.queryKey, '/api/leases'),
         refetchType: 'all'
       });
-      
+
       toast({ title: "Payment deleted successfully" });
       setDeleteDialogOpen(false);
       setPaymentToDelete(null);
@@ -823,8 +822,8 @@ export default function PaymentsPage() {
 
   const handleConfirmDelete = () => {
     if (paymentToDelete && deleteReason.trim()) {
-      deleteMutation.mutate({ 
-        id: paymentToDelete.id, 
+      deleteMutation.mutate({
+        id: paymentToDelete.id,
         reason: deleteReason.trim(),
         deletionDate: deletionDate,
         tenantId: paymentToDelete.tenantId,
@@ -853,32 +852,32 @@ export default function PaymentsPage() {
   const filteredPayments = useMemo(() => {
     return payments.filter((payment) => {
       const paymentDate = new Date(payment.paymentDate);
-      
+
       if (startDate) {
         const start = new Date(startDate);
         start.setHours(0, 0, 0, 0);
         if (paymentDate < start) return false;
       }
-      
+
       if (endDate) {
         const end = new Date(endDate);
         end.setHours(23, 59, 59, 999);
         if (paymentDate > end) return false;
       }
-      
+
       if (selectedOwnerId !== "all") {
         const shop = payment.lease?.shop;
         if (!shop) return false;
-        
+
         if (shop.ownershipType === "common") {
           return true;
         }
-        
+
         if (shop.ownerId !== parseInt(selectedOwnerId)) {
           return false;
         }
       }
-      
+
       return true;
     });
   }, [payments, startDate, endDate, selectedOwnerId]);
@@ -943,7 +942,7 @@ export default function PaymentsPage() {
               <Filter className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm font-medium">Filters:</span>
             </div>
-            
+
             <div className="flex items-center gap-2">
               <label className="text-sm text-muted-foreground whitespace-nowrap">From:</label>
               <Input
@@ -953,7 +952,7 @@ export default function PaymentsPage() {
                 className="w-[140px] h-9"
               />
             </div>
-            
+
             <div className="flex items-center gap-2">
               <label className="text-sm text-muted-foreground whitespace-nowrap">To:</label>
               <Input
@@ -963,7 +962,7 @@ export default function PaymentsPage() {
                 className="w-[140px] h-9"
               />
             </div>
-            
+
             <div className="flex items-center gap-2">
               <label className="text-sm text-muted-foreground whitespace-nowrap">Owner:</label>
               <Select value={selectedOwnerId} onValueChange={setSelectedOwnerId}>
@@ -980,7 +979,7 @@ export default function PaymentsPage() {
                 </SelectContent>
               </Select>
             </div>
-            
+
             {hasActiveFilters && (
               <Button variant="ghost" size="sm" onClick={clearFilters} className="h-9 px-2">
                 <X className="h-4 w-4 mr-1" />
@@ -1032,13 +1031,13 @@ export default function PaymentsPage() {
               <TableBody>
                 {filteredPayments.map((payment) => {
                   const isDeleted = payment.isDeleted;
-                  const rowClasses = isDeleted 
-                    ? "opacity-60 bg-muted/30" 
+                  const rowClasses = isDeleted
+                    ? "opacity-60 bg-muted/30"
                     : "";
-                  const textClasses = isDeleted 
-                    ? "line-through text-muted-foreground" 
+                  const textClasses = isDeleted
+                    ? "line-through text-muted-foreground"
                     : "";
-                  
+
                   return (
                     <TableRow key={payment.id} data-testid={`row-payment-${payment.id}`} className={rowClasses}>
                       <TableCell>
@@ -1088,8 +1087,8 @@ export default function PaymentsPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Badge className={isDeleted 
-                          ? "bg-gray-100 text-gray-500 dark:bg-gray-800/30 dark:text-gray-500 tabular-nums line-through" 
+                        <Badge className={isDeleted
+                          ? "bg-gray-100 text-gray-500 dark:bg-gray-800/30 dark:text-gray-500 tabular-nums line-through"
                           : "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400 tabular-nums"
                         }>
                           {isDeleted ? '' : '+'}{formatValue(payment.amount)}
