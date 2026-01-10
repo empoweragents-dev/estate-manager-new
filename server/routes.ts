@@ -1601,7 +1601,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Cannot edit a terminated lease" });
       }
 
-      const { startDate, endDate, monthlyRent, securityDeposit, notes } = req.body;
+      const { startDate, endDate, monthlyRent, securityDeposit, notes, openingDueBalance } = req.body;
 
       const updateData: any = {};
       if (startDate !== undefined) updateData.startDate = startDate;
@@ -1609,6 +1609,7 @@ export async function registerRoutes(
       if (monthlyRent !== undefined) updateData.monthlyRent = monthlyRent;
       if (securityDeposit !== undefined) updateData.securityDeposit = securityDeposit;
       if (notes !== undefined) updateData.notes = notes;
+      if (openingDueBalance !== undefined) updateData.openingDueBalance = openingDueBalance;
 
       const updated = await storage.updateLease(leaseId, updateData);
 
@@ -3972,7 +3973,7 @@ export async function registerRoutes(
       type BankStatementTransaction = {
         id: number;
         date: string;
-        type: 'rent_collection' | 'bank_deposit' | 'expense';
+        type: 'rent_collection' | 'bank_deposit' | 'expense' | 'additional_payment';
         description: string;
         amount: number;
         tenantName?: string;
@@ -4022,6 +4023,24 @@ export async function registerRoutes(
         });
       }
 
+      // Add additional payments (advance adjustments, service charges, etc.)
+      const additionalPayments = await storage.getAdditionalPaymentsByOwner(ownerId);
+      const filteredAdditionalPayments = additionalPayments.filter(p => filterByDate(p.paymentDate));
+
+      for (const addPayment of filteredAdditionalPayments) {
+        const tenant = allTenants.find(t => t.id === addPayment.tenantId);
+        const typeLabel = addPayment.paymentType === 'advance_adjustment' ? 'Advance Adjustment' :
+          addPayment.paymentType === 'service_charge' ? 'Service Charge' : 'Other Payment';
+        transactions.push({
+          id: addPayment.id + 400000, // Offset to avoid ID collision
+          date: addPayment.paymentDate,
+          type: 'additional_payment',
+          description: `${typeLabel}: ${addPayment.description}${tenant ? ` (${tenant.name})` : ''}`,
+          amount: parseFloat(addPayment.amount),
+          tenantName: tenant?.name || 'Unknown',
+        });
+      }
+
       // Sort by date descending
       transactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -4030,9 +4049,10 @@ export async function registerRoutes(
         totalRentCollections: transactions.filter(t => t.type === 'rent_collection').reduce((sum, t) => sum + t.amount, 0),
         totalBankDeposits: transactions.filter(t => t.type === 'bank_deposit').reduce((sum, t) => sum + t.amount, 0),
         totalExpenses: transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0),
+        totalAdditionalPayments: transactions.filter(t => t.type === 'additional_payment').reduce((sum, t) => sum + t.amount, 0),
         netBalance: 0,
       };
-      totals.netBalance = totals.totalRentCollections - totals.totalBankDeposits - totals.totalExpenses;
+      totals.netBalance = totals.totalRentCollections + totals.totalAdditionalPayments - totals.totalBankDeposits - totals.totalExpenses;
 
       res.json({
         data: transactions,
@@ -4327,6 +4347,65 @@ export async function registerRoutes(
         message: `FIFO status recalculated for ${recalculatedCount} active leases`,
         recalculatedCount
       });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ===== ADDITIONAL PAYMENTS (Financial Statement Only) =====
+  // Get additional payments by tenant
+  app.get("/api/tenants/:id/additional-payments", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const tenantId = parseInt(req.params.id);
+      const payments = await storage.getAdditionalPaymentsByTenant(tenantId);
+      res.json(payments);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get additional payments by owner (for Financial Statement)
+  app.get("/api/owners/:id/additional-payments", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const ownerId = parseInt(req.params.id);
+      const payments = await storage.getAdditionalPaymentsByOwner(ownerId);
+      res.json(payments);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Create additional payment
+  app.post("/api/additional-payments", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { tenantId, ownerId, paymentType, description, amount, paymentDate, notes } = req.body;
+
+      if (!tenantId || !ownerId || !paymentType || !description || !amount || !paymentDate) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      const payment = await storage.createAdditionalPayment({
+        tenantId,
+        ownerId,
+        paymentType,
+        description,
+        amount: amount.toString(),
+        paymentDate,
+        notes: notes || ''
+      });
+
+      res.status(201).json(payment);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Delete additional payment
+  app.delete("/api/additional-payments/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const paymentId = parseInt(req.params.id);
+      await storage.deleteAdditionalPayment(paymentId);
+      res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

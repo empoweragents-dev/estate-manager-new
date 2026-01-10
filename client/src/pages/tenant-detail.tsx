@@ -704,6 +704,204 @@ function TenantNotesCard({ tenantId, initialNotes }: { tenantId: number; initial
   );
 }
 
+// Additional Payments Card Component (Financial Statement Only)
+interface AdditionalPayment {
+  id: number;
+  tenantId: number;
+  ownerId: number;
+  paymentType: 'advance_adjustment' | 'service_charge' | 'other';
+  description: string;
+  amount: string;
+  paymentDate: string;
+  notes?: string;
+  createdAt: string;
+}
+
+function AdditionalPaymentsCard({ tenantId, ownerId }: { tenantId: number; ownerId: number }) {
+  const { toast } = useToast();
+  const [isOpen, setIsOpen] = useState(false);
+  const [paymentType, setPaymentType] = useState<'advance_adjustment' | 'service_charge' | 'other'>('advance_adjustment');
+  const [description, setDescription] = useState('');
+  const [amount, setAmount] = useState('');
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [notes, setNotes] = useState('');
+
+  const { data: payments, isLoading } = useQuery<AdditionalPayment[]>({
+    queryKey: ["/api/tenants", tenantId, "additional-payments"],
+    queryFn: async () => {
+      const res = await fetch(`/api/tenants/${tenantId}/additional-payments`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch');
+      return res.json();
+    },
+    enabled: !!tenantId,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", "/api/additional-payments", {
+        tenantId,
+        ownerId,
+        paymentType,
+        description,
+        amount,
+        paymentDate,
+        notes
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tenants", tenantId, "additional-payments"] });
+      toast({ title: "Payment added successfully" });
+      setIsOpen(false);
+      setDescription('');
+      setAmount('');
+      setPaymentDate(new Date().toISOString().split('T')[0]);
+      setNotes('');
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return apiRequest("DELETE", `/api/additional-payments/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tenants", tenantId, "additional-payments"] });
+      toast({ title: "Payment deleted" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const formatValue = (val: string | number) => formatCurrency(parseFloat(val.toString()) || 0);
+
+  const getTypeLabel = (type: string) => {
+    switch (type) {
+      case 'advance_adjustment': return 'Advance Adjustment';
+      case 'service_charge': return 'Service Charge';
+      default: return 'Other';
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center justify-between gap-2">
+          <span className="flex items-center gap-2">
+            <Plus className="h-4 w-4" />
+            Additional Payments
+          </span>
+          <Dialog open={isOpen} onOpenChange={setIsOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm" variant="outline" className="h-7 text-xs">
+                <Plus className="h-3 w-3 mr-1" /> Add
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Add Additional Payment</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 pt-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Payment Type *</label>
+                  <select
+                    value={paymentType}
+                    onChange={(e) => setPaymentType(e.target.value as any)}
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+                  >
+                    <option value="advance_adjustment">Advance Adjustment</option>
+                    <option value="service_charge">Service Charge</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Description *</label>
+                  <Input
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="e.g., Advance payment for shop maintenance"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Amount *</label>
+                  <Input
+                    type="number"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder="Enter amount"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Date *</label>
+                  <Input
+                    type="date"
+                    value={paymentDate}
+                    onChange={(e) => setPaymentDate(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Notes</label>
+                  <Textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Optional notes"
+                    rows={2}
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
+                  <Button
+                    onClick={() => createMutation.mutate()}
+                    disabled={!description || !amount || createMutation.isPending}
+                  >
+                    {createMutation.isPending ? "Adding..." : "Add Payment"}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-xs text-muted-foreground mb-3">
+          These payments appear only in Financial Statement reports.
+        </p>
+        {isLoading ? (
+          <Skeleton className="h-16" />
+        ) : payments && payments.length > 0 ? (
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {payments.map((p) => (
+              <div key={p.id} className="flex items-center justify-between p-2 rounded bg-muted/30 text-sm">
+                <div>
+                  <div className="font-medium">{p.description}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {getTypeLabel(p.paymentType)} • {new Date(p.paymentDate).toLocaleDateString()}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-green-600">{formatValue(p.amount)}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
+                    onClick={() => deleteMutation.mutate(p.id)}
+                  >
+                    ×
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground text-center py-4">No additional payments</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function TenantDetailPage() {
   const [, params] = useRoute("/tenants/:id");
   const tenantId = params?.id;
@@ -971,6 +1169,14 @@ export default function TenantDetailPage() {
 
           {/* Notes Section */}
           <TenantNotesCard tenantId={tenant.id} initialNotes={tenant.notes || ''} />
+
+          {/* Additional Payments Section (Financial Statement Only) */}
+          {tenant.leases && tenant.leases.length > 0 && tenant.leases[0].shop && (
+            <AdditionalPaymentsCard
+              tenantId={tenant.id}
+              ownerId={(tenant.leases[0] as any).shop?.ownerId || 1}
+            />
+          )}
         </div>
 
         <div className="lg:col-span-2">

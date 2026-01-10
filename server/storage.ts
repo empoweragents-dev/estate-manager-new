@@ -99,7 +99,30 @@ export interface IStorage {
   // Deletion Logs
   getDeletionLogs(): Promise<DeletionLog[]>;
   createDeletionLog(log: InsertDeletionLog): Promise<DeletionLog>;
+
+  // Additional Payments (Financial Statement Only)
+  getAdditionalPaymentsByTenant(tenantId: number): Promise<AdditionalPayment[]>;
+  getAdditionalPaymentsByOwner(ownerId: number): Promise<AdditionalPayment[]>;
+  createAdditionalPayment(payment: InsertAdditionalPayment): Promise<AdditionalPayment>;
+  deleteAdditionalPayment(id: number): Promise<void>;
 }
+
+// Additional Payment types (not tied to lease calculations)
+export interface AdditionalPayment {
+  id: number;
+  tenantId: number;
+  ownerId: number;
+  paymentType: 'advance_adjustment' | 'service_charge' | 'other';
+  description: string;
+  amount: string;
+  paymentDate: string;
+  notes?: string;
+  createdAt: string;
+  isDeleted?: boolean;
+}
+
+export type InsertAdditionalPayment = Omit<AdditionalPayment, 'id' | 'createdAt'>;
+
 
 // Initialize Firebase
 const firebaseConfig = {
@@ -641,6 +664,40 @@ export class FirebaseStorage implements IStorage {
     };
     await setDoc(doc(db, 'deletionLogs', String(id)), JSON.parse(JSON.stringify(newLog)));
     return newLog;
+  }
+
+  // --- ADDITIONAL PAYMENTS (Financial Statement Only) ---
+  async getAdditionalPaymentsByTenant(tenantId: number): Promise<AdditionalPayment[]> {
+    const snapshot = await getDocs(collection(db, 'additionalPayments'));
+    return snapshot.docs
+      .map(d => d.data() as AdditionalPayment)
+      .filter(p => p.tenantId === tenantId && !p.isDeleted);
+  }
+
+  async getAdditionalPaymentsByOwner(ownerId: number): Promise<AdditionalPayment[]> {
+    const snapshot = await getDocs(collection(db, 'additionalPayments'));
+    return snapshot.docs
+      .map(d => d.data() as AdditionalPayment)
+      .filter(p => p.ownerId === ownerId && !p.isDeleted);
+  }
+
+  async createAdditionalPayment(payment: InsertAdditionalPayment): Promise<AdditionalPayment> {
+    const id = await this.getNextId('additionalPayments');
+    const newPayment: AdditionalPayment = {
+      ...payment,
+      id,
+      createdAt: new Date().toISOString()
+    };
+    await setDoc(doc(db, 'additionalPayments', String(id)), JSON.parse(JSON.stringify(newPayment)));
+    return newPayment;
+  }
+
+  async deleteAdditionalPayment(id: number): Promise<void> {
+    const snapshot = await getDocs(collection(db, 'additionalPayments'));
+    const docToDelete = snapshot.docs.find(d => d.data().id === id);
+    if (docToDelete) {
+      await updateDoc(doc(db, 'additionalPayments', docToDelete.id), { isDeleted: true });
+    }
   }
 }
 

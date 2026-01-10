@@ -98,16 +98,16 @@ interface SettlementDetails {
   startDate: string;
   endDate: string;
   monthlyRent: string;
-  
+
   thisLeaseOpeningBalance: number;
   thisLeaseTotalInvoices: number;
   thisLeaseTotalPaid: number;
   thisLeaseTotalDue: number;
   thisLeaseCurrentDue: number;
   securityDeposit: number;
-  
+
   globalLedgerBalance: number;
-  
+
   openingBalance: number;
   totalInvoices: number;
   totalPaid: number;
@@ -302,14 +302,14 @@ function TerminationDialog({
                   <div className="flex justify-between text-sm">
                     <span>Net Balance from Other Leases:</span>
                     <span className={settlement.globalLedgerBalance > 0 ? "text-red-600 font-semibold" : settlement.globalLedgerBalance < 0 ? "text-green-600 font-semibold" : ""}>
-                      {settlement.globalLedgerBalance > 0 
+                      {settlement.globalLedgerBalance > 0
                         ? `${formatValue(settlement.globalLedgerBalance)} (Due)`
                         : settlement.globalLedgerBalance < 0
                           ? `${formatValue(Math.abs(settlement.globalLedgerBalance))} (Credit)`
                           : formatValue(0)}
                     </span>
                   </div>
-                  
+
                   {hasGlobalCredit && (
                     <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg space-y-3">
                       <div className="flex items-center gap-3">
@@ -327,7 +327,7 @@ function TerminationDialog({
                           Adjust from Global Ledger?
                         </Label>
                       </div>
-                      
+
                       {useGlobalLedger && (
                         <div className="space-y-2 pl-7">
                           <Label className="text-sm">Amount to transfer from Global Credit:</Label>
@@ -352,7 +352,7 @@ function TerminationDialog({
                       )}
                     </div>
                   )}
-                  
+
                   {hasGlobalDue && (
                     <p className="text-sm text-amber-600 dark:text-amber-400">
                       Note: Tenant has outstanding dues on other shops. Settlement here does not affect those.
@@ -406,7 +406,7 @@ function TerminationDialog({
                   <div className="flex justify-between font-bold text-lg">
                     <span>Final Amount:</span>
                     <span className={calculateShopSettlement() > 0 ? "text-red-600" : calculateShopSettlement() < 0 ? "text-blue-600" : "text-green-600"}>
-                      {calculateShopSettlement() > 0 
+                      {calculateShopSettlement() > 0
                         ? `${formatValue(calculateShopSettlement())} (Tenant Owes)`
                         : calculateShopSettlement() < 0
                           ? `${formatValue(Math.abs(calculateShopSettlement()))} (Return to Tenant)`
@@ -450,6 +450,7 @@ const editLeaseFormSchema = z.object({
   securityDeposit: z.string().min(1, "Security deposit is required"),
   monthlyRent: z.string().min(1, "Monthly rent is required"),
   notes: z.string().optional(),
+  openingDueBalance: z.string().optional(),
 });
 
 type EditLeaseFormData = z.infer<typeof editLeaseFormSchema>;
@@ -472,6 +473,7 @@ function EditLeaseDialog({
       securityDeposit: lease.securityDeposit,
       monthlyRent: lease.monthlyRent,
       notes: lease.notes || "",
+      openingDueBalance: lease.openingDueBalance || "0",
     },
   });
 
@@ -483,6 +485,7 @@ function EditLeaseDialog({
         securityDeposit: data.securityDeposit,
         monthlyRent: data.monthlyRent,
         notes: data.notes,
+        openingDueBalance: data.openingDueBalance,
       });
     },
     onSuccess: () => {
@@ -595,6 +598,25 @@ function EditLeaseDialog({
                   )}
                 />
               </div>
+
+              <FormField
+                control={form.control}
+                name="openingDueBalance"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Outstanding Dues (Opening Balance)</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        type="number"
+                        step="0.01"
+                        placeholder="0"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               <FormField
                 control={form.control}

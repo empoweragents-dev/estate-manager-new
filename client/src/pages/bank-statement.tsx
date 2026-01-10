@@ -11,6 +11,7 @@ import {
     Banknote,
     Receipt,
     TrendingDown,
+    Plus,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -39,7 +40,7 @@ import { formatCurrency } from "@/lib/currency";
 interface BankStatementTransaction {
     id: number;
     date: string;
-    type: "rent_collection" | "bank_deposit" | "expense";
+    type: "rent_collection" | "bank_deposit" | "expense" | "additional_payment";
     description: string;
     amount: number;
     tenantName?: string;
@@ -52,6 +53,7 @@ interface BankStatementData {
         totalRentCollections: number;
         totalBankDeposits: number;
         totalExpenses: number;
+        totalAdditionalPayments: number;
         netBalance: number;
     };
     owner: {
@@ -331,6 +333,19 @@ export default function BankStatementPage() {
                     <Card>
                         <CardHeader className="pb-2">
                             <CardTitle className="text-sm font-medium flex items-center gap-2">
+                                <Plus className="h-4 w-4 text-purple-600" />
+                                Additional Payments
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <p className="text-2xl font-bold text-purple-600">
+                                {formatValue(reportData?.totals.totalAdditionalPayments || 0)}
+                            </p>
+                        </CardContent>
+                    </Card>
+                    <Card>
+                        <CardHeader className="pb-2">
+                            <CardTitle className="text-sm font-medium flex items-center gap-2">
                                 <Receipt className="h-4 w-4 text-green-600" />
                                 Bank Deposits
                             </CardTitle>
@@ -385,6 +400,7 @@ export default function BankStatementPage() {
                                 <TableHead>Date</TableHead>
                                 <TableHead>Description</TableHead>
                                 <TableHead className="text-right text-blue-600">Rent Collection</TableHead>
+                                <TableHead className="text-right text-purple-600">Additional Payment</TableHead>
                                 <TableHead className="text-right text-green-600">Bank Deposit</TableHead>
                                 <TableHead className="text-right text-red-600">Expense</TableHead>
                             </TableRow>
@@ -397,6 +413,9 @@ export default function BankStatementPage() {
                                     <TableCell className="text-right font-medium text-blue-600">
                                         {transaction.type === "rent_collection" ? formatValue(transaction.amount) : "-"}
                                     </TableCell>
+                                    <TableCell className="text-right font-medium text-purple-600">
+                                        {transaction.type === "additional_payment" ? formatValue(transaction.amount) : "-"}
+                                    </TableCell>
                                     <TableCell className="text-right font-medium text-green-600">
                                         {transaction.type === "bank_deposit" ? formatValue(transaction.amount) : "-"}
                                     </TableCell>
@@ -407,7 +426,7 @@ export default function BankStatementPage() {
                             ))}
                             {(!reportData?.data || reportData.data.length === 0) && (
                                 <TableRow>
-                                    <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                                    <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                                         No transactions found for the selected period
                                     </TableCell>
                                 </TableRow>
