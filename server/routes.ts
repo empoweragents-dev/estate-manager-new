@@ -3664,9 +3664,9 @@ export async function registerRoutes(
       const commonShops = allShops.filter(s => s.ownershipType === 'common');
       const accessibleShopIds = [...ownerShops, ...commonShops].map(s => s.id);
 
-      // Get active leases for accessible shops
+      // Get leases for accessible shops (active, expiring_soon, expired, terminated)
       const activeLeases = allLeases.filter(l =>
-        (l.status === 'active' || l.status === 'expiring_soon') &&
+        ['active', 'expiring_soon', 'expired', 'terminated'].includes(l.status) &&
         accessibleShopIds.includes(l.shopId)
       );
 
@@ -3733,6 +3733,7 @@ export async function registerRoutes(
           currentOutstanding: currentOutstanding * shareRatio,
           fullCurrentOutstanding: currentOutstanding,
           isCommon,
+          leaseStatus: lease.status,
         });
       }
 

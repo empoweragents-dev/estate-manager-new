@@ -1000,6 +1000,7 @@ interface RentPaymentData {
   allPaymentDates: string | null; // Comma-separated dates for multiple payments
   currentOutstanding: number;
   isCommon: boolean;
+  leaseStatus: string;
 }
 
 interface FinancialTransaction {
@@ -1296,7 +1297,7 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
                       <TableRow key={row.leaseId} className={row.isCommon ? 'bg-purple-50/30' : ''}>
                         <TableCell className="text-center">{idx + 1}</TableCell>
                         <TableCell className="font-medium">
-                          <Link href={`/tenants/${row.tenantId}`} className="hover:underline hover:text-primary">
+                          <Link href={`/tenants/${row.tenantId}`} className={`hover:underline ${row.leaseStatus === 'expired' || row.leaseStatus === 'terminated' ? 'text-red-600' : 'text-primary'}`}>
                             {row.tenantName}
                           </Link>
                         </TableCell>
