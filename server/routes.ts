@@ -3727,7 +3727,7 @@ export async function registerRoutes(
           floor: shop.floor,
           monthlyRent: parseFloat(lease.monthlyRent) * shareRatio,
           fullMonthlyRent: parseFloat(lease.monthlyRent),
-          recentPaymentAmount: recentPayment ? parseFloat(recentPayment.amount) * shareRatio : 0,
+          recentPaymentAmount: getActivePayments(leasePayments).reduce((sum, p) => sum + parseFloat(p.amount), 0) * shareRatio,
           recentPaymentDate: recentPayment?.paymentDate || null,
           allPaymentDates: allPaymentDates.length > 0 ? allPaymentDates.join(', ') : null, // Comma-separated for multiple payments
           currentOutstanding: currentOutstanding * shareRatio,
