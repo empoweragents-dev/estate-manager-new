@@ -72,6 +72,7 @@ async function runDiagnostics() {
         'package.json',
         'dist/index.cjs',
         '.env',
+        'service-account.json',
         'node_modules'
     ];
 
