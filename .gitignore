@@ -8,3 +8,5 @@ vite.config.ts.*
 debug_log.txt
 .config
 
+service-account.json 
+estatemanager-*.json 

@@ -1,10 +1,5 @@
-import { initializeApp } from "firebase/app";
-import {
-  getFirestore, collection, getDocs, getDoc, doc, setDoc,
-  deleteDoc, updateDoc, query, where, orderBy, limit,
-  addDoc, DocumentData, Timestamp
-} from "firebase/firestore";
-import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
+import { initializeApp, cert } from "firebase-admin/app";
+import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import {
   User, InsertUser, Owner, InsertOwner, Shop, InsertShop,
   Tenant, InsertTenant, Lease, InsertLease, RentInvoice, InsertRentInvoice,
@@ -13,6 +8,32 @@ import {
   RentAdjustment, InsertRentAdjustment
 } from "@shared/schema";
 import bcrypt from "bcryptjs";
+import fs from "fs";
+import path from "path";
+
+// Initialize Firebase Admin SDK
+const serviceAccountPath = path.join(process.cwd(), "service-account.json");
+if (!fs.existsSync(serviceAccountPath)) {
+  console.error("CRITICAL: service-account.json not found at " + serviceAccountPath);
+  process.exit(1);
+}
+
+const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, "utf8"));
+
+let app;
+try {
+  app = initializeApp({
+    credential: cert(serviceAccount)
+  });
+} catch (e) {
+  // Avoid re-initialization error if hot-reloading
+  if (!app) throw e;
+}
+
+const db = getFirestore(app);
+
+// Helper for type safety if needed, though Admin SDK types are robust
+// We can cast document data
 
 export interface IStorage {
   // Owners
@@ -107,7 +128,7 @@ export interface IStorage {
   deleteAdditionalPayment(id: number): Promise<void>;
 }
 
-// Additional Payment types (not tied to lease calculations)
+// Additional Payment types
 export interface AdditionalPayment {
   id: number;
   tenantId: number;
@@ -123,106 +144,77 @@ export interface AdditionalPayment {
 
 export type InsertAdditionalPayment = Omit<AdditionalPayment, 'id' | 'createdAt'>;
 
-
-// Initialize Firebase
-const firebaseConfig = {
-  apiKey: "AIzaSyB4wOE_rgPUQ2W0A4ImaCw25P9n4D8PyQw",
-  authDomain: "estatemanager-861a9.firebaseapp.com",
-  projectId: "estatemanager-861a9",
-  storageBucket: "estatemanager-861a9.firebasestorage.app",
-  messagingSenderId: "935619473858",
-  appId: "1:935619473858:web:384bc544b8d97a0d02265b"
-};
-
-// Initialize only if not already initialized
-let app;
-try {
-  app = initializeApp(firebaseConfig);
-} catch (e: any) {
-  // Ignore duplicate app error or handle retrieval?
-  // In node, might fail if re-initialized.
-  // Client SDK usually persists singleton.
-  // simpler:
-  app = initializeApp(firebaseConfig, "SERVER_APP_" + Date.now()); // Unique name to avoid conflicts?
-  // Actually, usually just calling initializeApp works, or checking getApps().
-  // But since this module is imported once, it should be fine.
-  // Let's stick to standard.
-}
-// Actually, standard is:
-// import { getApps, initializeApp } from "firebase/app";
-// const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-// But I didn't import getApps. Let's just assume fresh start or standard init.
-// Reverting to simple init for now as I did in previous file.
-
-const db = getFirestore(app);
-const auth = getAuth(app);
-
-// Authenticate server
-const authenticateServer = async () => {
-  try {
-    await signInWithEmailAndPassword(auth, 'admin@estatemanager.com', 'Empower01#');
-    console.log('FirebaseStorage: Server authenticated as admin');
-  } catch (error) {
-    console.error('FirebaseStorage: Auth failed', error);
-  }
-};
-authenticateServer();
-
 export class FirebaseStorage implements IStorage {
 
+  // Helper to get next numeric ID for a collection
   private async getNextId(collectionName: string): Promise<number> {
-    const q = query(collection(db, collectionName), orderBy('id', 'desc'), limit(1));
-    const snapshot = await getDocs(q);
+    const snapshot = await db.collection(collectionName)
+      .orderBy('id', 'desc')
+      .limit(1)
+      .get();
+
     if (snapshot.empty) return 1;
     const data = snapshot.docs[0].data();
     return (Number(data.id) || 0) + 1;
   }
 
-  private mapDoc<T>(doc: any): T {
+  // Generic mapper not strictly needed with Admin SDK, but helpful for consistency
+  // Admin SDK data() returns Record<string, any>
+  private mapDoc<T>(doc: FirebaseFirestore.DocumentSnapshot | FirebaseFirestore.QueryDocumentSnapshot): T {
     const data = doc.data();
     return data as T;
   }
 
   // --- OWNERS ---
   async getOwners(): Promise<Owner[]> {
-    const snapshot = await getDocs(query(collection(db, 'owners'), orderBy('name')));
+    const snapshot = await db.collection('owners').orderBy('name').get();
     return snapshot.docs.map(doc => this.mapDoc<Owner>(doc));
   }
 
   async getOwner(id: number): Promise<Owner | undefined> {
-    const docRef = doc(db, 'owners', String(id));
-    const d = await getDoc(docRef);
-    return d.exists() ? this.mapDoc<Owner>(d) : undefined;
+    const docRef = db.collection('owners').doc(String(id));
+    const d = await docRef.get();
+    return d.exists ? this.mapDoc<Owner>(d) : undefined;
   }
 
   async createOwner(owner: InsertOwner): Promise<Owner> {
     const id = await this.getNextId('owners');
-    const newOwner: Owner = { ...owner, id, phone: owner.phone || null, email: owner.email || null, address: owner.address || null, bankName: owner.bankName || null, bankAccountNumber: owner.bankAccountNumber || null, bankBranch: owner.bankBranch || null };
-    await setDoc(doc(db, 'owners', String(id)), newOwner);
+    const newOwner: Owner = {
+      ...owner,
+      id,
+      phone: owner.phone || null,
+      email: owner.email || null,
+      address: owner.address || null,
+      bankName: owner.bankName || null,
+      bankAccountNumber: owner.bankAccountNumber || null,
+      bankBranch: owner.bankBranch || null
+    };
+    await db.collection('owners').doc(String(id)).set(newOwner);
     return newOwner;
   }
 
   async updateOwner(id: number, owner: Partial<InsertOwner>): Promise<Owner | undefined> {
-    const docRef = doc(db, 'owners', String(id));
-    if (!(await getDoc(docRef)).exists()) return undefined;
-    await updateDoc(docRef, owner);
+    const docRef = db.collection('owners').doc(String(id));
+    const d = await docRef.get();
+    if (!d.exists) return undefined;
+    await docRef.update(owner);
     return this.getOwner(id);
   }
 
   async deleteOwner(id: number): Promise<void> {
-    await deleteDoc(doc(db, 'owners', String(id)));
+    await db.collection('owners').doc(String(id)).delete();
   }
 
   // --- SHOPS ---
   async getShops(): Promise<Shop[]> {
-    const snapshot = await getDocs(collection(db, 'shops'));
+    const snapshot = await db.collection('shops').get();
     const shops = snapshot.docs.map(d => this.mapDoc<Shop>(d));
     return shops.sort((a, b) => a.shopNumber.localeCompare(b.shopNumber));
   }
 
   async getShop(id: number): Promise<Shop | undefined> {
-    const d = await getDoc(doc(db, 'shops', String(id)));
-    return d.exists() ? this.mapDoc<Shop>(d) : undefined;
+    const d = await db.collection('shops').doc(String(id)).get();
+    return d.exists ? this.mapDoc<Shop>(d) : undefined;
   }
 
   async createShop(shop: InsertShop): Promise<Shop> {
@@ -240,34 +232,41 @@ export class FirebaseStorage implements IStorage {
       deletedBy: null,
       isDeleted: false
     };
-    await setDoc(doc(db, 'shops', String(id)), newShop);
+    await db.collection('shops').doc(String(id)).set(newShop);
     return newShop;
   }
 
   async updateShop(id: number, shop: Partial<InsertShop>): Promise<Shop | undefined> {
-    const docRef = doc(db, 'shops', String(id));
-    if (!(await getDoc(docRef)).exists()) return undefined;
-    await updateDoc(docRef, shop);
+    const docRef = db.collection('shops').doc(String(id));
+    const d = await docRef.get();
+    if (!d.exists) return undefined;
+    await docRef.update(shop);
     return this.getShop(id);
   }
 
   async deleteShop(id: number): Promise<void> {
-    await deleteDoc(doc(db, 'shops', String(id)));
+    await db.collection('shops').doc(String(id)).delete();
   }
 
   // --- TENANTS ---
   async getTenants(): Promise<Tenant[]> {
-    const snapshot = await getDocs(query(collection(db, 'tenants'), orderBy('name')));
+    const snapshot = await db.collection('tenants').orderBy('name').get();
     return snapshot.docs.map(d => this.mapDoc<Tenant>(d));
   }
 
   async getTenant(id: number): Promise<Tenant | undefined> {
-    const d = await getDoc(doc(db, 'tenants', String(id)));
-    return d.exists() ? this.mapDoc<Tenant>(d) : undefined;
+    const d = await db.collection('tenants').doc(String(id)).get();
+    return d.exists ? this.mapDoc<Tenant>(d) : undefined;
   }
 
   async createTenant(tenant: InsertTenant): Promise<Tenant> {
     const id = await this.getNextId('tenants');
+    // Admin SDK timestamps issue: converting Date to plain object or string if needed
+    // But Firestore Admin usually handles JS Date objects fine.
+    // Client SDK sometimes preferred Timestamp. 
+    // We'll keep using Date objects as the schema demands strings or dates.
+    // However, schema says createdAt is Date.
+
     const newTenant: Tenant = {
       ...tenant,
       id,
@@ -283,35 +282,36 @@ export class FirebaseStorage implements IStorage {
       deletedBy: null,
       isDeleted: false
     };
-    await setDoc(doc(db, 'tenants', String(id)), JSON.parse(JSON.stringify(newTenant)));
+    // JSON.parse(JSON.stringify) helps remove undefined and handle date serialization if any issues
+    await db.collection('tenants').doc(String(id)).set(JSON.parse(JSON.stringify(newTenant)));
     return newTenant;
   }
 
   async updateTenant(id: number, tenant: Partial<InsertTenant>): Promise<Tenant | undefined> {
-    const docRef = doc(db, 'tenants', String(id));
-    if (!(await getDoc(docRef)).exists()) return undefined;
-    await updateDoc(docRef, tenant);
+    const docRef = db.collection('tenants').doc(String(id));
+    const d = await docRef.get();
+    if (!d.exists) return undefined;
+    await docRef.update(tenant);
     return this.getTenant(id);
   }
 
   async deleteTenant(id: number): Promise<void> {
-    await deleteDoc(doc(db, 'tenants', String(id)));
+    await db.collection('tenants').doc(String(id)).delete();
   }
 
   // --- LEASES ---
   async getLeases(): Promise<Lease[]> {
-    const snapshot = await getDocs(collection(db, 'leases'));
+    const snapshot = await db.collection('leases').get();
     return snapshot.docs.map(d => this.mapDoc<Lease>(d));
   }
 
   async getLease(id: number): Promise<Lease | undefined> {
-    const d = await getDoc(doc(db, 'leases', String(id)));
-    return d.exists() ? this.mapDoc<Lease>(d) : undefined;
+    const d = await db.collection('leases').doc(String(id)).get();
+    return d.exists ? this.mapDoc<Lease>(d) : undefined;
   }
 
   async getLeasesByTenant(tenantId: number): Promise<Lease[]> {
-    const q = query(collection(db, 'leases'), where('tenantId', '==', tenantId));
-    const snapshot = await getDocs(q);
+    const snapshot = await db.collection('leases').where('tenantId', '==', tenantId).get();
     return snapshot.docs.map(d => this.mapDoc<Lease>(d));
   }
 
@@ -327,19 +327,19 @@ export class FirebaseStorage implements IStorage {
       terminationNotes: lease.terminationNotes || null,
       createdAt: new Date()
     };
-    await setDoc(doc(db, 'leases', String(id)), JSON.parse(JSON.stringify(newLease)));
+    await db.collection('leases').doc(String(id)).set(JSON.parse(JSON.stringify(newLease)));
 
     // Update shop status
-    const shopRef = doc(db, 'shops', String(lease.shopId));
-    await updateDoc(shopRef, { status: 'occupied' });
+    await db.collection('shops').doc(String(lease.shopId)).update({ status: 'occupied' });
 
     return newLease;
   }
 
   async updateLease(id: number, lease: Partial<InsertLease>): Promise<Lease | undefined> {
-    const docRef = doc(db, 'leases', String(id));
-    if (!(await getDoc(docRef)).exists()) return undefined;
-    await updateDoc(docRef, lease);
+    const docRef = db.collection('leases').doc(String(id));
+    const d = await docRef.get();
+    if (!d.exists) return undefined;
+    await docRef.update(lease);
     return this.getLease(id);
   }
 
@@ -348,31 +348,27 @@ export class FirebaseStorage implements IStorage {
     if (!l) return undefined;
 
     // Update shop
-    const shopRef = doc(db, 'shops', String(l.shopId));
-    await updateDoc(shopRef, { status: 'vacant' });
+    await db.collection('shops').doc(String(l.shopId)).update({ status: 'vacant' });
 
     // Update lease
-    const docRef = doc(db, 'leases', String(id));
-    await updateDoc(docRef, { status: 'terminated' });
+    await db.collection('leases').doc(String(id)).update({ status: 'terminated' });
 
     return this.getLease(id);
   }
 
   // --- RENT INVOICES ---
   async getRentInvoices(): Promise<RentInvoice[]> {
-    const snapshot = await getDocs(collection(db, 'invoices'));
+    const snapshot = await db.collection('invoices').get();
     return snapshot.docs.map(d => this.mapDoc<RentInvoice>(d));
   }
 
   async getRentInvoicesByTenant(tenantId: number): Promise<RentInvoice[]> {
-    const q = query(collection(db, 'invoices'), where('tenantId', '==', tenantId));
-    const snapshot = await getDocs(q);
+    const snapshot = await db.collection('invoices').where('tenantId', '==', tenantId).get();
     return snapshot.docs.map(d => this.mapDoc<RentInvoice>(d));
   }
 
   async getRentInvoicesByLease(leaseId: number): Promise<RentInvoice[]> {
-    const q = query(collection(db, 'invoices'), where('leaseId', '==', leaseId));
-    const snapshot = await getDocs(q);
+    const snapshot = await db.collection('invoices').where('leaseId', '==', leaseId).get();
     return snapshot.docs.map(d => this.mapDoc<RentInvoice>(d));
   }
 
@@ -385,32 +381,34 @@ export class FirebaseStorage implements IStorage {
       paidAmount: "0",
       createdAt: new Date()
     };
-    await setDoc(doc(db, 'invoices', String(id)), JSON.parse(JSON.stringify(newInvoice)));
+    await db.collection('invoices').doc(String(id)).set(JSON.parse(JSON.stringify(newInvoice)));
     return newInvoice;
   }
 
   async updateRentInvoice(id: number, invoice: Partial<InsertRentInvoice>): Promise<RentInvoice | undefined> {
-    const docRef = doc(db, 'invoices', String(id));
-    if (!(await getDoc(docRef)).exists()) return undefined;
-    await updateDoc(docRef, invoice);
-    return (await getDoc(docRef)).data() as RentInvoice;
+    const docRef = db.collection('invoices').doc(String(id));
+    const d = await docRef.get();
+    if (!d.exists) return undefined;
+    await docRef.update(invoice);
+    return (await docRef.get()).data() as RentInvoice;
   }
 
   async deleteRentInvoice(id: number): Promise<void> {
-    await deleteDoc(doc(db, 'invoices', String(id)));
+    await db.collection('invoices').doc(String(id)).delete();
   }
 
   async deleteRentInvoicesByLease(leaseId: number): Promise<void> {
-    const q = query(collection(db, 'invoices'), where('leaseId', '==', leaseId));
-    const snapshot = await getDocs(q);
-    const deletePromises = snapshot.docs.map(d => deleteDoc(d.ref));
-    await Promise.all(deletePromises);
+    const snapshot = await db.collection('invoices').where('leaseId', '==', leaseId).get();
+    const batch = db.batch();
+    snapshot.docs.forEach(doc => {
+      batch.delete(doc.ref);
+    });
+    await batch.commit();
   }
 
   // --- RENT ADJUSTMENTS ---
   async getRentAdjustmentsByLease(leaseId: number): Promise<RentAdjustment[]> {
-    const q = query(collection(db, 'rentAdjustments'), where('leaseId', '==', leaseId));
-    const snapshot = await getDocs(q);
+    const snapshot = await db.collection('rentAdjustments').where('leaseId', '==', leaseId).get();
     return snapshot.docs.map(d => this.mapDoc<RentAdjustment>(d));
   }
 
@@ -423,31 +421,28 @@ export class FirebaseStorage implements IStorage {
       notes: adjustment.notes || null,
       createdAt: new Date()
     };
-    await setDoc(doc(db, 'rentAdjustments', String(id)), JSON.parse(JSON.stringify(newAdjustment)));
+    await db.collection('rentAdjustments').doc(String(id)).set(JSON.parse(JSON.stringify(newAdjustment)));
     return newAdjustment;
   }
 
   // --- PAYMENTS ---
   async getPayments(): Promise<Payment[]> {
-    const snapshot = await getDocs(collection(db, 'payments'));
+    const snapshot = await db.collection('payments').get();
     return snapshot.docs.map(d => this.mapDoc<Payment>(d));
   }
 
   async getPayment(id: number): Promise<Payment | undefined> {
-    const docRef = doc(db, 'payments', String(id));
-    const d = await getDoc(docRef);
-    return d.exists() ? this.mapDoc<Payment>(d) : undefined;
+    const d = await db.collection('payments').doc(String(id)).get();
+    return d.exists ? this.mapDoc<Payment>(d) : undefined;
   }
 
   async getPaymentsByTenant(tenantId: number): Promise<Payment[]> {
-    const q = query(collection(db, 'payments'), where('tenantId', '==', tenantId));
-    const snapshot = await getDocs(q);
+    const snapshot = await db.collection('payments').where('tenantId', '==', tenantId).get();
     return snapshot.docs.map(d => this.mapDoc<Payment>(d));
   }
 
   async getPaymentsByLease(leaseId: number): Promise<Payment[]> {
-    const q = query(collection(db, 'payments'), where('leaseId', '==', leaseId));
-    const snapshot = await getDocs(q);
+    const snapshot = await db.collection('payments').where('leaseId', '==', leaseId).get();
     return snapshot.docs.map(d => this.mapDoc<Payment>(d));
   }
 
@@ -464,36 +459,35 @@ export class FirebaseStorage implements IStorage {
       deletedBy: null,
       isDeleted: false
     };
-    await setDoc(doc(db, 'payments', String(id)), JSON.parse(JSON.stringify(newPayment)));
+    await db.collection('payments').doc(String(id)).set(JSON.parse(JSON.stringify(newPayment)));
     return newPayment;
   }
 
   async updatePayment(id: number, payment: Partial<InsertPayment>): Promise<Payment | undefined> {
-    const docRef = doc(db, 'payments', String(id));
-    if (!(await getDoc(docRef)).exists()) return undefined;
-    await updateDoc(docRef, payment);
-    return (await getDoc(docRef)).data() as Payment;
+    const docRef = db.collection('payments').doc(String(id));
+    const d = await docRef.get();
+    if (!d.exists) return undefined;
+    await docRef.update(payment);
+    return (await docRef.get()).data() as Payment;
   }
 
   async deletePayment(id: number): Promise<void> {
-    await deleteDoc(doc(db, 'payments', String(id)));
+    await db.collection('payments').doc(String(id)).delete();
   }
 
   // --- BANK DEPOSITS ---
   async getBankDeposits(): Promise<BankDeposit[]> {
-    const snapshot = await getDocs(collection(db, 'bankDeposits'));
+    const snapshot = await db.collection('bankDeposits').get();
     return snapshot.docs.map(d => this.mapDoc<BankDeposit>(d));
   }
 
   async getBankDeposit(id: number): Promise<BankDeposit | undefined> {
-    const docRef = doc(db, 'bankDeposits', String(id));
-    const d = await getDoc(docRef);
-    return d.exists() ? this.mapDoc<BankDeposit>(d) : undefined;
+    const d = await db.collection('bankDeposits').doc(String(id)).get();
+    return d.exists ? this.mapDoc<BankDeposit>(d) : undefined;
   }
 
   async getBankDepositsByOwner(ownerId: number): Promise<BankDeposit[]> {
-    const q = query(collection(db, 'bankDeposits'), where('ownerId', '==', ownerId));
-    const snapshot = await getDocs(q);
+    const snapshot = await db.collection('bankDeposits').where('ownerId', '==', ownerId).get();
     return snapshot.docs.map(d => this.mapDoc<BankDeposit>(d));
   }
 
@@ -510,30 +504,30 @@ export class FirebaseStorage implements IStorage {
       deletedBy: null,
       isDeleted: false
     };
-    await setDoc(doc(db, 'bankDeposits', String(id)), JSON.parse(JSON.stringify(newDeposit)));
+    await db.collection('bankDeposits').doc(String(id)).set(JSON.parse(JSON.stringify(newDeposit)));
     return newDeposit;
   }
 
   async updateBankDeposit(id: number, deposit: Partial<InsertBankDeposit>): Promise<BankDeposit | undefined> {
-    const docRef = doc(db, 'bankDeposits', String(id));
-    if (!(await getDoc(docRef)).exists()) return undefined;
-    await updateDoc(docRef, deposit);
-    return (await getDoc(docRef)).data() as BankDeposit;
+    const docRef = db.collection('bankDeposits').doc(String(id));
+    const d = await docRef.get();
+    if (!d.exists) return undefined;
+    await docRef.update(deposit);
+    return (await docRef.get()).data() as BankDeposit;
   }
 
   async deleteBankDeposit(id: number): Promise<void> {
-    await deleteDoc(doc(db, 'bankDeposits', String(id)));
+    await db.collection('bankDeposits').doc(String(id)).delete();
   }
 
   // --- EXPENSES ---
   async getExpenses(): Promise<Expense[]> {
-    const snapshot = await getDocs(collection(db, 'expenses'));
+    const snapshot = await db.collection('expenses').get();
     return snapshot.docs.map(d => this.mapDoc<Expense>(d));
   }
 
   async getExpensesByOwner(ownerId: number): Promise<Expense[]> {
-    const q = query(collection(db, 'expenses'), where('ownerId', '==', ownerId));
-    const snapshot = await getDocs(q);
+    const snapshot = await db.collection('expenses').where('ownerId', '==', ownerId).get();
     return snapshot.docs.map(d => this.mapDoc<Expense>(d));
   }
 
@@ -546,18 +540,17 @@ export class FirebaseStorage implements IStorage {
       receiptRef: expense.receiptRef || null,
       createdAt: new Date()
     };
-    await setDoc(doc(db, 'expenses', String(id)), JSON.parse(JSON.stringify(newExpense)));
+    await db.collection('expenses').doc(String(id)).set(JSON.parse(JSON.stringify(newExpense)));
     return newExpense;
   }
 
   async deleteExpense(id: number): Promise<void> {
-    await deleteDoc(doc(db, 'expenses', String(id)));
+    await db.collection('expenses').doc(String(id)).delete();
   }
 
   // --- SETTINGS ---
   async getSetting(key: string): Promise<Setting | undefined> {
-    const q = query(collection(db, 'settings'), where('key', '==', key));
-    const snapshot = await getDocs(q);
+    const snapshot = await db.collection('settings').where('key', '==', key).get();
     if (snapshot.empty) return undefined;
     return this.mapDoc<Setting>(snapshot.docs[0]);
   }
@@ -565,9 +558,10 @@ export class FirebaseStorage implements IStorage {
   async setSetting(key: string, value: string): Promise<Setting> {
     const existing = await this.getSetting(key);
     if (existing) {
-      const docRef = doc(db, 'settings', String(existing.id));
-      await updateDoc(docRef, { value, updatedAt: new Date() });
-      return { ...existing, value, updatedAt: new Date() };
+      const docRef = db.collection('settings').doc(String(existing.id));
+      const updated = { value, updatedAt: new Date() };
+      await docRef.update(updated);
+      return { ...existing, ...updated };
     } else {
       const id = await this.getNextId('settings');
       const newSetting: Setting = {
@@ -576,7 +570,7 @@ export class FirebaseStorage implements IStorage {
         value,
         updatedAt: new Date()
       };
-      await setDoc(doc(db, 'settings', String(id)), JSON.parse(JSON.stringify(newSetting)));
+      await db.collection('settings').doc(String(id)).set(JSON.parse(JSON.stringify(newSetting)));
       return newSetting;
     }
   }
@@ -588,15 +582,14 @@ export class FirebaseStorage implements IStorage {
 
   // --- USERS ---
   async getUser(id: string): Promise<User | undefined> {
-    const d = await getDoc(doc(db, 'users', id));
-    if (!d.exists()) return undefined;
+    const d = await db.collection('users').doc(id).get();
+    if (!d.exists) return undefined;
     const data = this.mapDoc<User>(d);
     return { ...data, id: d.id };
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    const q = query(collection(db, 'users'), where('username', '==', username));
-    const snapshot = await getDocs(q);
+    const snapshot = await db.collection('users').where('username', '==', username).get();
     if (snapshot.empty) return undefined;
     const d = snapshot.docs[0];
     const data = this.mapDoc<User>(d);
@@ -619,39 +612,53 @@ export class FirebaseStorage implements IStorage {
       updatedAt: new Date(),
       role: userData.role || 'owner'
     };
-    await setDoc(doc(db, 'users', id), JSON.parse(JSON.stringify(newUser)));
+    await db.collection('users').doc(id).set(JSON.parse(JSON.stringify(newUser)));
     return newUser;
   }
 
   async getUsers(): Promise<User[]> {
-    const snapshot = await getDocs(collection(db, 'users'));
+    const snapshot = await db.collection('users').get();
     return snapshot.docs.map(d => ({ ...this.mapDoc<User>(d), id: d.id }));
   }
 
   async updateUser(id: string, data: Partial<InsertUser>): Promise<User | undefined> {
-    const docRef = doc(db, 'users', id);
-    if (!(await getDoc(docRef)).exists()) return undefined;
+    const docRef = db.collection('users').doc(id);
+    const d = await docRef.get();
+    if (!d.exists) return undefined;
 
     const updateData: any = { ...data, updatedAt: new Date() };
     if (data.password) {
       updateData.password = await bcrypt.hash(data.password, 10);
     }
 
-    await updateDoc(docRef, updateData);
+    await docRef.update(updateData);
     return this.getUser(id);
   }
 
   async deleteUser(id: string): Promise<void> {
-    await deleteDoc(doc(db, 'users', id));
+    await db.collection('users').doc(id).delete();
   }
 
   async initSuperAdmin(): Promise<void> {
-    return;
+    // Check if super_admin exists
+    const superAdmin = await this.getUserByUsername('super_admin');
+    if (!superAdmin) {
+      console.log("Creating default super_admin account...");
+      await this.createUser({
+        username: 'super_admin',
+        password: 'password123', // Initial password, should be changed
+        role: 'super_admin',
+        email: 'admin@estatemanager.com',
+        firstName: 'Super',
+        lastName: 'Admin'
+      });
+      console.log("Default super_admin created.");
+    }
   }
 
   // --- DELETION LOGS ---
   async getDeletionLogs(): Promise<DeletionLog[]> {
-    const snapshot = await getDocs(collection(db, 'deletionLogs'));
+    const snapshot = await db.collection('deletionLogs').get();
     return snapshot.docs.map(d => this.mapDoc<DeletionLog>(d));
   }
 
@@ -662,23 +669,35 @@ export class FirebaseStorage implements IStorage {
       id,
       deletedAt: new Date()
     };
-    await setDoc(doc(db, 'deletionLogs', String(id)), JSON.parse(JSON.stringify(newLog)));
+    await db.collection('deletionLogs').doc(String(id)).set(JSON.parse(JSON.stringify(newLog)));
     return newLog;
   }
 
   // --- ADDITIONAL PAYMENTS (Financial Statement Only) ---
   async getAdditionalPaymentsByTenant(tenantId: number): Promise<AdditionalPayment[]> {
-    const snapshot = await getDocs(collection(db, 'additionalPayments'));
-    return snapshot.docs
-      .map(d => d.data() as AdditionalPayment)
-      .filter(p => p.tenantId === tenantId && !p.isDeleted);
+    const snapshot = await db.collection('additionalPayments').get();
+    // In efficient Firestore usage, filtering should be done in database query, 
+    // but schema support not guaranteed, so sticking to original logic logic for now 
+    // or improving if collection exists. 
+    // Previous code was fetch all then filter, implying maybe specific index missing or small dataset.
+    // Let's optimize:
+    // Actually, client code filtered 'additionalPayments' collection.
+
+    // We can try to query directly:
+    // const snapshot = await db.collection('additionalPayments').where('tenantId', '==', tenantId).get();
+    // But then we need to handle 'isDeleted'.
+
+    // Let's stick to fetch all and filter to match previous behavior exactly if we are unsure about indexes,
+    // but Admin SDK is powerful. 
+    // Original: getDocs(collection(db, 'additionalPayments')) then JS filter.
+    const all = snapshot.docs.map(d => d.data() as AdditionalPayment);
+    return all.filter(p => p.tenantId === tenantId && !p.isDeleted);
   }
 
   async getAdditionalPaymentsByOwner(ownerId: number): Promise<AdditionalPayment[]> {
-    const snapshot = await getDocs(collection(db, 'additionalPayments'));
-    return snapshot.docs
-      .map(d => d.data() as AdditionalPayment)
-      .filter(p => p.ownerId === ownerId && !p.isDeleted);
+    const snapshot = await db.collection('additionalPayments').get();
+    const all = snapshot.docs.map(d => d.data() as AdditionalPayment);
+    return all.filter(p => p.ownerId === ownerId && !p.isDeleted);
   }
 
   async createAdditionalPayment(payment: InsertAdditionalPayment): Promise<AdditionalPayment> {
@@ -688,15 +707,15 @@ export class FirebaseStorage implements IStorage {
       id,
       createdAt: new Date().toISOString()
     };
-    await setDoc(doc(db, 'additionalPayments', String(id)), JSON.parse(JSON.stringify(newPayment)));
+    await db.collection('additionalPayments').doc(String(id)).set(JSON.parse(JSON.stringify(newPayment)));
     return newPayment;
   }
 
   async deleteAdditionalPayment(id: number): Promise<void> {
-    const snapshot = await getDocs(collection(db, 'additionalPayments'));
-    const docToDelete = snapshot.docs.find(d => d.data().id === id);
-    if (docToDelete) {
-      await updateDoc(doc(db, 'additionalPayments', docToDelete.id), { isDeleted: true });
+    const snapshot = await db.collection('additionalPayments').where('id', '==', id).get();
+    if (!snapshot.empty) {
+      const docRef = snapshot.docs[0].ref;
+      await docRef.update({ isDeleted: true });
     }
   }
 }
