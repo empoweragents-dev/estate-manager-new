@@ -62,7 +62,7 @@ export async function setupAuth(app: Express) {
       res.json({ user: userWithoutPassword });
     } catch (error: any) {
       console.error("Login error:", error);
-      res.status(500).json({ message: "Login failed" });
+      res.status(500).json({ message: "Login failed: " + (error instanceof Error ? error.message : String(error)) });
     }
   });
 
