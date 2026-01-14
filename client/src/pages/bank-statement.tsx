@@ -13,8 +13,9 @@ import {
     TrendingDown,
     Plus,
 } from "lucide-react";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+// Imports removed for dynamic loading
+// import jsPDF from "jspdf";
+// import autoTable from "jspdf-autotable";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -122,8 +123,11 @@ export default function BankStatementPage() {
     const years = Array.from({ length: 6 }, (_, i) => currentYear - i);
 
     // Export to PDF
-    const exportToPDF = () => {
+    const exportToPDF = async () => {
         if (!reportData) return;
+
+        const { default: jsPDF } = await import("jspdf");
+        const { default: autoTable } = await import("jspdf-autotable");
 
         const doc = new jsPDF();
         const ownerName = reportData.owner.name;

@@ -20,7 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { LogOut, User, Shield, Loader2, Banknote, Users, ChevronDown, Eye } from "lucide-react";
-import { useState, createContext, useContext } from "react";
+import { useState, createContext, useContext, Suspense, lazy } from "react";
 import type { Owner } from "@shared/schema";
 
 interface OwnerViewContextType {
@@ -45,23 +45,25 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { PaymentForm, TenantWithLeases } from "@/pages/payments";
-import NotFound from "@/pages/not-found";
-import Dashboard from "@/pages/dashboard";
-import OwnersPage from "@/pages/owners";
-import OwnerDetailPage from "@/pages/owner-detail";
-import ShopsPage from "@/pages/shops";
-import TenantsPage from "@/pages/tenants";
-import TenantDetailPage from "@/pages/tenant-detail";
-import LeasesPage from "@/pages/leases";
-import LeaseDetailPage from "@/pages/lease-detail";
-import PaymentsPage from "@/pages/payments";
-import ExpensesPage from "@/pages/expenses";
-import BankDepositsPage from "@/pages/bank-deposits";
-import ReportsPage from "@/pages/reports";
-import OwnerTenantReportPage from "@/pages/owner-tenant-report";
-import LandingPage from "@/pages/landing";
-import UserManagementPage from "@/pages/admin/users";
-import BankStatementPage from "@/pages/bank-statement";
+
+// Lazy load pages
+const NotFound = lazy(() => import("@/pages/not-found"));
+const Dashboard = lazy(() => import("@/pages/dashboard"));
+const OwnersPage = lazy(() => import("@/pages/owners"));
+const OwnerDetailPage = lazy(() => import("@/pages/owner-detail"));
+const ShopsPage = lazy(() => import("@/pages/shops"));
+const TenantsPage = lazy(() => import("@/pages/tenants"));
+const TenantDetailPage = lazy(() => import("@/pages/tenant-detail"));
+const LeasesPage = lazy(() => import("@/pages/leases"));
+const LeaseDetailPage = lazy(() => import("@/pages/lease-detail"));
+const PaymentsPage = lazy(() => import("@/pages/payments"));
+const ExpensesPage = lazy(() => import("@/pages/expenses"));
+const BankDepositsPage = lazy(() => import("@/pages/bank-deposits"));
+const ReportsPage = lazy(() => import("@/pages/reports"));
+const OwnerTenantReportPage = lazy(() => import("@/pages/owner-tenant-report"));
+const LandingPage = lazy(() => import("@/pages/landing"));
+const UserManagementPage = lazy(() => import("@/pages/admin/users"));
+const BankStatementPage = lazy(() => import("@/pages/bank-statement"));
 
 function UserMenu() {
   const { user, isSuperAdmin } = useAuth();
@@ -212,28 +214,38 @@ function OwnerDashboardRedirect() {
   return <Dashboard />;
 }
 
+function LoadingSpinner() {
+  return (
+    <div className="flex items-center justify-center p-8">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+    </div>
+  );
+}
+
 function Router() {
   const { isSuperAdmin } = useAuth();
 
   return (
-    <Switch>
-      <Route path="/" component={OwnerDashboardRedirect} />
-      {isSuperAdmin && <Route path="/admin/users" component={UserManagementPage} />}
-      {isSuperAdmin && <Route path="/owners" component={OwnersPage} />}
-      <Route path="/owners/:id" component={OwnerDetailPage} />
-      <Route path="/owners/:id/bank-statement" component={BankStatementPage} />
-      <Route path="/shops" component={ShopsPage} />
-      <Route path="/tenants" component={TenantsPage} />
-      <Route path="/tenants/:id" component={TenantDetailPage} />
-      <Route path="/leases" component={LeasesPage} />
-      <Route path="/leases/:id" component={LeaseDetailPage} />
-      <Route path="/payments" component={PaymentsPage} />
-      <Route path="/expenses" component={ExpensesPage} />
-      <Route path="/bank-deposits" component={BankDepositsPage} />
-      <Route path="/reports" component={ReportsPage} />
-      <Route path="/reports/owner-tenant" component={OwnerTenantReportPage} />
-      <Route component={NotFound} />
-    </Switch>
+    <Suspense fallback={<LoadingSpinner />}>
+      <Switch>
+        <Route path="/" component={OwnerDashboardRedirect} />
+        {isSuperAdmin && <Route path="/admin/users" component={UserManagementPage} />}
+        {isSuperAdmin && <Route path="/owners" component={OwnersPage} />}
+        <Route path="/owners/:id" component={OwnerDetailPage} />
+        <Route path="/owners/:id/bank-statement" component={BankStatementPage} />
+        <Route path="/shops" component={ShopsPage} />
+        <Route path="/tenants" component={TenantsPage} />
+        <Route path="/tenants/:id" component={TenantDetailPage} />
+        <Route path="/leases" component={LeasesPage} />
+        <Route path="/leases/:id" component={LeaseDetailPage} />
+        <Route path="/payments" component={PaymentsPage} />
+        <Route path="/expenses" component={ExpensesPage} />
+        <Route path="/bank-deposits" component={BankDepositsPage} />
+        <Route path="/reports" component={ReportsPage} />
+        <Route path="/reports/owner-tenant" component={OwnerTenantReportPage} />
+        <Route component={NotFound} />
+      </Switch>
+    </Suspense>
   );
 }
 

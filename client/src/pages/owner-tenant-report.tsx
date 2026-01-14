@@ -47,8 +47,9 @@ import {
 } from "lucide-react";
 import { formatCurrency, formatNumberOnly, useCurrencyStore, formatFloor } from "@/lib/currency";
 import type { Owner, Tenant, Shop } from "@shared/schema";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+// Imports removed for dynamic loading
+// import jsPDF from "jspdf";
+// import autoTable from "jspdf-autotable";
 
 interface ReportData {
   leaseId: number;
@@ -110,7 +111,7 @@ export default function OwnerTenantReportPage() {
   const { toast } = useToast();
   const { currency } = useCurrencyStore();
   const currentDate = new Date();
-  
+
   const [selectedOwner, setSelectedOwner] = useState<string>("all");
   const [selectedTenant, setSelectedTenant] = useState<string>("all");
   const [selectedShop, setSelectedShop] = useState<string>("all");
@@ -175,11 +176,14 @@ export default function OwnerTenantReportPage() {
     return Array.from({ length: endYear - startYear + 1 }, (_, i) => startYear + i);
   }, []);
 
-  const generatePDF = () => {
+  const generatePDF = async () => {
     if (!report?.allData || report.allData.length === 0) {
       toast({ title: "No data to export", variant: "destructive" });
       return;
     }
+
+    const { default: jsPDF } = await import("jspdf");
+    const { default: autoTable } = await import("jspdf-autotable");
 
     const doc = new jsPDF({
       orientation: "landscape",
@@ -299,13 +303,13 @@ export default function OwnerTenantReportPage() {
     toast({ title: "PDF exported successfully" });
   };
 
-  const drawSummary = (doc: jsPDF, startY: number, pageWidth: number, report: ReportResponse) => {
+  const drawSummary = (doc: any, startY: number, pageWidth: number, report: ReportResponse) => {
     doc.setDrawColor(0);
     doc.setLineWidth(0.5);
     doc.line(14, startY, pageWidth - 14, startY);
 
     let y = startY + 8;
-    
+
     doc.setFontSize(11);
     doc.setFont("helvetica", "bold");
     doc.text("Rent Collection by Location", 14, y);
@@ -314,27 +318,27 @@ export default function OwnerTenantReportPage() {
 
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
-    
+
     const locTotals = report.locationTotals || { ground: 0, first: 0, second: 0, subedari: 0 };
-    
+
     doc.text("Ground Floor:", 14, y);
     doc.text(formatNumberOnly(locTotals.ground || 0), 70, y, { align: "right" });
-    
+
     doc.text("1st Floor:", pageWidth / 2, y);
     doc.text(formatNumberOnly(locTotals.first || 0), pageWidth / 2 + 56, y, { align: "right" });
     y += 6;
-    
+
     doc.text("2nd Floor:", 14, y);
     doc.text(formatNumberOnly(locTotals.second || 0), 70, y, { align: "right" });
-    
+
     doc.text("Subedari:", pageWidth / 2, y);
     doc.text(formatNumberOnly(locTotals.subedari || 0), pageWidth / 2 + 56, y, { align: "right" });
     y += 8;
-    
+
     doc.setFont("helvetica", "bold");
     doc.text("Total Collection:", 14, y);
     doc.text(formatNumberOnly(report.totals.totalRecentPayments || 0), 70, y, { align: "right" });
-    
+
     doc.text("Total Outstanding:", pageWidth / 2, y);
     doc.text(formatNumberOnly(report.totals.totalCurrentOutstanding || 0), pageWidth / 2 + 56, y, { align: "right" });
   };

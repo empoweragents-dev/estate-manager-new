@@ -63,7 +63,10 @@ export interface IStorage {
   getLeasesByTenant(tenantId: number): Promise<Lease[]>;
   createLease(lease: InsertLease): Promise<Lease>;
   updateLease(id: number, lease: Partial<InsertLease>): Promise<Lease | undefined>;
+  updateLease(id: number, lease: Partial<InsertLease>): Promise<Lease | undefined>;
   terminateLease(id: number): Promise<Lease | undefined>;
+  deleteLease(id: number): Promise<void>;
+  deleteLease(id: number): Promise<void>;
 
   // Rent Invoices
   getRentInvoices(): Promise<RentInvoice[]>;
@@ -76,7 +79,10 @@ export interface IStorage {
 
   // Rent Adjustments
   getRentAdjustmentsByLease(leaseId: number): Promise<RentAdjustment[]>;
+  getRentAdjustmentsByLease(leaseId: number): Promise<RentAdjustment[]>;
   createRentAdjustment(adjustment: InsertRentAdjustment): Promise<RentAdjustment>;
+  deleteRentAdjustment(id: number): Promise<void>;
+  deleteRentAdjustment(id: number): Promise<void>;
 
   // Payments
   getPayments(): Promise<Payment[]>;
@@ -356,6 +362,10 @@ export class FirebaseStorage implements IStorage {
     return this.getLease(id);
   }
 
+  async deleteLease(id: number): Promise<void> {
+    await db.collection('leases').doc(String(id)).delete();
+  }
+
   // --- RENT INVOICES ---
   async getRentInvoices(): Promise<RentInvoice[]> {
     const snapshot = await db.collection('invoices').get();
@@ -423,6 +433,10 @@ export class FirebaseStorage implements IStorage {
     };
     await db.collection('rentAdjustments').doc(String(id)).set(JSON.parse(JSON.stringify(newAdjustment)));
     return newAdjustment;
+  }
+
+  async deleteRentAdjustment(id: number): Promise<void> {
+    await db.collection('rentAdjustments').doc(String(id)).delete();
   }
 
   // --- PAYMENTS ---

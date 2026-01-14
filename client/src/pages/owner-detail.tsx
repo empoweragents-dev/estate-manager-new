@@ -32,8 +32,9 @@ import {
   ResponsiveContainer,
   Cell
 } from 'recharts';
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+// Imports removed for dynamic loading
+// import jsPDF from "jspdf";
+// import autoTable from "jspdf-autotable";
 import { EditPaymentDialog } from "@/components/edit-payment-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -534,7 +535,9 @@ function TenantsTab({ tenants, formatValue, ownerName, isCommon = false, totalOw
     return val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
-  const exportTenantsPDF = () => {
+  const exportTenantsPDF = async () => {
+    const { default: jsPDF } = await import("jspdf");
+    const { default: autoTable } = await import("jspdf-autotable");
     const doc = new jsPDF({ orientation: 'landscape' });
     const pageWidth = doc.internal.pageSize.getWidth();
     const currentDate = new Date().toLocaleDateString('en-US', {
@@ -1130,8 +1133,10 @@ function OwnerReportsTab({ ownerId, ownerName }: { ownerId: number; ownerName: s
     enabled: reportType === 'ledger',
   });
 
-  const exportRentPDF = () => {
+  const exportRentPDF = async () => {
     if (!rentData?.data?.length) return;
+    const { default: jsPDF } = await import("jspdf");
+    const { default: autoTable } = await import("jspdf-autotable");
     const doc = new jsPDF({ orientation: 'landscape' });
     const pageWidth = doc.internal.pageSize.getWidth();
 
@@ -1563,7 +1568,9 @@ function IncomeReportsTab({
     return val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
-  const exportPDF = () => {
+  const exportPDF = async () => {
+    const { default: jsPDF } = await import("jspdf");
+    const { default: autoTable } = await import("jspdf-autotable");
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     const currentDate = new Date().toLocaleDateString('en-US', {
