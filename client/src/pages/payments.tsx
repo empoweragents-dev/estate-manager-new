@@ -336,6 +336,7 @@ export function PaymentForm({
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/leases", selectedItem?.leaseId, "payment-form-data"] });
       toast({ title: "Payment recorded successfully" });
+      handleClearSelection();
       onSuccess();
     },
     onError: (error: Error) => {
@@ -953,7 +954,7 @@ export default function PaymentsPage() {
                 Search for a tenant or shop to record a payment
               </DialogDescription>
             </DialogHeader>
-            <PaymentForm tenants={tenants} onSuccess={handleDialogClose} />
+            <PaymentForm tenants={tenants} onSuccess={() => { }} />
           </DialogContent>
         </Dialog>
       </div>
