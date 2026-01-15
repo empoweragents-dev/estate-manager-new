@@ -8,41 +8,44 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 console.log(`[fix-permissions] Script running from: ${__dirname}`);
-console.log(`[fix-permissions] CWD: ${process.cwd()}`);
+console.log(`[fix-permissions] Platform: ${platform()}`);
 
 if (platform() === 'linux') {
-    // Assuming script is in /script, parent is root
-    const rootDir = path.resolve(__dirname, '..');
-    const esbuildPath = path.join(rootDir, 'node_modules', '@esbuild', 'linux-x64', 'bin', 'esbuild');
+    // We will check multiple locations because Hostinger build environments can be nested (e.g., .builds/...)
+    // while the actual binary might be in a parent public_html/node_modules
+    const potentialRoots = [
+        path.resolve(__dirname, '..'),              // Standard: ./script/.. -> ./
+        path.resolve(__dirname, '../../..'),        // Hostinger .builds: ./repo/scripts/../../.. -> ./public_html/.builds/.. -> public_html? 
+        path.resolve(__dirname, '../../../..'),     // Deeper nesting?
+        process.cwd()                               // Current working directory
+    ];
 
-    console.log(`[fix-permissions] Checking path: ${esbuildPath}`);
+    let fixed = false;
 
-    if (fs.existsSync(esbuildPath)) {
-        try {
-            fs.chmodSync(esbuildPath, 0o755);
-            console.log('✅ [fix-permissions] Successfully fixed esbuild permissions (chmod +x)');
-        } catch (err) {
-            console.error('❌ [fix-permissions] Failed to chmod:', err);
-        }
-    } else {
-        console.log('⚠️  [fix-permissions] esbuild binary not found at expected path.');
+    for (const root of potentialRoots) {
+        const esbuildPath = path.join(root, 'node_modules', '@esbuild', 'linux-x64', 'bin', 'esbuild');
 
-        // Debug: Check if parent directories exist/what they contain
-        try {
-            const esbuildPackageDir = path.join(rootDir, 'node_modules', '@esbuild');
-            if (fs.existsSync(esbuildPackageDir)) {
-                console.log(`Contents of node_modules/@esbuild:`, fs.readdirSync(esbuildPackageDir));
-                const linuxPackageDir = path.join(esbuildPackageDir, 'linux-x64');
-                if (fs.existsSync(linuxPackageDir)) {
-                    console.log(`Contents of node_modules/@esbuild/linux-x64:`, fs.readdirSync(linuxPackageDir));
-                    const binDir = path.join(linuxPackageDir, 'bin');
-                    if (fs.existsSync(binDir)) {
-                        console.log(`Contents of node_modules/@esbuild/linux-x64/bin:`, fs.readdirSync(binDir));
-                    }
-                }
+        // De-duplicate checks roughly
+        console.log(`[fix-permissions] Checking path: ${esbuildPath}`);
+
+        if (fs.existsSync(esbuildPath)) {
+            try {
+                // Build system might throw if we don't own the file, but we must try.
+                fs.chmodSync(esbuildPath, 0o755);
+                console.log(`✅ [fix-permissions] Successfully fixed permissions at: ${esbuildPath}`);
+                fixed = true;
+            } catch (err) {
+                console.error(`❌ [fix-permissions] Found binary but failed to chmod at ${esbuildPath}:`, err.message);
             }
-        } catch (e) { console.log('Error debugging paths:', e); }
+        }
     }
+
+    if (!fixed) {
+        console.log('⚠️  [fix-permissions] Could not find any esbuild binary to fix.');
+        console.log('    This is expected if @esbuild/linux-x64 matches no path logic or is not installed.');
+        console.log('    If build fails with EACCES, please run manually: chmod +x node_modules/@esbuild/linux-x64/bin/esbuild');
+    }
+
 } else {
     console.log('[fix-permissions] Skipping (not on Linux).');
 }
