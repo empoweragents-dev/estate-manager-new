@@ -11,39 +11,65 @@ console.log(`[fix-permissions] Script running from: ${__dirname}`);
 console.log(`[fix-permissions] Platform: ${platform()}`);
 
 if (platform() === 'linux') {
-    // We will check multiple locations because Hostinger build environments can be nested (e.g., .builds/...)
-    // while the actual binary might be in a parent public_html/node_modules
-    const potentialRoots = [
-        path.resolve(__dirname, '..'),              // Standard: ./script/.. -> ./
-        path.resolve(__dirname, '../../..'),        // Hostinger .builds: ./repo/scripts/../../.. -> ./public_html/.builds/.. -> public_html? 
-        path.resolve(__dirname, '../../../..'),     // Deeper nesting?
-        process.cwd()                               // Current working directory
-    ];
+    const rootDir = path.resolve(__dirname, '..'); // Assuming script is in /script, so ok to start from project root
+    console.log(`[fix-permissions] Starting recursive search from: ${rootDir}`);
 
-    let fixed = false;
+    let fixedCount = 0;
 
-    for (const root of potentialRoots) {
-        const esbuildPath = path.join(root, 'node_modules', '@esbuild', 'linux-x64', 'bin', 'esbuild');
+    function findAndFixEsbuild(dir) {
+        if (!fs.existsSync(dir)) return;
 
-        // De-duplicate checks roughly
-        console.log(`[fix-permissions] Checking path: ${esbuildPath}`);
+        try {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
 
-        if (fs.existsSync(esbuildPath)) {
-            try {
-                // Build system might throw if we don't own the file, but we must try.
-                fs.chmodSync(esbuildPath, 0o755);
-                console.log(`✅ [fix-permissions] Successfully fixed permissions at: ${esbuildPath}`);
-                fixed = true;
-            } catch (err) {
-                console.error(`❌ [fix-permissions] Found binary but failed to chmod at ${esbuildPath}:`, err.message);
+            for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+
+                if (entry.isDirectory()) {
+                    // Skip typical non-module folders to speed up, but be careful
+                    if (entry.name === '.git' || entry.name === 'dist' || entry.name === '.cache') continue;
+
+                    // Check if this directory looks like the target: @esbuild/linux-x64/bin
+                    if (fullPath.endsWith('@esbuild/linux-x64/bin')) {
+                        const binaryPath = path.join(fullPath, 'esbuild');
+                        if (fs.existsSync(binaryPath)) {
+                            try {
+                                fs.chmodSync(binaryPath, 0o755);
+                                console.log(`✅ [fix-permissions] Fixed: ${binaryPath}`);
+                                fixedCount++;
+                            } catch (err) {
+                                console.error(`❌ [fix-permissions] Failed to fix ${binaryPath}:`, err.message);
+                            }
+                        }
+                    }
+
+                    // Optimization: Only traverse into node_modules or scope folders (@...) to avoid scanning complete project source if irrelevant
+                    // But getting messy. Let's just standard recurse node_modules.
+                    if (entry.name === 'node_modules' || dir.includes('node_modules')) {
+                        findAndFixEsbuild(fullPath);
+                    }
+                }
             }
+        } catch (e) {
+            console.warn(`[fix-permissions] Warning reading ${dir}: ${e.message}`);
         }
     }
 
-    if (!fixed) {
-        console.log('⚠️  [fix-permissions] Could not find any esbuild binary to fix.');
-        console.log('    This is expected if @esbuild/linux-x64 matches no path logic or is not installed.');
-        console.log('    If build fails with EACCES, please run manually: chmod +x node_modules/@esbuild/linux-x64/bin/esbuild');
+    // To be safe, specifically target the known structure:
+    // We want to find any 'esbuild' binary inside an 'npm' package structure.
+    // Actually, a simpler robust way for the user's specific case:
+    // 1. Check root node_modules
+    // 2. Check nested node_modules inside root node_modules (e.g. root/node_modules/vite/node_modules/...)
+
+    // Implementation below simply walks all 'node_modules' recursively
+
+    const rootNodeModules = path.join(rootDir, 'node_modules');
+    findAndFixEsbuild(rootNodeModules);
+
+    if (fixedCount === 0) {
+        console.log('⚠️  [fix-permissions] No esbuild binaries found to fix.');
+    } else {
+        console.log(`[fix-permissions] Done. Fixed ${fixedCount} esbuild binaries.`);
     }
 
 } else {
