@@ -1,0 +1,248 @@
+Below is a **precise, complete, developer-ready Replit prompt** describing your updated role-permission logic exactly as you need it.
+
+You can copy–paste this directly into your project instructions for your developer.
+
+---
+
+# ✅ **FULL DETAILED REPLIT PROMPT – USER ROLES & PERMISSIONS (Updated as Requested)**
+
+## **1. User Roles (Only Two Roles Exist)**
+
+The system must support and enforce **ONLY two roles**:
+
+---
+
+### **A. SUPER ADMIN** (Only 1 user in the entire system)
+
+**Full Access + Full Control**
+
+* Can see **everything** in the entire system.
+* Can create accounts for Owners.
+* Can edit or override any Owner’s data.
+* Can see all transactions, all shops, all tenants, all leases, all reports.
+* If an Owner updates anything, Super Admin can still see the change and override it if needed.
+* Can manage common/shared spaces.
+* Can manage system settings.
+* Can delete or modify any record.
+
+**Super Admin = Master user with 100% control.**
+
+---
+
+### **B. OWNER**
+
+Each Owner gets access after the Super Admin creates their account.
+
+#### Owners Can:
+
+* **View and Edit ONLY their own data**, which includes:
+
+  * Their shops
+  * Their tenants
+  * Their leases
+  * Their rent collections
+  * Their expenses
+  * Their outstanding dues
+  * Their own reports
+* **View and Edit Common Spaces** that belong to multiple Owners.
+* Update information directly related to their assigned properties.
+* Download their own reports.
+
+#### Owners Cannot:
+
+* View or edit other Owners' shops or tenants
+* View system settings
+* Create or edit other Owners
+* Modify Super Admin data
+* Access Super Admin-level routes
+* Access financial records of other Owners
+* See Full System overview
+
+Owners = Limited access to only their assigned and common property areas.
+
+---
+
+# 📌 **2. Login System**
+
+The app already has a login page.
+
+### Login Requirements:
+
+* Email + Password
+* After login → system checks `role`
+* Redirect based on role:
+
+  * Super Admin → Admin Dashboard
+  * Owner → Owner Dashboard
+
+Passwords must be hashed securely.
+
+---
+
+# 📌 **3. Super Admin Creates Owner Accounts**
+
+Super Admin has a page:
+
+### 🔹 **Create Owner Profile**
+
+Fields:
+
+* Owner Name
+* Email
+* Mobile Number
+* Password
+* Assigned Shops (optional)
+* Assigned Common Spaces (optional)
+
+After creating the Owner:
+
+* Credentials become active
+* Owner can log in immediately
+* Owner sees only their assigned data + common/shared areas
+
+---
+
+# 📌 **4. Common Spaces Rules**
+
+"Common spaces" include areas shared by multiple Owners (example: market hall, shared corridors, shared utilities).
+
+### Owners should:
+
+* **Only be able to view/edit common spaces that involve them**
+* Not view other Owners’ private spaces
+* Super Admin sees everything
+
+This requires tagging common spaces with:
+
+```
+common_space = true
+owner_ids = [list of owners who share it]
+```
+
+When Owner logs in:
+
+```
+Show shops where owner_id = current owner
+PLUS
+Show common spaces where owner_ids contains current owner
+```
+
+---
+
+# 📌 **5. Backend Role & Permission Enforcement**
+
+Add middleware/guard on all routes:
+
+### Super Admin
+
+* No restrictions
+* Can access any route
+
+### Owner
+
+For every query, enforce:
+
+```
+WHERE owner_id = current_user.owner_id
+OR 
+(common_space = true AND current_user.owner_id IN owner_ids)
+```
+
+This prevents Owners from accessing other Owners’ data via URL manipulation.
+
+---
+
+# 📌 **6. UI/UX Requirements**
+
+### Owner Dashboard should show:
+
+* Their shop count
+* Their tenant list
+* Their total due
+* Their common spaces
+* Their financial summary
+* Their reports
+
+### Super Admin Dashboard should show:
+
+* Total Owners
+* Total Shops
+* Total Tenants
+* Full financial summary
+* All system data
+* Owner management panel
+
+Owners should NOT see:
+
+* Owner management
+* Settings
+* System-level controls
+* Other Owners' names or data
+
+---
+
+# 📌 **7. Required Database Updates**
+
+Add or update fields:
+
+### Users table:
+
+```
+role: "super_admin" | "owner"
+owner_id (null for super_admin)
+email
+password_hash
+```
+
+### Shops table:
+
+```
+owner_id
+is_common_space (boolean)
+common_space_owner_ids (array/list)
+location
+sub_category (if Subedari)
+```
+
+### Tenants, Leases, Payments, Expenses:
+
+All must contain:
+
+```
+owner_id
+```
+
+to ensure strict filtering.
+
+---
+
+# 📌 **8. Testing Cases**
+
+### Super Admin Test:
+
+* Can create an Owner
+* Can edit any shop/tenant/lease
+* Can view everything
+* Overrides Owner changes
+
+### Owner Test:
+
+* Logs in → sees only their data
+* Can edit their own shops/tenants
+* Can see common spaces
+* Cannot access super admin pages
+* Cannot see other Owners
+
+---
+
+# ✅ **This is the complete and final developer prompt for your permission system.**
+
+If you want, I can also prepare:
+
+📌 API endpoints
+📌 Database schema
+📌 Middleware code (Node, Laravel, Django)
+📌 UI wireframe
+📌 Role restrictions table
+
+Just tell me!

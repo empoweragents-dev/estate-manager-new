@@ -1,0 +1,104 @@
+Project Name: Bhuiyan & Subedari Estate Manager
+Context: Commercial Property Management System for "Haji Ahsan Ullah Bhuiyan Market & Subedari".
+
+System Overview:
+Build a web-based property management application to manage a commercial building with 3 floors (Ground, 1st, 2nd) and 5 distinct Owners. The system must handle individual shop ownerships, common/shared shops, tenant leasing, and complex financial reporting in BDT (with an AUD view option).
+
+1. Database & Asset Structure
+
+    Owners: 5 distinct owner profiles (Name, Contact, Bank Info).
+
+    Floors: Ground, 1st, 2nd.
+
+    Shops/Units:
+
+        Attributes: Shop Number, Floor, Sq Ft, Status (Vacant/Occupied).
+
+        Ownership Logic: Each shop must be tagged as either "Sole Owner" (linked to 1 of 5 owners) or "Common" (revenue shared among all).
+
+    Tenants:
+
+        Profile: Name, Photo, NID/Passport, Permanent Address, Phone, Email.
+
+        Onboarding Field: Opening Due Balance (Input field to record pre-existing debt when adding a tenant who is already renting before this app existed).
+
+2. Core Functional Modules
+
+    Lease Management:
+
+        Create agreements with Start Date, End Date, Security Deposit (Advance), and Monthly Rent Amount.
+
+        Status tracking: Active, Expiring Soon (30-day alert), Expired, Terminated.
+
+    Advanced Search System:
+
+        Implement a Global Search Bar accessible from the header.
+
+        Search capabilities:
+
+            By Tenant: Name, Phone Number, NID.
+
+            By Shop: Shop Number, Floor Level.
+
+            By Lease: Agreement ID.
+
+        Results should be clickable and lead directly to the Tenant/Shop detail page.
+
+3. Financial Engine & Dues Logic
+
+    Currency: Primary in BDT. Secondary view toggle for AUD (using a manual or API exchange rate).
+
+    Rent Collection:
+
+        Monthly generation of rent invoices.
+
+        "Receive Payment" feature allowing Manager to input partial or full payments.
+
+        Bank Deposit Tracking: Manager must record deposits into specific Owner Bank Accounts. Fields: Date, Amount, Bank Name, Deposit Slip/Ref ID.
+
+    Dynamic Dues Calculation (Crucial):
+
+        The system must calculate "Total Outstanding Dues" for every tenant in real-time using this formula:
+        Total Due = (Opening Due Balance + Sum of All Monthly Rent Invoices generated) - (Sum of All Payments Received)
+
+        If a tenant pays partial rent, the remainder must carry over to the next month automatically.
+
+    Expense Management:
+
+        Record operational costs (Guard, Cleaner, Electricity).
+
+        Allocate costs to specific Owners or flag as "Common Expense" (deducted from common revenue).
+
+4. Comprehensive Reporting System
+
+    Owner Statement:
+
+        Filter by Owner > Select Date Range.
+
+        Show: Total Rent Collected (from owned shops + share of common shops) - Allocated Expenses = Net Payout.
+
+        Show breakdown of Bank Deposits made to this owner.
+
+    Tenant Ledger:
+
+        A chronological statement for each tenant showing: Opening Balance -> Rent Added (Month 1) -> Payment (Month 1) -> Current Due.
+
+    Collection Report:
+
+        Monthly view: Expected Collection vs. Actual Collection vs. Pending Dues.
+
+    Shop Availability Report: Visual list of vacant vs. occupied shops per floor.
+
+5. UI/UX Requirements
+
+    Dashboard: High-level summary of Total Dues, Total Collection this month, and Occupancy rate.
+
+    Input Forms: When adding a new Tenant, ensure the "Previous Dues/Opening Balance" field is prominent so the Manager doesn't miss adding old debts.
+
+    Agreement Handling: Clear visual indicators for Agreement Start/End dates.
+
+Constraints:
+
+    Ensure data integrity: Payments cannot be assigned to a shop without an active tenant.
+
+    The "Common Shop" revenue must be mathematically splittable in reports (e.g., 20% to each owner).

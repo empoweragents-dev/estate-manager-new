@@ -1,0 +1,116 @@
+Landing / Login Page
+Landing Page Requirements
+
+Only a login page, no dashboard visible before login.
+
+App Title:
+
+Rental Management System
+For Haji Ahsan Ullah Bhuiyan Market & Subedari
+
+
+Fields:
+
+Username / Email (input)
+
+Password (input)
+
+Login Button
+
+Simple, clean UI with centered form and branding at top.
+
+Responsive for desktop and mobile.
+
+2. Super Admin Credentials
+
+Hardcode or predefine initial credentials:
+
+Username: super_admin
+Password: Empower01#
+
+
+Only this account can log in as Super Admin initially.
+
+3. Super Admin Dashboard / User Management
+
+After successful login, Super Admin can:
+
+Create Owner Accounts
+
+Fields:
+
+Owner Name
+
+Owner Email
+
+Owner Phone
+
+Username (for Owner login)
+
+Password (set by Super Admin)
+
+Optional: Assigned Shops/Leases
+
+Save account to database.
+
+Owner receives credentials (visible in dashboard only).
+
+View All Owners
+
+List all existing Owners
+
+Show Owner Name, Username, Email, Phone
+
+Edit Owner Info (Name, Email, Phone, Password)
+
+Delete Owner if needed
+
+Permissions
+
+Super Admin can access all owners and all data.
+
+Owners can log in only with credentials created by Super Admin.
+
+Owners see only their assigned shops, tenants, leases, and reports.
+
+4. Owner Login
+
+After Super Admin creates an Owner account:
+
+Owner can log in with their username/email and password.
+
+Redirected to Owner Dashboard:
+
+View & edit only their data
+
+Access reports related to their properties
+
+Cannot see other owners or system settings.
+
+5. Security
+
+Hash passwords in database.
+
+Validate email & username uniqueness.
+
+Prevent unauthorized access to Super Admin pages.
+
+Implement session management (logout on inactivity).
+
+6. Optional UI / UX Enhancements
+
+Show market logo or system branding on login page.
+
+Display login errors for invalid credentials.
+
+“Forgot password” can be optional for Owners.
+
+Clean, modern look: centered login form, clear fields, responsive design.
+
+7. Summary
+
+Landing Page → Super Admin Login
+
+Super Admin logs in → User Management (Create/Edit/Delete Owners)
+
+Owners created by Super Admin → Owner Login → Owner Dashboard

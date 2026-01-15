@@ -1,39 +1,40 @@
-import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, integer, decimal, boolean, date, timestamp, pgEnum, index, jsonb } from "drizzle-orm/pg-core";
+import { relations, sql } from "drizzle-orm";
+import { mysqlTable, varchar, int, decimal, boolean, date, timestamp, mysqlEnum, index, json, text } from "drizzle-orm/mysql-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// Enums
-export const userRoleEnum = pgEnum('user_role', ['super_admin', 'owner']);
-export const floorEnum = pgEnum('floor', ['ground', 'first', 'second', 'subedari']);
-export const subedariCategoryEnum = pgEnum('subedari_category', ['shops', 'residential']);
-export const shopStatusEnum = pgEnum('shop_status', ['vacant', 'occupied']);
-export const ownershipTypeEnum = pgEnum('ownership_type', ['sole', 'common']);
-export const leaseStatusEnum = pgEnum('lease_status', ['active', 'expiring_soon', 'expired', 'terminated']);
-export const expenseTypeEnum = pgEnum('expense_type', ['guard', 'cleaner', 'electricity', 'maintenance', 'other']);
-export const expenseAllocationEnum = pgEnum('expense_allocation', ['owner', 'common']);
+// Enum Values (MySQL Enums are defined per column)
+const userRoles = ['super_admin', 'owner'] as const;
+const floors = ['ground', 'first', 'second', 'subedari'] as const;
+const subedariCategories = ['shops', 'residential'] as const;
+const shopStatuses = ['vacant', 'occupied'] as const;
+const ownershipTypes = ['sole', 'common'] as const;
+const leaseStatuses = ['active', 'expiring_soon', 'expired', 'terminated'] as const;
+const expenseTypes = ['guard', 'cleaner', 'electricity', 'maintenance', 'other'] as const;
+const expenseAllocations = ['owner', 'common'] as const;
+const deletionRecordTypes = ['payment', 'bank_deposit', 'tenant', 'shop', 'lease', 'expense'] as const;
 
-// Session storage table for Replit Auth
-export const sessions = pgTable(
+// Session storage table for Replit Auth (or general session)
+export const sessions = mysqlTable(
   "sessions",
   {
-    sid: varchar("sid").primaryKey(),
-    sess: jsonb("sess").notNull(),
-    expire: timestamp("expire").notNull(),
+    sid: varchar("sid", { length: 255 }).primaryKey(),
+    sess: json("sess").notNull(),
+    expire: timestamp("expire", { mode: "date" }).notNull(),
   },
   (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
 // Owners table - 5 distinct owner profiles
-export const owners = pgTable("owners", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  name: text("name").notNull(),
-  phone: text("phone"),
-  email: text("email"),
+export const owners = mysqlTable("owners", {
+  id: int("id").primaryKey().autoincrement(),
+  name: varchar("name", { length: 255 }).notNull(),
+  phone: varchar("phone", { length: 255 }),
+  email: varchar("email", { length: 255 }),
   address: text("address"),
-  bankName: text("bank_name"),
-  bankAccountNumber: text("bank_account_number"),
-  bankBranch: text("bank_branch"),
+  bankName: varchar("bank_name", { length: 255 }),
+  bankAccountNumber: varchar("bank_account_number", { length: 255 }),
+  bankBranch: varchar("bank_branch", { length: 255 }),
 });
 
 export const ownersRelations = relations(owners, ({ many }) => ({
@@ -44,18 +45,18 @@ export const ownersRelations = relations(owners, ({ many }) => ({
 }));
 
 // Users table with roles - for authentication
-export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: varchar("username").unique().notNull(),
-  password: varchar("password").notNull(),
-  email: varchar("email"),
-  firstName: varchar("first_name"),
-  lastName: varchar("last_name"),
-  phone: varchar("phone"),
-  role: userRoleEnum("role").notNull().default('owner'),
-  ownerId: integer("owner_id").references(() => owners.id),
+export const users = mysqlTable("users", {
+  id: varchar("id", { length: 36 }).primaryKey(), // Manual UUID or app-generated
+  username: varchar("username", { length: 255 }).unique().notNull(),
+  password: varchar("password", { length: 255 }).notNull(),
+  email: varchar("email", { length: 255 }),
+  firstName: varchar("first_name", { length: 255 }),
+  lastName: varchar("last_name", { length: 255 }),
+  phone: varchar("phone", { length: 255 }),
+  role: mysqlEnum("role", userRoles).notNull().default('owner'),
+  ownerId: int("owner_id").references(() => owners.id),
   createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
 });
 
 export const usersRelations = relations(users, ({ one }) => ({
@@ -66,20 +67,20 @@ export const usersRelations = relations(users, ({ one }) => ({
 }));
 
 // Shops/Units table
-export const shops = pgTable("shops", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  shopNumber: text("shop_number").notNull(),
-  floor: floorEnum("floor").notNull(),
-  subedariCategory: subedariCategoryEnum("subedari_category"), // only used when floor is 'subedari'
+export const shops = mysqlTable("shops", {
+  id: int("id").primaryKey().autoincrement(),
+  shopNumber: varchar("shop_number", { length: 50 }).notNull(),
+  floor: mysqlEnum("floor", floors).notNull(),
+  subedariCategory: mysqlEnum("subedari_category", subedariCategories), // only used when floor is 'subedari'
   squareFeet: decimal("square_feet", { precision: 10, scale: 2 }),
-  status: shopStatusEnum("status").notNull().default('vacant'),
-  ownershipType: ownershipTypeEnum("ownership_type").notNull(),
-  ownerId: integer("owner_id").references(() => owners.id), // null if common ownership
+  status: mysqlEnum("status", shopStatuses).notNull().default('vacant'),
+  ownershipType: mysqlEnum("ownership_type", ownershipTypes).notNull(),
+  ownerId: int("owner_id").references(() => owners.id), // null if common ownership
   description: text("description"),
   isDeleted: boolean("is_deleted").notNull().default(false),
   deletedAt: timestamp("deleted_at"),
   deletionReason: text("deletion_reason"),
-  deletedBy: varchar("deleted_by").references(() => users.id),
+  deletedBy: varchar("deleted_by", { length: 36 }).references(() => users.id),
 });
 
 export const shopsRelations = relations(shops, ({ one, many }) => ({
@@ -91,13 +92,13 @@ export const shopsRelations = relations(shops, ({ one, many }) => ({
 }));
 
 // Tenants table
-export const tenants = pgTable("tenants", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  name: text("name").notNull(),
-  phone: text("phone").notNull(),
-  email: text("email"),
-  businessName: text("business_name"),
-  nidPassport: text("nid_passport"),
+export const tenants = mysqlTable("tenants", {
+  id: int("id").primaryKey().autoincrement(),
+  name: varchar("name", { length: 255 }).notNull(),
+  phone: varchar("phone", { length: 50 }).notNull(),
+  email: varchar("email", { length: 255 }),
+  businessName: varchar("business_name", { length: 255 }),
+  nidPassport: varchar("nid_passport", { length: 255 }),
   permanentAddress: text("permanent_address"),
   photoUrl: text("photo_url"),
   notes: text("notes"), // Admin notes about tenant
@@ -106,7 +107,7 @@ export const tenants = pgTable("tenants", {
   isDeleted: boolean("is_deleted").notNull().default(false),
   deletedAt: timestamp("deleted_at"),
   deletionReason: text("deletion_reason"),
-  deletedBy: varchar("deleted_by").references(() => users.id),
+  deletedBy: varchar("deleted_by", { length: 36 }).references(() => users.id),
 });
 
 export const tenantsRelations = relations(tenants, ({ many }) => ({
@@ -115,17 +116,17 @@ export const tenantsRelations = relations(tenants, ({ many }) => ({
 }));
 
 // Leases table
-export const leases = pgTable("leases", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  tenantId: integer("tenant_id").notNull().references(() => tenants.id),
-  shopId: integer("shop_id").notNull().references(() => shops.id),
+export const leases = mysqlTable("leases", {
+  id: int("id").primaryKey().autoincrement(),
+  tenantId: int("tenant_id").notNull().references(() => tenants.id),
+  shopId: int("shop_id").notNull().references(() => shops.id),
   startDate: date("start_date").notNull(),
   endDate: date("end_date").notNull(),
   securityDeposit: decimal("security_deposit", { precision: 12, scale: 2 }).notNull(),
   securityDepositUsed: decimal("security_deposit_used", { precision: 12, scale: 2 }).notNull().default('0'),
   monthlyRent: decimal("monthly_rent", { precision: 12, scale: 2 }).notNull(),
   openingDueBalance: decimal("opening_due_balance", { precision: 12, scale: 2 }).notNull().default('0'),
-  status: leaseStatusEnum("status").notNull().default('active'),
+  status: mysqlEnum("status", leaseStatuses).notNull().default('active'),
   notes: text("notes"),
   terminationNotes: text("termination_notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -145,9 +146,9 @@ export const leasesRelations = relations(leases, ({ one, many }) => ({
 }));
 
 // Rent Adjustments - history of rent changes
-export const rentAdjustments = pgTable("rent_adjustments", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  leaseId: integer("lease_id").notNull().references(() => leases.id),
+export const rentAdjustments = mysqlTable("rent_adjustments", {
+  id: int("id").primaryKey().autoincrement(),
+  leaseId: int("lease_id").notNull().references(() => leases.id),
   previousRent: decimal("previous_rent", { precision: 12, scale: 2 }).notNull(),
   newRent: decimal("new_rent", { precision: 12, scale: 2 }).notNull(),
   adjustmentAmount: decimal("adjustment_amount", { precision: 12, scale: 2 }).notNull(), // positive for increase, negative for decrease
@@ -165,14 +166,14 @@ export const rentAdjustmentsRelations = relations(rentAdjustments, ({ one }) => 
 }));
 
 // Rent Invoices - monthly rent generation
-export const rentInvoices = pgTable("rent_invoices", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  leaseId: integer("lease_id").notNull().references(() => leases.id),
-  tenantId: integer("tenant_id").notNull().references(() => tenants.id),
+export const rentInvoices = mysqlTable("rent_invoices", {
+  id: int("id").primaryKey().autoincrement(),
+  leaseId: int("lease_id").notNull().references(() => leases.id),
+  tenantId: int("tenant_id").notNull().references(() => tenants.id),
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
   dueDate: date("due_date").notNull(),
-  month: integer("month").notNull(), // 1-12
-  year: integer("year").notNull(),
+  month: int("month").notNull(), // 1-12
+  year: int("year").notNull(),
   isPaid: boolean("is_paid").notNull().default(false),
   paidAmount: decimal("paid_amount", { precision: 12, scale: 2 }).notNull().default("0"), // Track partial payments
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -190,20 +191,20 @@ export const rentInvoicesRelations = relations(rentInvoices, ({ one }) => ({
 }));
 
 // Payments table
-export const payments = pgTable("payments", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  tenantId: integer("tenant_id").notNull().references(() => tenants.id),
-  leaseId: integer("lease_id").notNull().references(() => leases.id),
+export const payments = mysqlTable("payments", {
+  id: int("id").primaryKey().autoincrement(),
+  tenantId: int("tenant_id").notNull().references(() => tenants.id),
+  leaseId: int("lease_id").notNull().references(() => leases.id),
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
   paymentDate: date("payment_date").notNull(),
-  rentMonths: jsonb("rent_months").$type<string[]>(), // Array of "YYYY-MM" strings
-  receiptNumber: text("receipt_number"),
+  rentMonths: json("rent_months").$type<string[]>(), // Array of "YYYY-MM" strings. MySQL uses json
+  receiptNumber: varchar("receipt_number", { length: 255 }),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   isDeleted: boolean("is_deleted").notNull().default(false),
   deletedAt: timestamp("deleted_at"),
   deletionReason: text("deletion_reason"),
-  deletedBy: varchar("deleted_by").references(() => users.id),
+  deletedBy: varchar("deleted_by", { length: 36 }).references(() => users.id),
 });
 
 export const paymentsRelations = relations(payments, ({ one }) => ({
@@ -218,19 +219,19 @@ export const paymentsRelations = relations(payments, ({ one }) => ({
 }));
 
 // Bank Deposits - tracking deposits to owner accounts
-export const bankDeposits = pgTable("bank_deposits", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  ownerId: integer("owner_id").notNull().references(() => owners.id),
+export const bankDeposits = mysqlTable("bank_deposits", {
+  id: int("id").primaryKey().autoincrement(),
+  ownerId: int("owner_id").notNull().references(() => owners.id),
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
   depositDate: date("deposit_date").notNull(),
-  bankName: text("bank_name").notNull(),
-  depositSlipRef: text("deposit_slip_ref"),
+  bankName: varchar("bank_name", { length: 255 }).notNull(),
+  depositSlipRef: varchar("deposit_slip_ref", { length: 255 }),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   isDeleted: boolean("is_deleted").notNull().default(false),
   deletedAt: timestamp("deleted_at"),
   deletionReason: text("deletion_reason"),
-  deletedBy: varchar("deleted_by").references(() => users.id),
+  deletedBy: varchar("deleted_by", { length: 36 }).references(() => users.id),
 });
 
 export const bankDepositsRelations = relations(bankDeposits, ({ one }) => ({
@@ -241,15 +242,15 @@ export const bankDepositsRelations = relations(bankDeposits, ({ one }) => ({
 }));
 
 // Expenses table
-export const expenses = pgTable("expenses", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  expenseType: expenseTypeEnum("expense_type").notNull(),
+export const expenses = mysqlTable("expenses", {
+  id: int("id").primaryKey().autoincrement(),
+  expenseType: mysqlEnum("expense_type", expenseTypes).notNull(),
   description: text("description").notNull(),
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
   expenseDate: date("expense_date").notNull(),
-  allocation: expenseAllocationEnum("allocation").notNull(),
-  ownerId: integer("owner_id").references(() => owners.id), // null if common expense
-  receiptRef: text("receipt_ref"),
+  allocation: mysqlEnum("allocation", expenseAllocations).notNull(),
+  ownerId: int("owner_id").references(() => owners.id), // null if common expense
+  receiptRef: varchar("receipt_ref", { length: 255 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -261,24 +262,21 @@ export const expensesRelations = relations(expenses, ({ one }) => ({
 }));
 
 // Settings table - for exchange rate and other configs
-export const settings = pgTable("settings", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  key: text("key").notNull().unique(),
+export const settings = mysqlTable("settings", {
+  id: int("id").primaryKey().autoincrement(),
+  key: varchar("key", { length: 255 }).notNull().unique(),
   value: text("value").notNull(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
 });
 
-// Deletion record type enum
-export const deletionRecordTypeEnum = pgEnum('deletion_record_type', ['payment', 'bank_deposit', 'tenant', 'shop', 'lease', 'expense']);
-
 // Deletion Logs table - audit trail for deleted records
-export const deletionLogs = pgTable("deletion_logs", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  recordType: deletionRecordTypeEnum("record_type").notNull(),
-  recordId: integer("record_id").notNull(),
-  recordDetails: jsonb("record_details").notNull(), // Snapshot of the deleted record
+export const deletionLogs = mysqlTable("deletion_logs", {
+  id: int("id").primaryKey().autoincrement(),
+  recordType: mysqlEnum("record_type", deletionRecordTypes).notNull(),
+  recordId: int("record_id").notNull(),
+  recordDetails: json("record_details").notNull(), // Snapshot of the deleted record
   reason: text("reason").notNull(),
-  deletedBy: varchar("deleted_by").references(() => users.id),
+  deletedBy: varchar("deleted_by", { length: 36 }).references(() => users.id),
   deletedAt: timestamp("deleted_at").notNull().defaultNow(),
 });
 
@@ -351,3 +349,23 @@ export type TenantWithDues = Tenant & {
   totalPaid: number;
   currentDue: number;
 };
+
+// Additional Payments (Financial Statement Only)
+const additionalPaymentTypes = ['advance_adjustment', 'service_charge', 'other'] as const;
+
+export const additionalPayments = mysqlTable("additional_payments", {
+  id: int("id").primaryKey().autoincrement(),
+  tenantId: int("tenant_id").notNull(), // No FK constraint strictly required if optional, but usually yes. Previous code had it.
+  ownerId: int("owner_id").notNull(),
+  paymentType: mysqlEnum("payment_type", additionalPaymentTypes).notNull(),
+  description: text("description").notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  paymentDate: date("payment_date").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  isDeleted: boolean("is_deleted").notNull().default(false),
+});
+
+export const insertAdditionalPaymentSchema = createInsertSchema(additionalPayments).omit({ id: true, createdAt: true });
+export type AdditionalPayment = typeof additionalPayments.$inferSelect;
+export type InsertAdditionalPayment = z.infer<typeof insertAdditionalPaymentSchema>;

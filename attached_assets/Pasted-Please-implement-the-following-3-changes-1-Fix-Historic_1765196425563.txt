@@ -1,0 +1,61 @@
+Please implement the following 3 changes:
+
+1. Fix Historical Rent Calculation (Time-Dependent Pricing)
+
+    The Issue: Currently, the system uses the tenant's current rent amount to calculate dues for past months. This is incorrect if a Rent Adjustment (increase/decrease) occurred recently.
+
+    The Fix: Create a helper function (e.g., calculateRentForMonth(tenant, monthDate)).
+
+    Logic: When generating the list of due months, this function must check the Rent Adjustments history.
+
+        Example: If Rent was 5000 from Jan-June, and increased to 5500 in July:
+
+        The row for "January" must ask for 5000 (historical rate).
+
+        The row for "December" must ask for 5500 (current rate).
+
+2. Smart Month Visibility (Past, Current, & Future)
+
+    Refine the Month List generation:
+
+        Hide Past Paid: Do not display past months that are already fully paid.
+
+        Show Past Due: Display any past month (from Lease Start Date) that is unpaid or partial.
+
+        Show Current: Always display the current month.
+
+    Handle Future Months (Advance Payment):
+
+        By default, hide all months strictly after the current month.
+
+        UI: Add a toggle link/button below the list labeled "﹢ Show Future Months (Advance Payment)".
+
+        Clicking this expands the list to show the next 6-12 months, allowing the tenant to prepay if desired.
+
+3. Outstanding Dues & Ledger Integration
+
+    Logic: Calculate the tenant's total Outstanding Balance (Total Accrued Rent - Total Paid Amount).
+
+    UI: If Balance > 0, add a dedicated Checkbox at the very top of the form (above the month list).
+
+        Label: "Pay Outstanding Balance / Previous Arrears (৳[Amount])".
+
+    Payment Handling:
+
+        If the user checks this box, record the payment as a Balance Adjustment or Arrears Payment in the ledger, rather than tying it to a specific month.
+
+        Allow the user to select both "Outstanding Balance" AND specific monthly rent checkboxes in a single transaction.
+
+Summary of Desired UI:
+
+Pay Outstanding Arrears: ৳2,000 (Only visible if debt exists)
+
+January 2025: ৳5,000 (Unpaid past month - uses OLD historical price)
+
+February 2025: ৳5,000 (Unpaid past month - uses OLD historical price)
+
+    December 2025: ৳5,500 (Current month - uses NEW price)
+
+    [ Link: + Show Future Months ] (Expands to show Jan 2026, Feb 2026...)
+
+Please update the frontend rendering logic and the backend payment calculation to reflect these three requirements.
