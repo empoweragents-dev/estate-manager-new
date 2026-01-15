@@ -65,6 +65,8 @@ export interface IStorage {
   createPayment(payment: InsertPayment): Promise<Payment>;
   updatePayment(id: number, payment: Partial<InsertPayment>): Promise<Payment | undefined>;
   deletePayment(id: number): Promise<void>;
+  getPaymentsWithDetails(): Promise<any[]>;
+  getLeasesWithDetails(): Promise<any[]>;
 
   // Bank Deposits
   getBankDeposits(): Promise<BankDeposit[]>;
@@ -101,12 +103,8 @@ export interface IStorage {
   createDeletionLog(log: InsertDeletionLog): Promise<DeletionLog>;
 
   // Additional Payments
-  // These were manually defined in previous storage.ts. Since I haven't added them to schema yet,
-  // I will comment them out or implement them if I add the schema.
-  // The user said "migrate all data". I should support this.
-  // I will assume I will add `additional_payments` to schema.ts shortly.
-  // For now, I'll define these in IStorage but implementation will fail or be empty if I don't update schema.
-  // I'll update schema.ts first in next step if possible, or just add TODO here.
+  getAdditionalPaymentsByOwner(ownerId: number): Promise<AdditionalPayment[]>;
+  createAdditionalPayment(payment: InsertAdditionalPayment): Promise<AdditionalPayment>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -316,6 +314,50 @@ export class DatabaseStorage implements IStorage {
     await db.delete(payments).where(eq(payments.id, id));
   }
 
+  async getPaymentsWithDetails(): Promise<any[]> {
+    const result = await db.select({
+      payment: payments,
+      tenant: tenants,
+      lease: leases,
+      shop: shops
+    })
+      .from(payments)
+      .leftJoin(tenants, eq(payments.tenantId, tenants.id))
+      .leftJoin(leases, eq(payments.leaseId, leases.id))
+      .leftJoin(shops, eq(leases.shopId, shops.id));
+
+    return result.map(row => ({
+      ...row.payment,
+      tenant: row.tenant,
+      lease: row.lease ? {
+        ...row.lease,
+        shop: row.shop
+      } : null
+    }));
+  }
+
+  async getLeasesWithDetails(): Promise<any[]> {
+    const result = await db.select({
+      lease: leases,
+      tenant: tenants,
+      shop: shops,
+      owner: owners
+    })
+      .from(leases)
+      .leftJoin(tenants, eq(leases.tenantId, tenants.id))
+      .leftJoin(shops, eq(leases.shopId, shops.id))
+      .leftJoin(owners, eq(shops.ownerId, owners.id));
+
+    return result.map(row => ({
+      ...row.lease,
+      tenant: row.tenant,
+      shop: row.shop ? {
+        ...row.shop,
+        owner: row.owner
+      } : null
+    }));
+  }
+
   // --- BANK DEPOSITS ---
   async getBankDeposits(): Promise<BankDeposit[]> {
     return await db.select().from(bankDeposits);
@@ -452,6 +494,17 @@ export class DatabaseStorage implements IStorage {
     const [result] = await db.insert(deletionLogs).values(log);
     const [dLog] = await db.select().from(deletionLogs).where(eq(deletionLogs.id, result.insertId));
     return dLog;
+  }
+
+  // --- ADDITIONAL PAYMENTS ---
+  async getAdditionalPaymentsByOwner(ownerId: number): Promise<AdditionalPayment[]> {
+    return await db.select().from(additionalPayments).where(eq(additionalPayments.ownerId, ownerId));
+  }
+
+  async createAdditionalPayment(payment: InsertAdditionalPayment): Promise<AdditionalPayment> {
+    const [result] = await db.insert(additionalPayments).values(payment);
+    const id = result.insertId;
+    return { ...payment, id, createdAt: new Date(), isDeleted: false, notes: payment.notes || null } as AdditionalPayment;
   }
 }
 

@@ -1334,24 +1334,31 @@ export async function registerRoutes(
   // ===== LEASES =====
   app.get("/api/leases", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      let allLeases = await storage.getLeases();
+      let leasesWithDetails = await storage.getLeasesWithDetails();
 
-      // Filter leases for owner users (only leases in their shops + common shops)
+      // Filter for owner
       if (isOwnerUser(req) && req.session.ownerId) {
         const accessibleShopIds = await getOwnerAccessibleShops(req.session.ownerId);
-        allLeases = allLeases.filter(l => accessibleShopIds.includes(l.shopId));
+        leasesWithDetails = leasesWithDetails.filter(l => l.shopId && accessibleShopIds.includes(l.shopId));
       }
 
-      // Update lease statuses and get details
-      const leasesWithDetails = await Promise.all(allLeases.map(async (lease) => {
-        const tenant = await storage.getTenant(lease.tenantId);
-        const shop = await storage.getShop(lease.shopId);
-        let owner = null;
-        if (shop?.ownerId) {
-          owner = await storage.getOwner(shop.ownerId);
-        }
+      // Process status updates
+      const processedLeases = await Promise.all(leasesWithDetails.map(async (leaseData) => {
+        const lease = {
+          id: leaseData.id,
+          shopId: leaseData.shopId,
+          tenantId: leaseData.tenantId,
+          startDate: leaseData.startDate,
+          endDate: leaseData.endDate,
+          monthlyRent: leaseData.monthlyRent,
+          deposit: leaseData.deposit,
+          status: leaseData.status,
+          rentIncreasePercentage: leaseData.rentIncreasePercentage,
+          nextRentIncreaseDate: leaseData.nextRentIncreaseDate,
+          isActive: leaseData.isActive,
+          createdAt: leaseData.createdAt
+        };
 
-        // Check and update status
         const today = new Date();
         const endDate = new Date(lease.endDate);
         const thirtyDaysFromNow = new Date();
@@ -1375,12 +1382,12 @@ export async function registerRoutes(
         return {
           ...lease,
           status: newStatus,
-          tenant,
-          shop: shop ? { ...shop, owner } : null,
+          tenant: leaseData.tenant,
+          shop: leaseData.shop
         };
       }));
 
-      res.json(leasesWithDetails);
+      res.json(processedLeases);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -2338,27 +2345,13 @@ export async function registerRoutes(
   // ===== PAYMENTS =====
   app.get("/api/payments", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      let allPayments = await storage.getPayments();
+      let paymentsWithDetails = await storage.getPaymentsWithDetails();
 
       // Filter payments for owner users (only payments for leases in their shops + common shops)
       if (isOwnerUser(req) && req.session.ownerId) {
         const accessibleShopIds = await getOwnerAccessibleShops(req.session.ownerId);
-        const allLeases = await storage.getLeases();
-        const accessibleLeaseIds = new Set(
-          allLeases.filter(l => accessibleShopIds.includes(l.shopId)).map(l => l.id)
-        );
-        allPayments = allPayments.filter(p => accessibleLeaseIds.has(p.leaseId));
+        paymentsWithDetails = paymentsWithDetails.filter(p => p.lease?.shopId && accessibleShopIds.includes(p.lease.shopId));
       }
-
-      const paymentsWithDetails = await Promise.all(allPayments.map(async (payment) => {
-        const tenant = await storage.getTenant(payment.tenantId);
-        const lease = await storage.getLease(payment.leaseId);
-        let shop = null;
-        if (lease) {
-          shop = await storage.getShop(lease.shopId);
-        }
-        return { ...payment, tenant, lease: lease ? { ...lease, shop: shop ? { shopNumber: shop.shopNumber, floor: shop.floor, ownerId: shop.ownerId, ownershipType: shop.ownershipType } : null } : null };
-      }));
 
       // Filter out payments with missing tenants to avoid frontend crashes
       const validPayments = paymentsWithDetails.filter(p => p.tenant !== undefined && p.tenant !== null);

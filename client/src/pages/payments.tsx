@@ -757,7 +757,7 @@ export default function PaymentsPage() {
   const { toast } = useToast();
   const { currency } = useCurrencyStore();
 
-  const { data: payments = [], isLoading } = useQuery<PaymentWithDetails[]>({
+  const { data: payments = [], isLoading, isError, error } = useQuery<PaymentWithDetails[]>({
     queryKey: ["/api/payments"],
   });
 
@@ -915,6 +915,21 @@ export default function PaymentsPage() {
             ))}
           </CardContent>
         </Card>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="p-6">
+        <div className="bg-destructive/15 text-destructive p-4 rounded-md flex items-center gap-2">
+          <AlertCircle className="h-5 w-5" />
+          <div>
+            <p className="font-medium">Failed to load payments</p>
+            <p className="text-sm">{error instanceof Error ? error.message : "Checking authentication..."}</p>
+          </div>
+          <Button variant="outline" size="sm" className="ml-auto" onClick={() => window.location.reload()}>Retry</Button>
+        </div>
       </div>
     );
   }

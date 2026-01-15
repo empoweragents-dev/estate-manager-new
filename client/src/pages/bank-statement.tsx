@@ -91,14 +91,17 @@ export default function BankStatementPage() {
         return params.toString();
     }, [startDate, endDate, selectedMonth, selectedYear]);
 
-    const { data: reportData, isLoading } = useQuery<BankStatementData>({
+    const { data: reportData, isLoading, isError, error } = useQuery<BankStatementData>({
         queryKey: [`/api/owners/${ownerId}/reports/bank-statement`, queryParams],
         queryFn: async () => {
             const url = queryParams
                 ? `/api/owners/${ownerId}/reports/bank-statement?${queryParams}`
                 : `/api/owners/${ownerId}/reports/bank-statement`;
             const res = await fetch(url, { credentials: "include" });
-            if (!res.ok) throw new Error("Failed to fetch report");
+            if (!res.ok) {
+                const errorData = await res.json();
+                throw new Error(errorData.message || "Failed to fetch report");
+            }
             return res.json();
         },
         enabled: !!ownerId,
@@ -210,6 +213,16 @@ export default function BankStatementPage() {
                 <Skeleton className="h-10 w-64" />
                 <Skeleton className="h-24 w-full" />
                 <Skeleton className="h-96 w-full" />
+            </div>
+        );
+    }
+
+    if (isError) {
+        return (
+            <div className="p-6 text-center space-y-4 text-red-500">
+                <p>Failed to load bank statement.</p>
+                <p className="text-sm font-mono text-muted-foreground">{error instanceof Error ? error.message : "Unknown error"}</p>
+                <Button variant="outline" onClick={() => window.location.reload()}>Retry</Button>
             </div>
         );
     }
