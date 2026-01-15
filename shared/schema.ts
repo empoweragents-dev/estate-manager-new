@@ -294,7 +294,10 @@ export const insertTenantSchema = createInsertSchema(tenants).omit({ id: true, c
 export const insertLeaseSchema = createInsertSchema(leases).omit({ id: true, createdAt: true });
 export const insertRentInvoiceSchema = createInsertSchema(rentInvoices).omit({ id: true, createdAt: true });
 export const insertPaymentSchema = createInsertSchema(payments, {
-  paymentDate: z.coerce.date()
+  paymentDate: z.preprocess((arg) => {
+    if (typeof arg == 'string') return new Date(arg);
+    return arg;
+  }, z.date())
 }).omit({ id: true, createdAt: true });
 export const insertBankDepositSchema = createInsertSchema(bankDeposits).omit({ id: true, createdAt: true });
 export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true, createdAt: true });

@@ -2364,6 +2364,7 @@ export async function registerRoutes(
 
   app.post("/api/payments", isAuthenticated, async (req: Request, res: Response) => {
     try {
+      console.log("Received payment payload:", JSON.stringify(req.body, null, 2));
       const validatedData = insertPaymentSchema.parse(req.body);
       const { tenantId, leaseId, amount, paymentDate, rentMonths, receiptNumber, notes } = validatedData;
 
