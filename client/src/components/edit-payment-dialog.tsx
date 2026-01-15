@@ -33,7 +33,7 @@ export function EditPaymentDialog({ payment, trigger }: EditPaymentDialogProps) 
         paymentDate: payment.paymentDate.split('T')[0],
         notes: payment.notes || "",
         receiptNumber: payment.receiptNumber || "",
-        rentMonthsText: (payment.rentMonths || []).join(", "),
+        rentMonthsText: (Array.isArray(payment.rentMonths) ? payment.rentMonths : []).join(", "),
     });
 
     const mutation = useMutation({

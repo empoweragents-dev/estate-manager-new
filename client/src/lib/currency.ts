@@ -10,13 +10,25 @@ export const useCurrencyStore = create<CurrencyState>((set) => ({
   setCurrency: (currency) => set({ currency }),
 }));
 
-export function formatCurrency(amount: number | string): string {
-  const numAmount = typeof amount === 'string' ? parseFloat(amount) || 0 : amount;
+export function formatCurrency(amount: number | string | null | undefined): string {
+  if (amount === null || amount === undefined) {
+    return '৳0.00';
+  }
+  const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+  if (isNaN(numAmount)) {
+    return '৳0.00';
+  }
   return `৳${numAmount.toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function formatNumberOnly(amount: number | string): string {
-  const numAmount = typeof amount === 'string' ? parseFloat(amount) || 0 : amount;
+export function formatNumberOnly(amount: number | string | null | undefined): string {
+  if (amount === null || amount === undefined) {
+    return '0.00';
+  }
+  const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+  if (isNaN(numAmount)) {
+    return '0.00';
+  }
   return numAmount.toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
@@ -25,7 +37,7 @@ export function formatFloor(floor: string, subedariCategory?: string | null): st
     case 'ground': return 'Ground Floor';
     case 'first': return '1st Floor';
     case 'second': return '2nd Floor';
-    case 'subedari': 
+    case 'subedari':
       if (subedariCategory === 'shops') return 'Subedari - Shops';
       if (subedariCategory === 'residential') return 'Subedari - Residential';
       return 'Subedari';

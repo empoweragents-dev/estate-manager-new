@@ -2360,7 +2360,10 @@ export async function registerRoutes(
         return { ...payment, tenant, lease: lease ? { ...lease, shop: shop ? { shopNumber: shop.shopNumber, floor: shop.floor, ownerId: shop.ownerId, ownershipType: shop.ownershipType } : null } : null };
       }));
 
-      res.json(paymentsWithDetails);
+      // Filter out payments with missing tenants to avoid frontend crashes
+      const validPayments = paymentsWithDetails.filter(p => p.tenant !== undefined && p.tenant !== null);
+
+      res.json(validPayments);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
