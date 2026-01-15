@@ -1043,7 +1043,7 @@ export default function LeaseDetailPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-lg font-semibold">{lease.startDate} to {lease.endDate}</p>
+            <p className="text-lg font-semibold">{new Date(lease.startDate).toLocaleDateString('en-GB')} to {new Date(lease.endDate).toLocaleDateString('en-GB')}</p>
             <p className="text-sm text-muted-foreground">
               Monthly Rent: {formatValue(lease.monthlyRent)}
             </p>
@@ -1171,7 +1171,7 @@ export default function LeaseDetailPage() {
                       <TableCell className="font-medium">
                         {monthNames[item.month - 1]} {item.year}
                       </TableCell>
-                      <TableCell>{item.dueDate}</TableCell>
+                      <TableCell>{new Date(item.dueDate).toLocaleDateString('en-GB')}</TableCell>
                       <TableCell className="text-right">{formatValue(item.rentAmount)}</TableCell>
                       <TableCell className="text-right text-green-600">
                         {item.paidAmount > 0 ? formatValue(item.paidAmount) : '-'}
@@ -1233,7 +1233,7 @@ export default function LeaseDetailPage() {
                 <TableBody>
                   {lease.payments.map((payment) => (
                     <TableRow key={payment.id}>
-                      <TableCell>{payment.paymentDate}</TableCell>
+                      <TableCell>{new Date(payment.paymentDate).toLocaleDateString('en-GB')}</TableCell>
                       <TableCell className="text-right text-green-600 font-medium">
                         {formatValue(payment.amount)}
                       </TableCell>
@@ -1275,7 +1275,7 @@ export default function LeaseDetailPage() {
                 <TableBody>
                   {lease.expenses.map((expense) => (
                     <TableRow key={expense.id}>
-                      <TableCell>{expense.expenseDate}</TableCell>
+                      <TableCell>{new Date(expense.expenseDate).toLocaleDateString('en-GB')}</TableCell>
                       <TableCell>
                         <Badge variant="outline" className="capitalize">
                           {expense.expenseType}

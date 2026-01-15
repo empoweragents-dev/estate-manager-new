@@ -1426,34 +1426,10 @@ export async function registerRoutes(
       const totalExpenses = tenantExpenses.reduce((sum, exp) => sum + parseFloat(exp.amount), 0);
 
       // Build monthly breakdown with outstanding (only for elapsed months)
-      // Use rent_months from payments to correctly assign payments to intended rent periods
+      // Use the FIFO-calculated paidAmount stored on each invoice
       const monthlyBreakdown = elapsedLeaseInvoices.map(invoice => {
-        // Format the invoice month as YYYY-MM to match rent_months format
-        const invoiceMonthKey = `${invoice.year}-${String(invoice.month).padStart(2, '0')}`;
-
-        // Find payments where this month appears in rent_months array
-        let paidForMonth = 0;
-
-        leasePayments.forEach(p => {
-          const rentMonths = (p.rentMonths as string[] | null) || [];
-
-          if (rentMonths.length > 0 && rentMonths.includes(invoiceMonthKey)) {
-            // Payment covers this month - allocate proportionally
-            // Each month gets an equal share of the payment
-            const perMonthAmount = parseFloat(p.amount) / rentMonths.length;
-            paidForMonth += perMonthAmount;
-          } else if (rentMonths.length === 0) {
-            // Legacy payment without rent_months - fall back to payment_date matching
-            const paymentDate = new Date(p.paymentDate);
-            if (paymentDate.getMonth() + 1 === invoice.month && paymentDate.getFullYear() === invoice.year) {
-              paidForMonth += parseFloat(p.amount);
-            }
-          }
-        });
-
-        // Round to 2 decimal places to avoid floating point issues
-        paidForMonth = Math.round(paidForMonth * 100) / 100;
         const rentAmount = parseFloat(invoice.amount);
+        const paidForMonth = parseFloat(invoice.paidAmount || '0');
         const outstanding = Math.max(0, rentAmount - paidForMonth);
 
         return {
@@ -1463,7 +1439,7 @@ export async function registerRoutes(
           rentAmount,
           paidAmount: paidForMonth,
           outstanding: Math.round(outstanding * 100) / 100,
-          isPaid: paidForMonth >= rentAmount,
+          isPaid: invoice.isPaid || paidForMonth >= rentAmount,
         };
       }).sort((a, b) => {
         if (a.year !== b.year) return a.year - b.year;
@@ -2440,7 +2416,7 @@ export async function registerRoutes(
     while (currentDate <= endLimit) {
       const month = currentDate.getMonth() + 1;
       const year = currentDate.getFullYear();
-      const dueDate = new Date(year, month - 1, 1);
+      const dueDate = new Date(year, month - 1, 5); // Due on 5th of each month
 
       invoicesToCreate.push({
         leaseId: lease.id,

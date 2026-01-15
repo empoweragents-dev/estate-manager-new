@@ -291,19 +291,48 @@ export const deletionLogsRelations = relations(deletionLogs, ({ one }) => ({
 export const insertOwnerSchema = createInsertSchema(owners).omit({ id: true });
 export const insertShopSchema = createInsertSchema(shops).omit({ id: true });
 export const insertTenantSchema = createInsertSchema(tenants).omit({ id: true, createdAt: true });
-export const insertLeaseSchema = createInsertSchema(leases).omit({ id: true, createdAt: true });
-export const insertRentInvoiceSchema = createInsertSchema(rentInvoices).omit({ id: true, createdAt: true });
+export const insertLeaseSchema = createInsertSchema(leases, {
+  startDate: z.preprocess((arg) => {
+    if (typeof arg == 'string') return new Date(arg);
+    return arg;
+  }, z.date()),
+  endDate: z.preprocess((arg) => {
+    if (typeof arg == 'string') return new Date(arg);
+    return arg;
+  }, z.date()),
+}).omit({ id: true, createdAt: true });
+export const insertRentInvoiceSchema = createInsertSchema(rentInvoices, {
+  dueDate: z.preprocess((arg) => {
+    if (typeof arg == 'string') return new Date(arg);
+    return arg;
+  }, z.date()),
+}).omit({ id: true, createdAt: true });
 export const insertPaymentSchema = createInsertSchema(payments, {
   paymentDate: z.preprocess((arg) => {
     if (typeof arg == 'string') return new Date(arg);
     return arg;
   }, z.date())
 }).omit({ id: true, createdAt: true });
-export const insertBankDepositSchema = createInsertSchema(bankDeposits).omit({ id: true, createdAt: true });
-export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true, createdAt: true });
+export const insertBankDepositSchema = createInsertSchema(bankDeposits, {
+  depositDate: z.preprocess((arg) => {
+    if (typeof arg == 'string') return new Date(arg);
+    return arg;
+  }, z.date()),
+}).omit({ id: true, createdAt: true });
+export const insertExpenseSchema = createInsertSchema(expenses, {
+  expenseDate: z.preprocess((arg) => {
+    if (typeof arg == 'string') return new Date(arg);
+    return arg;
+  }, z.date()),
+}).omit({ id: true, createdAt: true });
 export const insertSettingSchema = createInsertSchema(settings).omit({ id: true, updatedAt: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true, updatedAt: true });
-export const insertRentAdjustmentSchema = createInsertSchema(rentAdjustments).omit({ id: true, createdAt: true });
+export const insertRentAdjustmentSchema = createInsertSchema(rentAdjustments, {
+  effectiveDate: z.preprocess((arg) => {
+    if (typeof arg == 'string') return new Date(arg);
+    return arg;
+  }, z.date()),
+}).omit({ id: true, createdAt: true });
 export const insertDeletionLogSchema = createInsertSchema(deletionLogs).omit({ id: true, deletedAt: true });
 
 // User types

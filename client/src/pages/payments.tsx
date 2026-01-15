@@ -893,7 +893,7 @@ export default function PaymentsPage() {
 
       return true;
     });
-  }, [payments, startDate, endDate, selectedOwnerId]);
+  }, [payments, startDate, endDate, selectedOwnerId, searchQuery]);
 
   const activePayments = filteredPayments.filter(p => !p.isDeleted);
   const totalCollected = activePayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
