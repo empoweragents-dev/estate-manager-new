@@ -10,7 +10,7 @@ import {
 import { setupAuth, isAuthenticated, requireSuperAdmin, requireOwnerOrAdmin, checkAuth } from "./auth";
 import multer from "multer";
 import * as XLSX from "xlsx";
-
+import { db } from "./db";
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Floor order for consistent sorting: ground -> first -> second -> subedari
@@ -2435,13 +2435,14 @@ export async function registerRoutes(
     // Generate invoices from start date to min(endDate, current month)
     let currentDate = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
     const endLimit = endDate < currentMonth ? endDate : currentMonth;
+    const invoicesToCreate: any[] = []; // Use explicit type based on schema if possible, or any for now
 
     while (currentDate <= endLimit) {
       const month = currentDate.getMonth() + 1;
       const year = currentDate.getFullYear();
       const dueDate = new Date(year, month - 1, 1);
 
-      await storage.createRentInvoice({
+      invoicesToCreate.push({
         leaseId: lease.id,
         tenantId: lease.tenantId,
         amount: lease.monthlyRent,
@@ -2452,6 +2453,12 @@ export async function registerRoutes(
       });
 
       currentDate.setMonth(currentDate.getMonth() + 1);
+    }
+
+    // Bulk insert invoices
+    if (invoicesToCreate.length > 0) {
+      // Direct DB insert using Drizzle to avoid N+1
+      await db.insert(rentInvoices).values(invoicesToCreate);
     }
 
     // Recalculate FIFO paid status for this specific lease
