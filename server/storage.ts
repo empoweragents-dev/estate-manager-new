@@ -4,23 +4,9 @@ import {
   Payment, InsertPayment, BankDeposit, InsertBankDeposit, Expense, InsertExpense,
   Setting, DeletionLog, InsertDeletionLog,
   RentAdjustment, InsertRentAdjustment,
+  AdditionalPayment, InsertAdditionalPayment,
   users, owners, shops, tenants, leases, rentInvoices, payments, bankDeposits, expenses, settings, deletionLogs, rentAdjustments,
-  AdditionalPayment, InsertAdditionalPayment // These types are not in schema tables yet? I will check content.
-  // Actually schema.ts doesn't export AdditionalPayment table/types in the snippet I wrote.
-  // I must double check schema.ts content I wrote.
-  // I didn't include additionalPayments table in my schema.ts rewrite because I missed it or it wasn't there?
-  // Let me check the previous view of storage.ts. It had "Additional Payments (Financial Statement Only)" section.
-  // But schema.ts output didn't show the table definition for additionalPayments.
-  // Ah, the user's storage.ts had "Additional Payment types" defined at the bottom manually!
-  // And methods `getAdditionalPaymentsByTenant` using `db.collection('additionalPayments')`.
-  // If `additionalPayments` is not in schema.ts, I should add it to schema.ts or handle it.
-  // The implementation plan didn't explicitly mention it but "Convert all pg-core types".
-  // I missed `additionalPayments` in schema.ts.
-  // I should add it to schema.ts first or now.
-  // But wait, the previous `schema.ts` didn't have `additionalPayments` either!
-  // It was handled purely in `storage.ts` using types defined in `storage.ts`.
-  // For MySQL, I MUST have a table if I want to store it.
-  // So I need to add `additional_payments` table to `schema.ts`.
+  additionalPayments
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, lt, gt } from "drizzle-orm";
